@@ -1,0 +1,8 @@
+packages:
+  - "backend"
+  - "web-app"
+  - "packages/*"
+overrides:
+  fastify: "^5.11.2"
+allowBuilds:
+  esbuild: true

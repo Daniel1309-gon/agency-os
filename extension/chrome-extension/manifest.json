@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Agency OS - Spike inyeccion por perfil nativo",
+  "version": "0.2.0",
+  "description": "Spike: inyecta la credencial dummy que corresponde a cada perfil nativo de Chrome, leyendo el mapeo desde credenciales.json local.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://talkytimes.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "file:///*"
+  ]
+}

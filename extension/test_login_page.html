@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Pagina de prueba - login</title>
+<style>
+  body { font-family: sans-serif; max-width: 320px; margin: 60px auto; }
+  label { display: block; margin-bottom: 12px; }
+  input { width: 100%; padding: 6px; box-sizing: border-box; }
+  .password-wrap { position: relative; }
+  #toggle-password {
+    position: absolute; right: 4px; top: 4px;
+    border: none; background: none; cursor: pointer; font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<h1>Formulario de prueba</h1>
+<p>Simula el patron de un login con boton "ver contraseña", para probar
+   el bloqueo de DevTools y el ocultamiento del toggle sin tocar un sitio real.</p>
+
+<form id="login-form">
+  <label>Email
+    <input type="email" id="email" autocomplete="off">
+  </label>
+  <label>Contraseña
+    <div class="password-wrap">
+      <input type="password" id="password" autocomplete="off">
+      <button type="button" id="toggle-password" aria-label="Ver contraseña">&#128065;</button>
+    </div>
+  </label>
+  <button type="submit">Log in</button>
+</form>
+
+<script>
+document.getElementById('toggle-password').addEventListener('click', () => {
+  const pw = document.getElementById('password');
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+});
+document.getElementById('login-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  alert('Submit de prueba (no hace nada real).');
+});
+</script>
+</body>
+</html>
