@@ -5,4 +5,5 @@ packages:
 overrides:
   fastify: "^5.11.2"
 allowBuilds:
+  '@scarf/scarf': set this to true or false
   esbuild: true

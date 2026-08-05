@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @agency-os/api dev",
-    "build": "pnpm --filter @agency-os/api build",
+    "build": "pnpm --filter @agency-os/shared build && pnpm --filter @agency-os/api build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

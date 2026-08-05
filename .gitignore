@@ -4,3 +4,4 @@ dist/
 *.pem
 *.crx
 extension/chrome_profiles/
+.pnpm-store/
