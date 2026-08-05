@@ -42,7 +42,7 @@ y los dos informes de viabilidad, que siguen en el repo de JarvisBot
 esta ubicación — ver nota en §3.1.
 
 - **Documento de requerimientos** — [`agency-os-requerimientos.md`](../../FREELANCE/AGENCIA%20CAROL/documentos/agency-os-requerimientos.md)
-  Versión 2.1 (julio 2026), es la especificación funcional completa (FR-01 a FR-39), arquitectura,
+  Versión 2.2 (agosto 2026), es la especificación funcional completa (FR-01 a FR-39), arquitectura,
   stack, plan de entrega y estimación de infraestructura. Es el documento más vivo — se actualiza
   cuando cambian decisiones de arquitectura.
 - **Propuesta final / comercial** — [`agency-os-propuesta-final.pdf`](../../FREELANCE/AGENCIA%20CAROL/documentos/agency-os-propuesta-final.pdf)
@@ -70,7 +70,8 @@ esta ubicación — ver nota en §3.1.
 `agency-os-requerimientos.md` existe en dos lugares con contenido **distinto**: la copia en el repo
 de JarvisBot ([`jarvisbot-main/agency-os/agency-os-requerimientos.md`](../../jarvisbot/jarvisbot-main/agency-os/agency-os-requerimientos.md))
 quedó congelada en la v2.0 (Electron + Playwright, sin RocketChat separado). La de
-`AGENCIA CAROL/documentos/` es la v2.1 vigente, ya con la extensión de Chrome y RocketChat aparte.
+`AGENCIA CAROL/documentos/` es la **v2.2 (agosto 2026)** vigente, ya con la extensión de Chrome,
+RocketChat aparte y scrypt en lugar de bcrypt (decisión #19).
 Si se va a citar o modificar el documento de requerimientos, es la de `AGENCIA CAROL/documentos/`.
 Vale la pena sincronizar o eliminar la copia vieja del repo de JarvisBot para evitar que un agente
 futuro lea la versión equivocada.
@@ -136,6 +137,7 @@ portar su código:
 | 7 | Cláusula de contingencia explícita para el spike de semanas 1–2 (viable / parcialmente viable / no viable), mismo formato que Feature #9 | — | Protege a ambas partes: el spike depende de un tercero (TalkyTimes) fuera de control del equipo |
 | 8 | Refuerzo explícito del vault: exclusión del campo contraseña de cualquier log de auditoría como **criterio de aceptación**, no detalle de implementación | — | JarvisBot tiene exactamente este problema (contraseña en texto plano en `activity_log` vía `spatie/laravel-activitylog`) — no repetirlo |
 | 9 | **ETL batch diario de Tableau** (descargar CSV/Excel a hora fija → worker de procesamiento → almacenar en BD) en lugar de lectura en vivo de API | Tableau API como fuente en vivo | Tableau se refresca una sola vez al día según su propia configuración; dashboard "en vivo" no tiene sentido. Batch diario (a corte del día anterior) es más simple, independiente de Tableau (fallover transparente), predecible en rendimiento, y elimina bloqueadores de límite de filas/timeout de API. Patrón común en data warehousing |
+| 19 | **Hash de contraseñas con scrypt** (`N=2^17`, `r=8`, `p=1`, parámetros guardados dentro de cada hash), no con bcrypt | bcrypt cost 12 (lo que nombra §4 del documento de requerimientos y §6.2 del plan de backend) | Aprobado por el cliente el 2026-08-04. bcrypt se había elegido por familiaridad previa, no por una propiedad técnica. scrypt es *memory-hard* y bcrypt no lo es (bcrypt usa ~4 KB fijos, barato de paralelizar en GPU/ASIC); ambos están en la lista recomendada de OWASP y NIST SP 800-63B, con Argon2id > scrypt > bcrypt como orden de preferencia habitual. Beneficio adicional: sin dependencia nativa que compilar en el contenedor de despliegue, y desaparece la truncación silenciosa de bcrypt a 72 bytes (§6.2 del plan la trataba como advertencia). Ver §5.3 para los parámetros y su costo medido |
 
 ### 5.1 Mecanismo concreto de la decisión #1 (2026-07-29)
 
@@ -251,6 +253,35 @@ solo se difirió al lugar correcto para probarlo.
 instalación manual de la extensión sin empaquetar (`chrome://extensions` → Cargar
 descomprimida) en un perfil normal — funciona de punta a punta: oculta el ícono, inyecta los
 valores de prueba, sin CDP, sin control remoto.
+
+### 5.3 Parámetros de scrypt y su costo real (decisión #19, 2026-08-04)
+
+`N=2^17, r=8, p=1` es el mínimo que OWASP acepta con `p=1`. Los parámetros viven **dentro de cada
+hash** (`scrypt$<log2N>$<r>$<p>$<salt>$<digest>`), no en configuración: subirlos después no invalida
+los hashes ya emitidos, y un hash con parámetros viejos se reescribe en el siguiente login, que es
+el único momento en que existe la contraseña en claro. `PASSWORD_SCRYPT_LOG2N` (env) es el único
+valor ajustable.
+
+Se usa la variante **asíncrona** de `crypto.scrypt`, no `scryptSync`: con estos parámetros cada
+hash cuesta cientos de milisegundos, y en la variante síncrona ese tiempo es event loop bloqueado
+para toda la API — no solo para quien hace login. Medido en el equipo de desarrollo:
+
+| `log2N` | Memoria por hash | Latencia |
+|---|---|---|
+| 15 | 32 MiB | ~82 ms |
+| 16 | 64 MiB | ~170 ms |
+| **17 (por defecto)** | **128 MiB** | **~342 ms** |
+
+8 logins concurrentes a `log2N=17` tardan ~1.0 s en total (el threadpool de libuv procesa 4 a la
+vez; `UV_THREADPOOL_SIZE` lo sube si hiciera falta).
+
+**Tensión a vigilar en producción, no resuelta aquí:** el dimensionamiento cotizado al cliente es de
+instancias de **1 GB de RAM** (§11 del documento de requerimientos). Cuatro hashes concurrentes a
+128 MiB son 512 MiB transitorios sobre esa instancia, y los tres relevos del día (06:05, 14:05,
+22:05) concentran logins de toda una cuadrilla en el mismo minuto. Si aparece presión de memoria,
+la salida barata es `PASSWORD_SCRYPT_LOG2N=16` (64 MiB, ~170 ms, todavía por encima del escalón de
+16 MiB que se usaba antes) — precisamente por eso el parámetro es configurable y viaja en el hash.
+Medirlo con la cuadrilla real antes de decidir; no anticipar.
 
 **Lo que no cambió en ninguna revisión:** alcance funcional completo (FR-01 a FR-39), honorarios
 totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semanas.
@@ -375,7 +406,7 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   `jsonb` dentro del mismo Postgres, sin pagar el costo operativo de mantener dos motores de BD en
   HA (dos topologías de alta disponibilidad, dos procedimientos de backup/restore, doble tooling de
   migraciones) en un proyecto de alcance y precio fijo. Además, Postgres+Redis en HA ya está en la
-  estimación de infraestructura comunicada al cliente (§2, documento de requerimientos v2.1) —
+  estimación de infraestructura comunicada al cliente (§2, documento de requerimientos v2.2) —
   cambiar de motor tocaría un costo ya cotizado. Postgres+Redis se mantiene como la decisión vigente
   (decisión #6, §5).
 

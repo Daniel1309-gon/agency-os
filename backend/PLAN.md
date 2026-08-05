@@ -6,7 +6,7 @@
 
 Documentos que este plan asume leídos y no duplica:
 [`agents.md`](../agents.md) (decisiones §5, riesgos §6) y
-`agency-os-requerimientos.md` v2.1 (FR-01…FR-39).
+`agency-os-requerimientos.md` v2.2 (FR-01…FR-39).
 Si algo aquí contradice esos documentos, gana el documento fuente y este archivo se corrige.
 
 ---
@@ -110,7 +110,7 @@ Se numeran desde el 10 para continuar la tabla de §5 de `agents.md`.
 |---|---|---|
 | `id` | uuid PK | |
 | `email` | citext | UNIQUE parcial `WHERE deleted_at IS NULL` |
-| `password_hash` | text | bcrypt cost 12. Ver §6.2 sobre el límite de 72 bytes |
+| `password_hash` | text | scrypt con los parámetros dentro del propio hash (decisión #19). Ver §6.2 |
 | `full_name` | text | |
 | `national_id` | text NULL | Cédula, para liquidación |
 | `phone` | text NULL | |
@@ -1222,10 +1222,20 @@ operadores.
 
 ### 6.2 Autenticación
 
-- **Hashing:** bcrypt cost 12, como estipula el documento de requerimientos §4. Advertencia
-  concreta: bcrypt **trunca a 72 bytes**; se impone un máximo de 72 bytes en el schema de Zod para
-  que el límite sea explícito y no una sorpresa silenciosa. (Argon2id sería preferible
-  criptográficamente, pero bcrypt es lo cotizado y lo contratado; cambiarlo requiere acuerdo.)
+- **Hashing:** **scrypt** con `N=2^17, r=8, p=1` (decisión #19 de `agents.md` §5, aprobada por el
+  cliente el 2026-08-04). Sustituye al bcrypt cost 12 que estipulaba el documento de requerimientos
+  §4 y que este plan daba por contratado. Tres consecuencias de implementación, detalladas con
+  números medidos en `agents.md` §5.3:
+  - Los parámetros van **dentro del hash** (`scrypt$<log2N>$<r>$<p>$<salt>$<digest>`), no en
+    configuración, para poder subirlos sin invalidar los hashes existentes. Un hash con parámetros
+    viejos se reescribe en el siguiente login. Se acepta al verificar el formato heredado
+    `scrypt$<cost>$<salt>$<digest>` para no dejar fuera al admin sembrado por el seed.
+  - Se usa `crypto.scrypt` **asíncrono**. Con `scryptSync` los ~342 ms de cada hash son event loop
+    bloqueado para toda la API, y los tres relevos del día concentran los logins de una cuadrilla
+    entera en el mismo minuto.
+  - **Desaparece la truncación a 72 bytes** de bcrypt, que era la advertencia de la versión anterior
+    de este párrafo. El tope de los schemas de Zod sube a 256 caracteres y ya solo acota el costo de
+    la petición, no la entropía utilizable de la contraseña.
 - **Access token:** JWT HS256, 15 min, en memoria del cliente. HS256 y no RS256 porque el backend
   es el único verificador — el ai-engine no valida tokens de usuario, se le llama servidor a
   servidor con un token de servicio propio.
