@@ -1,4 +1,4 @@
-import { pgTable, uuid, text } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, primaryKey } from 'drizzle-orm/pg-core';
 import { roles } from './roles.js';
 
 export const permissions = pgTable('permissions', {
@@ -19,6 +19,10 @@ export const rolePermissions = pgTable(
       .references(() => permissions.id),
   },
   (t) => ({
-    pk: { name: 'role_permissions_pkey', columns: [t.roleId, t.permissionId] },
+    // La versión anterior de esta tabla declaraba `pk` como un objeto plano
+    // ({ name, columns }), que no es la API de Drizzle — drizzle-kit lo
+    // ignoraba en silencio y la migración generada creó la tabla sin
+    // primary key, permitiendo duplicar (role_id, permission_id).
+    pk: primaryKey({ columns: [t.roleId, t.permissionId] }),
   }),
 );
