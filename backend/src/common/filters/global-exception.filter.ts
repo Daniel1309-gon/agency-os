@@ -87,6 +87,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         return 'UNPROCESSABLE_ENTITY';
       case 429:
         return 'RATE_LIMITED';
+      case 503:
+        return 'SERVICE_UNAVAILABLE';
       default:
         return 'INTERNAL_ERROR';
     }
