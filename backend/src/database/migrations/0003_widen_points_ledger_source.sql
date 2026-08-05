@@ -1,0 +1,1 @@
+ALTER TABLE "points_ledger" ALTER COLUMN "source" SET DATA TYPE varchar(24);

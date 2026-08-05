@@ -8,6 +8,27 @@
       "when": 1785866551406,
       "tag": "0000_silly_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785875864965,
+      "tag": "0001_fix_schema_invariants",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785877678466,
+      "tag": "0002_pretty_bloodstorm",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785901716816,
+      "tag": "0003_widen_points_ledger_source",
+      "breakpoints": true
     }
   ]
 }
