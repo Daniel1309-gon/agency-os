@@ -64,6 +64,9 @@ esta ubicación — ver nota en §3.1.
   terceros/correo/IA). Escritas por subagentes citando archivo y línea del código de JarvisBot; solo
   una parte fue verificada personalmente línea por línea (ver informe-construccion-desde-cero.md
   §8) — verificar contra el código antes de apoyar en ellas una decisión nueva.
+- **Implementación actual de Rocket.Chat** — [`chat/CONTEXTO_IMPLEMENTACION_ROCKETCHAT(1).md`](<chat/CONTEXTO_IMPLEMENTACION_ROCKETCHAT(1).md>)
+  contiene el registro operativo del despliegue self-hosted validado el 2026-08-13: infraestructura,
+  versiones, correo transaccional, backups, actualizaciones, seguridad y pendientes.
 
 ### 3.1 Nota sobre versiones duplicadas
 
@@ -410,9 +413,87 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   cambiar de motor tocaría un costo ya cotizado. Postgres+Redis se mantiene como la decisión vigente
   (decisión #6, §5).
 
-## 7. Cómo mantener este archivo
+## 7. Rocket.Chat — implementación desplegada (2026-08-13)
+
+Rocket.Chat ya está desplegado como componente independiente de Agency OS en infraestructura propia
+del cliente. Esta sección resume el estado real; el detalle operativo completo está en
+[`chat/CONTEXTO_IMPLEMENTACION_ROCKETCHAT(1).md`](<chat/CONTEXTO_IMPLEMENTACION_ROCKETCHAT(1).md>).
+No debe confundirse con una implementación dentro de este repositorio ni con el patrón de JarvisBot:
+el backend de Agency OS debe integrarse mediante API/webhooks y el outbox transaccional, nunca mediante
+acceso directo a la base de datos de Rocket.Chat.
+
+### 7.1 Infraestructura y componentes
+
+- Despliegue self-hosted en un Droplet Ubuntu de DigitalOcean, hostname observado `rocket-chat-v1`.
+- Directorio operativo: `/opt/rocketchat-compose`; el usuario habitual es `administrador`, usando
+  `sudo` solo cuando haga falta. Docker y Docker Compose ya están instalados.
+- Repositorio de Compose: `RocketChat/rocketchat-compose`.
+- Rocket.Chat **Community 8.7.0**, controlado por `RELEASE=8.7.0` en `/opt/rocketchat-compose/.env`.
+  Se actualizó desde 8.0.1 y 8.5.2.
+- Componentes principales: Rocket.Chat, MongoDB Community (`mongodb/mongodb-community-server:8.2-ubi8`),
+  NATS y Traefik. El stack también incluye Prometheus, Grafana, Loki, OpenTelemetry y exporters de
+  monitorización.
+- El DNS del subdominio se administra en Hostinger y apunta al Droplet; Traefik termina HTTPS/TLS.
+  Hostinger se usa para DNS, no debe asumirse como proveedor del correo corporativo.
+
+### 7.2 Correo transaccional
+
+El SMTP corporativo directo desde DigitalOcean por el puerto 465 produjo `ETIMEDOUT`. La configuración
+vigente usa **Resend** para el correo automático de Rocket.Chat y la prueba de envío funcionó.
+El correo corporativo y sus registros MX siguen siendo independientes: no modificar los MX por cambios
+relacionados únicamente con Rocket.Chat/Resend y no guardar API keys, contraseñas SMTP ni tokens en
+este archivo.
+
+### 7.3 Actualizaciones y operación segura
+
+Antes de actualizar Rocket.Chat o ejecutar una migración relevante, crear y verificar un dump de
+MongoDB fuera del flujo de actualización. El procedimiento validado es:
+
+```bash
+cd /opt/rocketchat-compose
+mkdir -p mongodb-backup
+docker exec rocketchat-compose-mongodb-1 sh -c 'mongodump --archive' > mongodb-backup/rocketchat-$(date +%F-%H%M).dump
+# cambiar RELEASE en .env
+docker compose pull rocketchat
+docker compose up -d rocketchat
+docker compose ps
+docker logs --tail 100 rocketchat-compose-rocketchat-1
+```
+
+Después de cada actualización hay que confirmar que el contenedor `rocketchat` termine `healthy`,
+revisar logs y validar el acceso web HTTPS. Si aparece **Unique ID Change detected** al actualizar
+el mismo workspace, seleccionar `Configuration update`; no se está clonando el workspace.
+
+Reglas no negociables: no ejecutar `docker compose down -v`, no eliminar volúmenes ni recrear MongoDB
+sin autorización explícita y backup verificado, no exponer MongoDB a Internet, y no trabajar como
+`root` de forma habitual.
+
+### 7.4 Configuración inicial y estado
+
+La capacidad prevista es de aproximadamente 80 usuarios, incorporados mediante invitaciones por correo.
+El registro público debe permanecer deshabilitado; se recomiendan verificación de correo, 2FA para
+administradores, al menos dos cuentas administrativas individuales y canales iniciales simples
+(`#general`, `#anuncios`, `#soporte-ti` y canales de área cuando hagan falta). El límite inicial
+orientativo para archivos es 25 MB.
+
+Estado verificado: Rocket.Chat 8.7.0 Community, MongoDB healthy, HTTPS/Traefik, correo de prueba por
+Resend y Marketplace funcionando. Sigue pendiente automatizar backups externos, probar restauración,
+completar la configuración final de seguridad y canales, y terminar la incorporación de usuarios.
+Antes de enviar invitaciones masivas, probar con pocas cuentas el ciclo completo de invitación,
+creación de contraseña, acceso, mensajes, archivos y correos.
+
+### 7.5 Integración con Agency OS
+
+El modelo del backend conserva `rocketchat_user_id` y las tablas de canales/notificaciones previstas
+en [`backend/PLAN.md`](backend/PLAN.md). Los mensajes, avisos y notificaciones que tengan efectos
+externos deben pasar por `outbox_events`, con reintentos y dead-letter queue; no llamar a Rocket.Chat
+directamente desde una transacción de negocio. La autenticación, los endpoints concretos y los secretos
+de integración deben quedar en configuración segura del backend, nunca en esta memoria.
+
+## 8. Cómo mantener este archivo
 
 Actualizar este documento cuando: cambie una decisión de arquitectura ya listada en §5, se resuelva
-una pregunta abierta de §6, o aparezca un documento fuente nuevo que otro agente debería conocer.
+una pregunta abierta de §6, cambie el despliegue documentado en §7, o aparezca un documento fuente
+nuevo que otro agente debería conocer.
 No dupliques contenido de los documentos fuente aquí — referencia y resume, no copies secciones
 completas.
