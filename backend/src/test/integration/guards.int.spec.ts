@@ -3,6 +3,7 @@ import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
 import { DeviceTokenGuard, IpAllowlistGuard } from '../../common/auth/guards.js';
+import { AuditService } from '../../common/audit/audit.service.js';
 import type { AuthenticatedRequest } from '../../common/auth/auth.types.js';
 import { devices, ipAllowlist } from '../../database/schema/index.js';
 import {
@@ -46,7 +47,7 @@ const claims = (sub: string) => ({ sub, role: 'OPERADOR', permissions: [], iat: 
 
 describe('Entrega 1 security guards against real infrastructure', () => {
   it('fails closed without an active office allowlist and accepts only a matching CIDR', async () => {
-    const guard = new IpAllowlistGuard(ctx.database, ctx.config, reflector);
+    const guard = new IpAllowlistGuard(ctx.database, ctx.config, reflector, new AuditService(ctx.database));
     await expect(guard.canActivate(contextFor({ ip: '10.20.30.40' }).context)).rejects.toThrow('IP allowlist is not configured');
 
     const admin = await createUser(ctx, { role: 'ADMIN' });
@@ -59,7 +60,7 @@ describe('Entrega 1 security guards against real infrastructure', () => {
     const operator = await createUser(ctx);
     const other = await createUser(ctx);
     const device = await createDevice(ctx, { operatorId: operator.id });
-    const guard = new DeviceTokenGuard(ctx.database);
+    const guard = new DeviceTokenGuard(ctx.database, new AuditService(ctx.database));
 
     const valid = contextFor({ user: claims(operator.id), headers: { 'x-device-token': device.token } });
     await expect(guard.canActivate(valid.context)).resolves.toBe(true);

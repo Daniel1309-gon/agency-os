@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards, UsePipes } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import { CurrentUser, Public, RequirePermissions, RequireRoles } from '../../common/auth/decorators.js';
 import { DeviceTokenGuard } from '../../common/auth/guards.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -14,11 +14,11 @@ export class DevicesController {
   @Post()
   @RequirePermissions('devices.manage')
   @UsePipes(new ZodValidationPipe(deviceCreateSchema))
-  create(@Body() body: DeviceCreateInput, @CurrentUser() user: AccessTokenClaims) { return this.devices.create(body, user.sub); }
+  create(@Body() body: DeviceCreateInput, @CurrentUser() user: AccessTokenClaims) { return this.devices.create(body, user); }
 
   @Get()
   @RequirePermissions('devices.manage')
-  list() { return this.devices.list(); }
+  list(@CurrentUser() user: AccessTokenClaims) { return this.devices.list(user); }
 
   @Public()
   @Post('enroll')
@@ -27,15 +27,16 @@ export class DevicesController {
 
   @Get(':id')
   @RequirePermissions('devices.manage')
-  get(@Param('id') id: string) { return this.devices.get(id); }
+  get(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.devices.get(id, user); }
 
   @Post(':id/revoke')
   @RequirePermissions('devices.manage')
-  revoke(@Param('id') id: string, @Body() body: { reason?: string }) { return this.devices.revoke(id, body.reason); }
+  revoke(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.devices.revoke(id, user, body.reason); }
 }
 
 @Controller('agent/devices')
 @UseGuards(DeviceTokenGuard)
+@RequireRoles('OPERADOR')
 export class AgentDevicesController {
   constructor(private readonly devices: DevicesService) {}
 

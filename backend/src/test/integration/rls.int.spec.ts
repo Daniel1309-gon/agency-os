@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
+  auditLog,
   icebreakers,
   operatorAccountEntries,
   pointsLedger,
@@ -66,10 +67,18 @@ async function asRequest<T>(
   identity: { userId?: string; roleCode?: string },
   run: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
+  return asRole(RLS_ROLE, identity, run);
+}
+
+async function asRole<T>(
+  databaseRole: string,
+  identity: { userId?: string; roleCode?: string },
+  run: (client: PoolClient) => Promise<T>,
+): Promise<T> {
   const client = await ctx.pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`SET LOCAL ROLE ${RLS_ROLE}`);
+    await client.query(`SET LOCAL ROLE ${databaseRole}`);
     await client.query('SELECT set_config($1, $2, true)', ['app.user_id', identity.userId ?? '']);
     await client.query('SELECT set_config($1, $2, true)', ['app.role_code', identity.roleCode ?? '']);
     return await run(client);
@@ -271,5 +280,36 @@ describe('tt_profile_credentials row level security', () => {
         ),
       ).rejects.toMatchObject({ code: '42501' });
     });
+  });
+});
+
+describe('agency_app deployment role', () => {
+  it('exists as a non-owner role and cannot mutate or truncate audit_log', async () => {
+    const role = await ctx.pool.query<{ rolname: string; rolsuper: boolean; rolcanlogin: boolean }>(
+      "SELECT rolname, rolsuper, rolcanlogin FROM pg_roles WHERE rolname = 'agency_app'",
+    );
+    expect(role.rows).toEqual([{ rolname: 'agency_app', rolsuper: false, rolcanlogin: false }]);
+
+    const [entry] = await ctx.db
+      .insert(auditLog)
+      .values({ actorType: 'SYSTEM', action: 'test.audit', result: 'SUCCESS' })
+      .returning({ id: auditLog.id });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('UPDATE audit_log SET result = $1 WHERE id = $2', ['TAMPERED', entry.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('DELETE FROM audit_log WHERE id = $1', [entry.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('TRUNCATE audit_log')).rejects.toMatchObject({ code: '42501' });
+    });
+
+    const ownerClient = await ctx.pool.connect();
+    try {
+      await expect(ownerClient.query('UPDATE audit_log SET result = $1 WHERE id = $2', ['TAMPERED', entry.id])).rejects.toMatchObject({ code: '42501' });
+      await expect(ownerClient.query('TRUNCATE audit_log')).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      ownerClient.release();
+    }
   });
 });

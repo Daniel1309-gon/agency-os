@@ -9,6 +9,7 @@ import { AppModule } from './app.module.js';
 import { ConfigService } from './config/config.service.js';
 import { LoggerService } from './common/logger/logger.service.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
+import { RedisIoAdapter } from './modules/realtime/redis-io.adapter.js';
 
 async function bootstrap() {
   const bootstrapConfig = new ConfigService();
@@ -20,6 +21,10 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   const logger = app.get(LoggerService);
+
+  const websocketAdapter = new RedisIoAdapter(app, config);
+  await websocketAdapter.connect();
+  app.useWebSocketAdapter(websocketAdapter);
 
   app.useLogger(logger);
 
@@ -73,6 +78,7 @@ async function bootstrap() {
       'POST /api/v1/auth/login',
       'POST /api/v1/auth/refresh',
       'POST /api/v1/devices/enroll',
+      'POST /api/v1/rocketchat/bot/events',
     ]);
     const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'] as const;
     type DocumentedOperation = { security?: Array<Record<string, string[]>> };

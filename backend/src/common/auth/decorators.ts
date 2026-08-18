@@ -6,12 +6,14 @@ export const IS_PUBLIC_KEY = 'agency-os.public';
 export const IP_ALLOWLIST_BYPASS_KEY = 'agency-os.ip-allowlist-bypass';
 export const REQUIRE_SHIFT_KEY = 'agency-os.require-shift';
 export const REQUIRED_PERMISSIONS_KEY = 'agency-os.permissions';
+export const REQUIRED_ROLES_KEY = 'agency-os.roles';
 
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 export const BypassIpAllowlist = () => SetMetadata(IP_ALLOWLIST_BYPASS_KEY, true);
 export const RequireShift = () => SetMetadata(REQUIRE_SHIFT_KEY, true);
 export const RequirePermissions = (...permissions: string[]) =>
   SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions);
+export const RequireRoles = (...roles: string[]) => SetMetadata(REQUIRED_ROLES_KEY, roles);
 
 export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): AccessTokenClaims | undefined => {

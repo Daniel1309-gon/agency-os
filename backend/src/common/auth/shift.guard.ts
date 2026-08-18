@@ -5,10 +5,11 @@ import { DatabaseService } from '../../database/database.service.js';
 import { shiftOverrides, shifts } from '../../database/schema/index.js';
 import { REQUIRE_SHIFT_KEY } from './decorators.js';
 import type { AuthenticatedRequest } from './auth.types.js';
+import { AuditService } from '../audit/audit.service.js';
 
 @Injectable()
 export class ShiftWindowGuard implements CanActivate {
-  constructor(private readonly db: DatabaseService, private readonly reflector: Reflector) {}
+  constructor(private readonly db: DatabaseService, private readonly reflector: Reflector, private readonly audit: AuditService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const required = this.reflector.getAllAndOverride<boolean>(REQUIRE_SHIFT_KEY, [context.getHandler(), context.getClass()]);
@@ -36,6 +37,7 @@ export class ShiftWindowGuard implements CanActivate {
       .limit(1);
     if (override.length) return true;
 
+    await this.audit.record({ actorType: 'USER', actorUserId: user.sub, action: 'shift.access.denied', result: 'DENIED', ip: request.ip, requestId: request.id, metadata: { denyReason: 'OUTSIDE_SHIFT', route: request.raw?.url } }).catch(() => undefined);
     throw new ForbiddenException('Operator is outside an approved shift');
   }
 }

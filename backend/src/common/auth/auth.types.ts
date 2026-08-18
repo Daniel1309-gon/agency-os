@@ -4,6 +4,8 @@ export interface AuthenticatedRequest {
   user?: AccessTokenClaims;
   device?: DevicePrincipal;
   ip?: string;
+  id?: string;
+  raw?: { url?: string };
   headers: Record<string, string | string[] | undefined>;
 }
 

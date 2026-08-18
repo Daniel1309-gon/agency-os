@@ -24,6 +24,8 @@ export const configSchema = z.object({
   AI_ENGINE_TOKEN: z.string().optional().or(z.literal('')).default(''),
   ROCKETCHAT_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),
   ROCKETCHAT_TOKEN: z.string().optional().or(z.literal('')).default(''),
+  ROCKETCHAT_USER_ID: z.string().optional().or(z.literal('')).default(''),
+  ROCKETCHAT_WEBHOOK_SECRET: z.string().optional().or(z.literal('')).default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

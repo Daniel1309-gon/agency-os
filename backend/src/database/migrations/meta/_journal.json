@@ -29,6 +29,27 @@
       "when": 1785901716816,
       "tag": "0003_widen_points_ledger_source",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0004_runtime_role_and_immutable_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787001000000,
+      "tag": "0005_rocketchat_direct_room",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787002000000,
+      "tag": "0006_bot_webhook_idempotency",
+      "breakpoints": true
     }
   ]
 }

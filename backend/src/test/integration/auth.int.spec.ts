@@ -4,6 +4,7 @@ import { ConfigService } from '../../config/config.service.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { randomBytes, scryptSync } from 'node:crypto';
 import { AuthService } from '../../modules/auth/auth.service.js';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
 import { loginAttempts, refreshTokens, shifts, users } from '../../database/schema/index.js';
 import { verifyAccessToken } from '../../common/auth/crypto.js';
@@ -22,7 +23,7 @@ let auth: AuthService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database));
+  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -50,7 +51,7 @@ describe('AuthService.login', () => {
     const previous = process.env.REQUIRE_SHIFT_FOR_AUTH;
     process.env.REQUIRE_SHIFT_FOR_AUTH = 'true';
     try {
-      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database));
+      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database), new AuditService(ctx.database));
       const user = await createUser(ctx);
 
       await expect(strictAuth.login({ email: user.email, password: user.password }, fromIp(40))).rejects.toThrow(ForbiddenException);

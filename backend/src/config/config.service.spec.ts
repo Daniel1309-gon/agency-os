@@ -4,10 +4,15 @@ import { ConfigService } from './config.service.js';
 const VALID = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgresql://agency:agency@db:5432/agency_os',
+  DATABASE_APP_URL: 'postgresql://agency_runtime:agency@db:5432/agency_os',
   REDIS_URL: 'redis://cache:6379',
   JWT_SECRET: 'a-production-grade-secret-of-40-characters',
   VAULT_KEK: 'a-production-grade-kek-of-40-characters!!',
   CORS_ORIGINS: 'https://app.agency.example',
+  ROCKETCHAT_BASE_URL: 'https://chat.agency.example',
+  ROCKETCHAT_TOKEN: 'production-rocketchat-api-token',
+  ROCKETCHAT_USER_ID: 'agency-bot-user-id',
+  ROCKETCHAT_WEBHOOK_SECRET: 'a-production-webhook-secret-with-40-chars',
 };
 
 let original: NodeJS.ProcessEnv;
@@ -28,6 +33,7 @@ describe('ConfigService', () => {
     expect(config.get('JWT_ACCESS_TTL_SECONDS')).toBe(900);
     expect(config.get('JWT_REFRESH_TTL_DAYS')).toBe(7);
     expect(config.get('PASSWORD_SCRYPT_LOG2N')).toBe(17);
+    expect(config.get('TRUSTED_PROXY_CIDRS')).toBe('');
     expect(config.get('LOG_LEVEL')).toBe('info');
   });
 
@@ -51,6 +57,23 @@ describe('ConfigService', () => {
   it('refuses a production CORS allowlist that still points at localhost', () => {
     process.env.CORS_ORIGINS = 'https://app.agency.example,http://localhost:5173';
     expect(() => new ConfigService()).toThrow(/CORS_ORIGINS/);
+  });
+
+  it('requires a distinct least-privileged database connection in production', () => {
+    delete process.env.DATABASE_APP_URL;
+    expect(() => new ConfigService()).toThrow(/DATABASE_APP_URL/);
+
+    process.env.DATABASE_APP_URL = VALID.DATABASE_URL;
+    expect(() => new ConfigService()).toThrow(/different PostgreSQL roles/);
+  });
+
+  it('requires complete Rocket.Chat credentials and a strong webhook secret in production', () => {
+    delete process.env.ROCKETCHAT_USER_ID;
+    expect(() => new ConfigService()).toThrow(/ROCKETCHAT/);
+
+    process.env.ROCKETCHAT_USER_ID = VALID.ROCKETCHAT_USER_ID;
+    process.env.ROCKETCHAT_WEBHOOK_SECRET = 'short';
+    expect(() => new ConfigService()).toThrow(/WEBHOOK_SECRET/);
   });
 
   it('allows those same values outside production', () => {

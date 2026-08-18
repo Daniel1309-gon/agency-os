@@ -29,6 +29,7 @@ import {
   verifyPassword,
 } from '../../common/auth/crypto.js';
 import type { LoginInput, PasswordChangeInput, PasswordResetInput } from './auth.schemas.js';
+import { AuditService } from '../../common/audit/audit.service.js';
 
 export interface AuthUser {
   id: string;
@@ -53,12 +54,16 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly redis: RedisService,
     private readonly shiftAccess: ShiftAccessService,
+    private readonly audit: AuditService,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string): Promise<AuthTokens> {
     const email = input.email.trim().toLowerCase();
     const attempts = await this.redis.incrWithExpiry(`auth:login:${ip ?? 'unknown'}:${email}`, 900).catch(() => 0);
-    if (attempts > 5) throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
+    if (attempts > 5) {
+      await this.recordAttempt(email, undefined, ip, 'RATE_LIMITED');
+      throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
+    }
     const identity = await this.findIdentity(email);
     if (!identity) {
       await this.recordAttempt(email, undefined, ip, 'BAD_CREDENTIALS');
@@ -286,6 +291,7 @@ export class AuthService {
 
   private async recordAttempt(email: string, userId: string | undefined, ip: string | undefined, outcome: string): Promise<void> {
     await this.db.db.insert(loginAttempts).values({ emailAttempted: email, userId, ip, outcome });
+    await this.audit.record({ actorType: userId ? 'USER' : 'ANONYMOUS', actorUserId: userId, action: 'auth.login', entityType: userId ? 'user' : undefined, entityId: userId, result: outcome === 'SUCCESS' ? 'SUCCESS' : 'DENIED', ip, metadata: { outcome } });
   }
 
   private async revokeFamily(familyId: string, reason: string): Promise<void> {
