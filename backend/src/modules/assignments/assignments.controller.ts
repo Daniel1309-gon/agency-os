@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Req, UseGuards, UsePipes } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DeviceTokenGuard } from '../../common/auth/guards.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -24,6 +24,7 @@ export class AssignmentsController {
 
 @Controller('agent')
 @UseGuards(DeviceTokenGuard)
+@RequireShift()
 export class AgentSessionsController {
   constructor(private readonly assignments: AssignmentsService, private readonly profiles: ProfilesService) {}
 

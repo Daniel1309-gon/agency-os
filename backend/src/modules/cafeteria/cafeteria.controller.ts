@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CafeteriaService } from './cafeteria.service.js';
@@ -20,6 +20,7 @@ export class CafeteriaController {
   @Patch('products/:id') @RequirePermissions('cafeteria.manage') @UsePipes(new ZodValidationPipe(productUpdateSchema)) updateProduct(@Param('id') id: string, @Body() body: ProductUpdateInput) { return this.cafeteria.updateProduct(id, body); }
 
   @Post('orders')
+  @RequireShift()
   @UsePipes(new ZodValidationPipe(orderSchema))
   order(@Body() body: OrderInput, @CurrentUser() user: AccessTokenClaims, @Headers('idempotency-key') idempotencyKey?: string) { return this.cafeteria.createOrder(body, user.sub, idempotencyKey ?? ''); }
 

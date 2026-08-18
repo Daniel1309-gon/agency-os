@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '../../config/config.module.js';
 import { IpAllowlistGuard, JwtAuthGuard, PermissionsGuard } from './guards.js';
+import { ShiftWindowGuard } from './shift.guard.js';
 
 @Global()
 @Module({
@@ -10,10 +11,11 @@ import { IpAllowlistGuard, JwtAuthGuard, PermissionsGuard } from './guards.js';
     JwtAuthGuard,
     PermissionsGuard,
     IpAllowlistGuard,
+    ShiftWindowGuard,
     { provide: APP_GUARD, useClass: IpAllowlistGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
-  exports: [JwtAuthGuard, PermissionsGuard],
+  exports: [JwtAuthGuard, PermissionsGuard, ShiftWindowGuard],
 })
 export class AuthCommonModule {}

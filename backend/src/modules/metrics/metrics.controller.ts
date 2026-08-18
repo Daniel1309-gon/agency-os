@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DeviceTokenGuard } from '../../common/auth/guards.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -12,6 +12,7 @@ export class MetricsController {
 
   @Post('agent/metrics/batch')
   @UseGuards(DeviceTokenGuard)
+  @RequireShift()
   @UsePipes(new ZodValidationPipe(metricBatchSchema))
   async ingest(@Body() body: MetricBatchInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-session-id') sessionId?: string) {
     return this.metrics.ingest(body, user.sub, sessionId);
