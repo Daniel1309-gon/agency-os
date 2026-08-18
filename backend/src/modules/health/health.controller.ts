@@ -1,8 +1,9 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { HealthService } from './health.service.js';
-import { Public } from '../../common/auth/decorators.js';
+import { BypassIpAllowlist, Public } from '../../common/auth/decorators.js';
 
 @Controller('health')
+@BypassIpAllowlist()
 export class HealthController {
   constructor(private readonly health: HealthService) {}
 

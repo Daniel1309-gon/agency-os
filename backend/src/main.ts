@@ -11,9 +11,11 @@ import { LoggerService } from './common/logger/logger.service.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 
 async function bootstrap() {
+  const bootstrapConfig = new ConfigService();
+  const trustedProxyCidrs = bootstrapConfig.get('TRUSTED_PROXY_CIDRS').split(',').map((value) => value.trim()).filter(Boolean);
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: false, bodyLimit: 256 * 1024 }),
+    new FastifyAdapter({ logger: false, bodyLimit: 256 * 1024, trustProxy: trustedProxyCidrs.length ? trustedProxyCidrs : false }),
   );
 
   const config = app.get(ConfigService);

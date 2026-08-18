@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import { DeviceTokenGuard, JwtAuthGuard, PermissionsGuard } from './guards.js';
+import { DeviceTokenGuard, IpAllowlistGuard, JwtAuthGuard, PermissionsGuard } from './guards.js';
 import { signAccessToken } from './crypto.js';
 import type { ConfigService } from '../../config/config.service.js';
 import type { AuthenticatedRequest } from './auth.types.js';
@@ -93,10 +93,63 @@ describe('PermissionsGuard', () => {
 });
 
 describe('DeviceTokenGuard', () => {
-  const guard = new DeviceTokenGuard();
+  const approvedDevice = {
+    id: 'device-1',
+    assignedOperatorId: 'user-1',
+    label: 'Office laptop',
+    tokenExpiresAt: new Date(Date.now() + 60_000),
+  };
+  const dbFor = (device: typeof approvedDevice | undefined) => ({ db: { query: { devices: { findFirst: async () => device } } } });
 
-  it('requires the x-device-token header', () => {
-    expect(() => guard.canActivate(contextFor({ headers: {} }))).toThrow(ForbiddenException);
-    expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).toBe(true);
+  it('requires the x-device-token header and an authenticated operator', async () => {
+    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never);
+    await expect(guard.canActivate(contextFor({ headers: {} }))).rejects.toThrow(ForbiddenException);
+    await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).rejects.toThrow(ForbiddenException);
+  });
+
+  it('attaches a validated device principal bound to the operator', async () => {
+    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never);
+    const { context, request } = requestContext({
+      user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
+      headers: { 'x-device-token': 'abc' },
+    });
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.device).toEqual({
+      id: 'device-1',
+      operatorId: 'user-1',
+      label: 'Office laptop',
+      tokenExpiresAt: approvedDevice.tokenExpiresAt,
+    });
+  });
+
+  it('rejects an expired or unbound device token', async () => {
+    const guard = new DeviceTokenGuard(dbFor(undefined) as never);
+    const request = { user: { sub: 'user-2', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' }, headers: { 'x-device-token': 'abc' } };
+    await expect(guard.canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);
+  });
+});
+
+describe('IpAllowlistGuard', () => {
+  const emptyDb = {
+    db: {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: async () => [] }),
+        }),
+      }),
+      query: { roles: { findFirst: async () => undefined } },
+    },
+  };
+
+  it('fails closed when no active allowlist exists', async () => {
+    const guard = new IpAllowlistGuard(emptyDb as never, config, reflectorReturning(false));
+    await expect(guard.canActivate(contextFor({ headers: {}, ip: '203.0.113.10' }))).rejects.toThrow(
+      'IP allowlist is not configured',
+    );
+  });
+
+  it('bypasses only handlers explicitly marked for health checks', async () => {
+    const guard = new IpAllowlistGuard(emptyDb as never, config, reflectorReturning(true));
+    await expect(guard.canActivate(contextFor({ headers: {} }))).resolves.toBe(true);
   });
 });

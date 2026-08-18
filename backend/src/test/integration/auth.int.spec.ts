@@ -184,6 +184,20 @@ describe('AuthService refresh rotation', () => {
     expect(new Set(rows.map((row) => row.familyId)).size).toBe(1);
   });
 
+  it('allows only one concurrent refresh to win', async () => {
+    const user = await createUser(ctx);
+    const first = await auth.login({ email: user.email, password: user.password }, fromIp(25));
+
+    const results = await Promise.allSettled([
+      auth.refresh(first.refreshToken, fromIp(25), 'vitest-a'),
+      auth.refresh(first.refreshToken, fromIp(25), 'vitest-b'),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect((results.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason).toBeInstanceOf(ConflictException);
+  });
+
   it('revokes the whole family when a rotated token is reused', async () => {
     const user = await createUser(ctx);
     const first = await auth.login({ email: user.email, password: user.password }, fromIp(21));

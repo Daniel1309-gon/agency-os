@@ -5,7 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
@@ -122,10 +122,18 @@ export class AuthService {
     const nextId = randomUUID();
     const expiresAt = new Date(Date.now() + this.config.get('JWT_REFRESH_TTL_DAYS') * 86_400_000);
     await this.db.db.transaction(async (tx) => {
-      await tx
+      const [rotated] = await tx
         .update(refreshTokens)
         .set({ revokedAt: new Date(), revokedReason: 'ROTATED', replacedById: nextId })
-        .where(eq(refreshTokens.id, current.id));
+        .where(and(eq(refreshTokens.id, current.id), isNull(refreshTokens.revokedAt), gt(refreshTokens.expiresAt, new Date())))
+        .returning({ id: refreshTokens.id });
+      if (!rotated) {
+        await tx
+          .update(refreshTokens)
+          .set({ revokedAt: new Date(), revokedReason: 'REUSE_DETECTED' })
+          .where(eq(refreshTokens.familyId, current.familyId));
+        throw new ConflictException('Refresh token reuse detected');
+      }
       await tx.insert(refreshTokens).values({
         id: nextId,
         userId: current.userId,

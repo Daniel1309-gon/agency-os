@@ -8,10 +8,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { ipAllowlist, roles } from '../../database/schema/index.js';
+import { devices, ipAllowlist, roles } from '../../database/schema/index.js';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
-import { verifyAccessToken } from './crypto.js';
-import { IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, setAuthenticatedUser } from './decorators.js';
+import { hashToken, verifyAccessToken } from './crypto.js';
+import { IP_ALLOWLIST_BYPASS_KEY, IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, setAuthenticatedUser } from './decorators.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 
 function isSwaggerRequest(context: ExecutionContext): boolean {
@@ -66,11 +66,33 @@ export class PermissionsGuard implements CanActivate {
 
 @Injectable()
 export class DeviceTokenGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly db: DatabaseService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (!request.headers['x-device-token']) {
+    const header = request.headers['x-device-token'];
+    const token = Array.isArray(header) ? header[0] : header;
+    if (!token) {
       throw new ForbiddenException('Device token required');
     }
+    if (!request.user) throw new ForbiddenException('Authenticated operator required');
+    const device = await this.db.db.query.devices.findFirst({
+      where: and(
+        eq(devices.tokenHash, hashToken(token)),
+        eq(devices.status, 'APPROVED'),
+        eq(devices.assignedOperatorId, request.user.sub),
+        sql`${devices.tokenExpiresAt} > now()`,
+      ),
+    });
+    if (!device || !device.assignedOperatorId || !device.tokenExpiresAt || device.tokenExpiresAt.getTime() <= Date.now()) {
+      throw new ForbiddenException('Device token is invalid or expired');
+    }
+    request.device = {
+      id: device.id,
+      operatorId: device.assignedOperatorId,
+      label: device.label,
+      tokenExpiresAt: device.tokenExpiresAt,
+    };
     return true;
   }
 }
@@ -80,11 +102,10 @@ export class IpAllowlistGuard implements CanActivate {
   constructor(private readonly db: DatabaseService, private readonly config: ConfigService, private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (isSwaggerRequest(context)) return true;
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()])) return true;
+    if (this.reflector.getAllAndOverride<boolean>(IP_ALLOWLIST_BYPASS_KEY, [context.getHandler(), context.getClass()])) return true;
     const active = await this.db.db.select({ id: ipAllowlist.id }).from(ipAllowlist).where(and(eq(ipAllowlist.isActive, true), or(isNull(ipAllowlist.expiresAt), sql`${ipAllowlist.expiresAt} > now()`))).limit(1);
-    if (!active.length) return true;
+    if (!active.length) throw new ForbiddenException('IP allowlist is not configured');
     let identity = request.user;
     if (!identity) {
       const header = request.headers.authorization;
@@ -94,9 +115,11 @@ export class IpAllowlistGuard implements CanActivate {
       }
     }
     const role = identity?.role ? await this.db.db.query.roles.findFirst({ where: eq(roles.code, identity.role) }) : undefined;
-    const scopes = [and(eq(ipAllowlist.scope, 'ALL'), sql`${ipAllowlist.cidr} >>= ${request.ip ?? '0.0.0.0'}::inet`)];
-    if (identity) scopes.push(and(eq(ipAllowlist.scope, 'USER'), eq(ipAllowlist.userId, identity.sub), sql`${ipAllowlist.cidr} >>= ${request.ip ?? '0.0.0.0'}::inet`));
-    if (role) scopes.push(and(eq(ipAllowlist.scope, 'ROLE'), eq(ipAllowlist.roleId, role.id), sql`${ipAllowlist.cidr} >>= ${request.ip ?? '0.0.0.0'}::inet`));
+    const clientIp = request.ip ?? '';
+    if (!clientIp) throw new ForbiddenException('Client IP unavailable');
+    const scopes = [and(eq(ipAllowlist.scope, 'ALL'), sql`${ipAllowlist.cidr} >>= ${clientIp}::inet`)];
+    if (identity) scopes.push(and(eq(ipAllowlist.scope, 'USER'), eq(ipAllowlist.userId, identity.sub), sql`${ipAllowlist.cidr} >>= ${clientIp}::inet`));
+    if (role) scopes.push(and(eq(ipAllowlist.scope, 'ROLE'), eq(ipAllowlist.roleId, role.id), sql`${ipAllowlist.cidr} >>= ${clientIp}::inet`));
     const match = await this.db.db.select({ id: ipAllowlist.id }).from(ipAllowlist).where(and(eq(ipAllowlist.isActive, true), or(isNull(ipAllowlist.expiresAt), sql`${ipAllowlist.expiresAt} > now()`), or(...scopes))).limit(1);
     if (!match.length) throw new ForbiddenException('IP address is not allowed');
     return true;
