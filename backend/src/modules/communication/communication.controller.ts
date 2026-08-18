@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, UsePipes } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, UsePipes } from '@nestjs/common';
 import { BypassIpAllowlist, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { botKnowledgeSchema, botWebhookSchema, channelSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type BotWebhookInput, type ChannelInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
+import { botKnowledgeSchema, channelSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type ChannelInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
 import { CommunicationService } from './communication.service.js';
 import { BotService } from './bot.service.js';
 
@@ -21,8 +21,8 @@ export class RocketChatBotController {
   @Public()
   @BypassIpAllowlist()
   @Post('events')
-  @UsePipes(new ZodValidationPipe(botWebhookSchema))
-  event(@Body() body: BotWebhookInput, @Headers('x-rocketchat-webhook-token') secret?: string) { return this.bot.handle(body, secret); }
+  @HttpCode(HttpStatus.OK)
+  event(@Body() body: unknown) { return this.bot.handle(body); }
 
   @Get('knowledge')
   @RequirePermissions('chat.manage')

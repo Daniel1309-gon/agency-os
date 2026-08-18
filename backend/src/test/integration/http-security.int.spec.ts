@@ -5,6 +5,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { eq } from 'drizzle-orm';
 import { signAccessToken } from '../../common/auth/crypto.js';
 import { devices, ipAllowlist, shifts } from '../../database/schema/index.js';
+import { outboxEvents, rocketchatChannels, users } from '../../database/schema/index.js';
 import {
   TEST_JWT_SECRET,
   createDevice,
@@ -23,6 +24,9 @@ let ctx: TestContext;
 let app: NestFastifyApplication;
 
 beforeAll(async () => {
+  process.env.ROCKETCHAT_WEBHOOK_SECRET = 'http-test-webhook-secret-with-32-characters';
+  process.env.ROCKETCHAT_USER_ID = 'http-test-bot';
+  process.env.ROCKETCHAT_BOT_TRIGGER = 'ayuda';
   ctx = await createTestContext();
   // Vite transpiles test files without TypeScript's decorator metadata. Import
   // the build artifact so this acceptance test boots the exact Nest graph that
@@ -58,6 +62,37 @@ function authorization(token: string, deviceToken?: string): Record<string, stri
 }
 
 describe('Entrega 1 HTTP security acceptance', () => {
+  it('acknowledges native Rocket.Chat webhook events and only queues valid bot messages', async () => {
+    const operator = await createUser(ctx);
+    await ctx.db.update(users).set({ rocketchatUserId: 'http-test-user' }).where(eq(users.id, operator.id));
+    await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'http-bot-room', name: 'Ayuda bot', type: 'CHANNEL', purpose: 'BOT' });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/v1/rocketchat/bot/events',
+      payload: { token: 'wrong-token', user_id: 'http-test-user', channel_id: 'http-bot-room', message_id: 'http-invalid', timestamp: new Date().toISOString(), text: 'ayuda turno', trigger_word: 'ayuda' },
+    });
+    expect(invalid.statusCode).toBe(200);
+    expect(await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).toHaveLength(0);
+
+    const valid = await app.inject({
+      method: 'POST',
+      url: '/api/v1/rocketchat/bot/events',
+      payload: { token: process.env.ROCKETCHAT_WEBHOOK_SECRET, user_id: 'http-test-user', channel_id: 'http-bot-room', message_id: 'http-valid', timestamp: new Date().toISOString(), text: 'ayuda turno', trigger_word: 'ayuda' },
+    });
+    expect(valid.statusCode).toBe(200);
+    expect(await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).toHaveLength(1);
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/api/v1/rocketchat/bot/events',
+      payload: { token: process.env.ROCKETCHAT_WEBHOOK_SECRET, user_id: 'http-test-user', channel_id: 'http-bot-room', message_id: 'http-valid', timestamp: new Date().toISOString(), text: 'ayuda turno', trigger_word: 'ayuda' },
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).toHaveLength(1);
+
+  });
+
   it('fails closed when the request IP is not allowlisted', async () => {
     const operator = await createUser(ctx);
     const response = await app.inject({ method: 'GET', url: '/api/v1/profiles', headers: authorization(accessToken(operator, 'OPERADOR', ['profiles.read'])) });

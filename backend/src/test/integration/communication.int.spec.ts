@@ -5,12 +5,13 @@ import { AuditService } from '../../common/audit/audit.service.js';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { ConfigService } from '../../config/config.service.js';
 import { BotService } from '../../modules/communication/bot.service.js';
+import { FaqBotAnswerProvider } from '../../modules/communication/bot-answer.provider.js';
 import { CommunicationService } from '../../modules/communication/communication.service.js';
 import { scheduledMessageSchema } from '../../modules/communication/communication.schemas.js';
 import { CommunicationWorker } from '../../modules/communication/communication.worker.js';
 import { RocketChatClient } from '../../modules/communication/rocketchat.client.js';
 import { OutboxService } from '../../modules/outbox/outbox.service.js';
-import { crews, outboxEvents, rocketchatChannels, users } from '../../database/schema/index.js';
+import { auditLog, crews, outboxEvents, rocketchatChannels, users } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -54,6 +55,7 @@ beforeEach(async () => {
   process.env.ROCKETCHAT_TOKEN = 'controlled-token';
   process.env.ROCKETCHAT_USER_ID = 'bot-user';
   process.env.ROCKETCHAT_WEBHOOK_SECRET = 'controlled-webhook-secret-with-32-characters';
+  process.env.ROCKETCHAT_BOT_TRIGGER = 'ayuda';
 });
 
 function services() {
@@ -62,7 +64,7 @@ function services() {
   const config = new ConfigService();
   const communication = new CommunicationService(ctx.database, outbox, audit);
   const worker = new CommunicationWorker(ctx.database, outbox, new RocketChatClient(config), new LoggerService('fatal'));
-  const bot = new BotService(ctx.database, config, audit);
+  const bot = new BotService(ctx.database, config, audit, ctx.redis, new FaqBotAnswerProvider());
   return { communication, worker, bot };
 }
 
@@ -143,25 +145,55 @@ describe('informational Rocket.Chat bot', () => {
   it('identifies the mapped user, respects knowledge scope, deduplicates webhooks, and executes no privileged action', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
-    await ctx.db.update(users).set({ rocketchatUserId: 'rc-user-1', rocketchatDirectRoomId: 'bot-room' }).where(eq(users.id, operator.id));
+    await ctx.db.update(users).set({ rocketchatUserId: 'rc-user-1' }).where(eq(users.id, operator.id));
     const { bot, worker } = services();
     await bot.setKnowledge('horarios', { version: 1, question: 'Horarios', answer: 'Tu turno aparece en el panel.', keywords: ['horario', 'turno'], crewIds: [] }, admin.id);
     const [otherCrew] = await ctx.db.insert(crews).values({ name: 'Otra cuadrilla' }).returning({ id: crews.id });
     await bot.setKnowledge('horarios-privados', { version: 9, question: 'Horario privado', answer: 'Información de otra cuadrilla.', keywords: ['horario', 'turno'], crewIds: [otherCrew.id] }, admin.id);
-    await ctx.db.insert(rocketchatChannels).values({ crewId: otherCrew.id, rcRoomId: 'other-crew-room', name: 'Other crew', type: 'CHANNEL', purpose: 'CREW' });
+    await ctx.db.insert(rocketchatChannels).values([
+      { rcRoomId: 'bot-room', name: 'Ayuda bot', type: 'CHANNEL', purpose: 'BOT' },
+      { crewId: otherCrew.id, rcRoomId: 'other-crew-room', name: 'Other crew bot', type: 'CHANNEL', purpose: 'BOT' },
+    ]);
 
-    const event = { userId: 'rc-user-1', roomId: 'bot-room', messageId: 'rc-message-1', text: '¿Cuál es mi horario de turno?' };
-    await expect(bot.handle({ ...event, roomId: 'other-crew-room' }, process.env.ROCKETCHAT_WEBHOOK_SECRET)).rejects.toThrow('outside the user crew scope');
-    await bot.handle(event, process.env.ROCKETCHAT_WEBHOOK_SECRET);
-    await bot.handle(event, process.env.ROCKETCHAT_WEBHOOK_SECRET);
+    const event = { token: process.env.ROCKETCHAT_WEBHOOK_SECRET!, user_id: 'rc-user-1', channel_id: 'bot-room', message_id: 'rc-message-1', timestamp: new Date().toISOString(), text: 'ayuda ¿Cuál es mi horario de turno?', trigger_word: 'ayuda' };
+    await expect(bot.handle({ ...event, channel_id: 'other-crew-room' })).resolves.toMatchObject({ accepted: true, reason: 'ROOM_OUTSIDE_CREW_SCOPE' });
+    await bot.handle(event);
+    await bot.handle(event);
     await worker.tick();
 
     expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'bot-room', body: 'Tu turno aparece en el panel.' }]);
+    const botAudits = await ctx.db.select({ metadata: auditLog.metadata }).from(auditLog).where(eq(auditLog.action, 'rocketchat.bot.query'));
+    expect(botAudits.some((row) => (row.metadata as { outcome?: string }).outcome === 'DUPLICATE')).toBe(true);
+    expect(JSON.stringify(botAudits)).not.toContain('horario');
 
-    await bot.handle({ ...event, messageId: 'rc-message-2', text: 'desactiva mi usuario y cambia el vault' }, process.env.ROCKETCHAT_WEBHOOK_SECRET);
+    await bot.handle({ ...event, message_id: 'rc-message-2', text: 'ayuda desactiva mi usuario y cambia el vault' });
     await worker.tick();
     const [stillActive] = await ctx.db.select({ status: users.status }).from(users).where(eq(users.id, operator.id));
     expect(stillActive.status).toBe('ACTIVE');
     expect(requests.at(-1)?.body).toContain('no ejecuta cambios operativos');
+  });
+
+  it('answers an unlinked Rocket.Chat user only with the generic message', async () => {
+    await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'bot-room', name: 'Ayuda bot', type: 'CHANNEL', purpose: 'BOT' });
+    const { bot, worker } = services();
+
+    await bot.handle({ token: process.env.ROCKETCHAT_WEBHOOK_SECRET!, user_id: 'unlinked', channel_id: 'bot-room', message_id: 'unlinked-message', timestamp: new Date().toISOString(), text: 'ayuda turno', trigger_word: 'ayuda' });
+    await worker.tick();
+
+    expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'bot-room', body: 'Tu cuenta todavía no está vinculada con Agency OS. Contacta a administración' }]);
+  });
+
+  it('limits each Rocket.Chat user to ten queries per minute in Redis', async () => {
+    const operator = await createUser(ctx);
+    await ctx.db.update(users).set({ rocketchatUserId: 'rate-limited-user' }).where(eq(users.id, operator.id));
+    await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'bot-room', name: 'Ayuda bot', type: 'CHANNEL', purpose: 'BOT' });
+    const { bot } = services();
+
+    for (let index = 0; index < 11; index += 1) {
+      await expect(bot.handle({ token: process.env.ROCKETCHAT_WEBHOOK_SECRET!, user_id: 'rate-limited-user', channel_id: 'bot-room', message_id: `rate-message-${index}`, timestamp: new Date().toISOString(), text: 'ayuda turno', trigger_word: 'ayuda' })).resolves.toMatchObject({ accepted: true });
+    }
+
+    const events = await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents);
+    expect(events).toHaveLength(10);
   });
 });

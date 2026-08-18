@@ -6,7 +6,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   'profileId', 'assignmentId', 'sessionId', 'deviceId', 'grantId', 'reason', 'denyReason',
   'status', 'fromStatus', 'toStatus', 'attempt', 'route', 'resource', 'version', 'count',
   'outcome', 'source', 'businessDate', 'periodId', 'errorCode', 'reused', 'role', 'permission',
-  'operatorId', 'shiftId', 'userId', 'crewId', 'key',
+  'operatorId', 'shiftId', 'userId', 'crewId', 'key', 'article', 'latencyMs',
 ]);
 
 function sanitizeValue(value: unknown, depth = 0): unknown {
