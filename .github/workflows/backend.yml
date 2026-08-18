@@ -44,10 +44,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @agency-os/shared build
-      - run: pnpm --filter @agency-os/api typecheck
-      - run: pnpm --filter @agency-os/api lint
-      - run: pnpm --filter @agency-os/api test
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
       # Los invariantes de PLAN.md §4 y los casos de abuso de §9 solo se pueden
       # probar contra Postgres y Redis de verdad. La suite crea su propia base
       # `agency_os_test` a partir de este DATABASE_URL y le aplica las migraciones.

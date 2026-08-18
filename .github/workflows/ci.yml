@@ -9,6 +9,23 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agency
+          POSTGRES_PASSWORD: agency
+          POSTGRES_DB: agency_os
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U agency -d agency_os"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -21,4 +38,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm build
       - run: pnpm test
+      - run: pnpm --filter @agency-os/api test:integration
+        env:
+          DATABASE_URL: postgresql://agency:agency@localhost:5432/agency_os
+          REDIS_URL: redis://localhost:6379
+      - run: pnpm --filter @agency-os/api drizzle-kit check
+        env:
+          DATABASE_URL: postgresql://agency:agency@localhost:5432/agency_os

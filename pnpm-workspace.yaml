@@ -2,8 +2,6 @@ packages:
   - "backend"
   - "web-app"
   - "packages/*"
-overrides:
-  fastify: "^5.11.2"
 allowBuilds:
-  '@scarf/scarf': set this to true or false
+  '@scarf/scarf': false
   esbuild: true
