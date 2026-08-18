@@ -1,0 +1,323 @@
+{
+  "runId": "2026-08-17T20-57-22-536Z",
+  "startedAt": "2026-08-17T20:57:22.541Z",
+  "host": "https://prod-uk-a.online.tableau.com",
+  "apiVersion": "3.29",
+  "siteContentUrl": "partnerdata",
+  "limits": {
+    "maxBytes": 52428800,
+    "maxRows": 250000
+  },
+  "requests": [
+    {
+      "operation": "signin",
+      "status": 200,
+      "durationMs": 954,
+      "recordedAt": "2026-08-17T20:57:23.497Z"
+    },
+    {
+      "operation": "list-workbooks",
+      "pageNumber": 1,
+      "status": 200,
+      "durationMs": 620,
+      "recordedAt": "2026-08-17T20:57:24.125Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "status": 200,
+      "durationMs": 540,
+      "recordedAt": "2026-08-17T20:57:24.665Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "status": 200,
+      "durationMs": 521,
+      "recordedAt": "2026-08-17T20:57:25.187Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "status": 200,
+      "durationMs": 644,
+      "recordedAt": "2026-08-17T20:57:25.831Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "status": 200,
+      "durationMs": 515,
+      "recordedAt": "2026-08-17T20:57:26.346Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "4488d733-afd3-47c0-a7ba-6a164d02bb45",
+      "status": 200,
+      "durationMs": 507,
+      "recordedAt": "2026-08-17T20:57:26.854Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "5aa0f323-de33-43cf-b23d-758da2169595",
+      "status": 200,
+      "durationMs": 615,
+      "recordedAt": "2026-08-17T20:57:27.469Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "467a3c1a-89b3-44a1-8596-dc144621b1f5",
+      "status": 200,
+      "durationMs": 565,
+      "recordedAt": "2026-08-17T20:57:28.034Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "6b8211fe-3afa-40ab-baa9-5e2e942130f5",
+      "status": 200,
+      "durationMs": 666,
+      "recordedAt": "2026-08-17T20:57:28.701Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "426eab5d-827d-49f2-9fa4-23590a42fa0d",
+      "status": 200,
+      "durationMs": 604,
+      "recordedAt": "2026-08-17T20:57:29.305Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "status": 200,
+      "durationMs": 517,
+      "recordedAt": "2026-08-17T20:57:29.822Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "95d60442-5110-4960-b374-8f2cc1b032f0",
+      "status": 200,
+      "durationMs": 615,
+      "recordedAt": "2026-08-17T20:57:30.438Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "2070ba3a-baa0-49aa-a8e3-a17436a4a02b",
+      "status": 200,
+      "durationMs": 1029,
+      "recordedAt": "2026-08-17T20:57:31.467Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a717ccf5-85cb-40f9-b481-fef37168f861",
+      "status": 200,
+      "durationMs": 548,
+      "recordedAt": "2026-08-17T20:57:32.016Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3c3fbeb4-ace7-47ad-b2fd-fe797e494c3a",
+      "status": 200,
+      "durationMs": 560,
+      "recordedAt": "2026-08-17T20:57:32.576Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a3cdc592-b478-48bb-b465-d680a33994a3",
+      "status": 200,
+      "durationMs": 626,
+      "recordedAt": "2026-08-17T20:57:33.202Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "c76b469c-7f15-4bb2-8e1d-c47ccd00e899",
+      "status": 200,
+      "durationMs": 559,
+      "recordedAt": "2026-08-17T20:57:33.761Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "2c1c90cc-8494-4cd6-bbeb-bdf59eaf8384",
+      "status": 200,
+      "durationMs": 541,
+      "recordedAt": "2026-08-17T20:57:34.302Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3291c31a-fa45-4551-83c1-dd5b253a9ec1",
+      "status": 200,
+      "durationMs": 527,
+      "recordedAt": "2026-08-17T20:57:34.829Z"
+    },
+    {
+      "operation": "list-site-views",
+      "pageNumber": 1,
+      "status": 200,
+      "durationMs": 575,
+      "recordedAt": "2026-08-17T20:57:35.405Z"
+    },
+    {
+      "operation": "temporal-candidate-data",
+      "viewId": "5af593e6-1a3a-4661-b10b-26467ba4e287",
+      "status": 200,
+      "contentType": "text/csv",
+      "bytes": 391866,
+      "rowCount": 1539,
+      "durationMs": 9376,
+      "recordedAt": "2026-08-17T20:57:44.789Z"
+    },
+    {
+      "operation": "temporal-candidate-crosstab",
+      "viewId": "5af593e6-1a3a-4661-b10b-26467ba4e287",
+      "status": 200,
+      "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 45350,
+      "durationMs": 8841,
+      "recordedAt": "2026-08-17T20:57:53.651Z"
+    },
+    {
+      "operation": "revenue-data",
+      "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+      "status": 200,
+      "contentType": "text/csv",
+      "bytes": 373152,
+      "rowCount": 1528,
+      "durationMs": 6279,
+      "recordedAt": "2026-08-17T20:57:59.937Z"
+    },
+    {
+      "operation": "revenue-crosstab-excel",
+      "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+      "status": 200,
+      "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 21483,
+      "durationMs": 7796,
+      "recordedAt": "2026-08-17T20:58:07.738Z"
+    },
+    {
+      "operation": "revenue-data-accept-text-csv",
+      "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+      "status": 406,
+      "contentType": "text/html;charset=utf-8",
+      "bytes": 441,
+      "durationMs": 344,
+      "recordedAt": "2026-08-17T20:58:08.094Z"
+    },
+    {
+      "operation": "signout",
+      "status": 204,
+      "recordedAt": "2026-08-17T20:58:41.562Z"
+    }
+  ],
+  "inventory": {
+    "workbooks": 18,
+    "workbookViews": 44,
+    "siteViews": 86,
+    "views": 86
+  },
+  "revenue": {
+    "workbookId": "b87e7eb2-ee8f-479d-9fd0-537cd9bc96b5",
+    "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+    "viewName": "Revenue detailed",
+    "viewContentUrl": "Passport_16741406948180/sheets/Revenuedetailed",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373152,
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "sha256": "800c434688092afff6d1b70a3564c0a0f4f175979337182613b262cf5695debc",
+    "durationMs": 6279,
+    "crosstab": {
+      "status": 200,
+      "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 21483,
+      "sha256": "5777a102dc6ab65b8d2c4ad00730d83a64c324d638d93fdb088691b65ce4a113",
+      "durationMs": 7796
+    }
+  },
+  "temporalCandidates": [
+    {
+      "viewId": "5af593e6-1a3a-4661-b10b-26467ba4e287",
+      "name": "Revenue detailed (SourceID)",
+      "contentUrl": "Passport_16741406948180/sheets/RevenuedetailedSourceID",
+      "status": 200,
+      "contentType": "text/csv",
+      "bytes": 391866,
+      "sha256": "1569908a5a1cfa0d21310b6efe12e9b0c1809db04a509d61a27aeb376c59a306",
+      "durationMs": 9376,
+      "schema": {
+        "headers": [
+          "Date aggregated",
+          "id trusted user",
+          "Max Hour",
+          "revenue_TU_services_title_1",
+          "revenue_TU_services_title_2",
+          "source_ID_alert",
+          "SourceID",
+          "Diff with last n aggregated dates",
+          "Revenue"
+        ],
+        "rowCount": 1539,
+        "temporalHeaders": [
+          "Date aggregated",
+          "Max Hour",
+          "Diff with last n aggregated dates"
+        ],
+        "temporalColumns": [
+          {
+            "header": "Date aggregated",
+            "distinctCount": 9,
+            "sample": [
+              "29/06/2026 00:00:00",
+              "06/07/2026 00:00:00",
+              "13/07/2026 00:00:00",
+              "20/07/2026 00:00:00",
+              "27/07/2026 00:00:00"
+            ],
+            "min": "29/06/2026 00:00:00",
+            "max": "Todo"
+          },
+          {
+            "header": "Max Hour",
+            "distinctCount": 1,
+            "sample": [
+              "20"
+            ],
+            "min": "20",
+            "max": "20"
+          },
+          {
+            "header": "Diff with last n aggregated dates",
+            "distinctCount": 299,
+            "sample": [
+              "$2.00",
+              "$49.75",
+              "-$0.89",
+              "$0.25",
+              "$0.18"
+            ],
+            "min": "$2.00",
+            "max": "$1.62"
+          }
+        ],
+        "hasTemporalColumn": true
+      },
+      "crosstab": {
+        "status": 200,
+        "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "bytes": 45350,
+        "sha256": "e0cd97c64bce604b11806a31be76775ca30c25a1255f36c9e3865799a3c2651b",
+        "durationMs": 8841
+      }
+    }
+  ]
+}

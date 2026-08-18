@@ -1,0 +1,35 @@
+[
+  {
+    "field": "Revenue type",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 1,
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "rowCount": 0,
+    "changedFromBaseline": true,
+    "durationMs": 6021
+  },
+  {
+    "field": "Credits type",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373167,
+    "sha256": "aa5cecfb32956010c45b9db0035783367b738d9f55e7b007170e37e06089e7c3",
+    "rowCount": 1528,
+    "changedFromBaseline": true,
+    "durationMs": 7844
+  },
+  {
+    "field": "Date",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373152,
+    "sha256": "c7f6d92b47c598e20529196dd582ecbc28ec26764c3f65eb174ce028f36fa35f",
+    "rowCount": 1528,
+    "changedFromBaseline": true,
+    "durationMs": 6420
+  }
+]

@@ -1,0 +1,207 @@
+{
+  "runId": "2026-08-17T20-26-32-251Z",
+  "startedAt": "2026-08-17T20:26:32.262Z",
+  "host": "https://prod-uk-a.online.tableau.com",
+  "apiVersion": "3.29",
+  "siteContentUrl": "partnerdata",
+  "limits": {
+    "maxBytes": 52428800,
+    "maxRows": 250000
+  },
+  "requests": [
+    {
+      "operation": "signin",
+      "status": 200,
+      "durationMs": 1146,
+      "recordedAt": "2026-08-17T20:26:33.410Z"
+    },
+    {
+      "operation": "list-workbooks",
+      "pageNumber": 1,
+      "status": 200,
+      "durationMs": 582,
+      "recordedAt": "2026-08-17T20:26:33.999Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "status": 200,
+      "durationMs": 569,
+      "recordedAt": "2026-08-17T20:26:34.568Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "status": 200,
+      "durationMs": 556,
+      "recordedAt": "2026-08-17T20:26:35.125Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "status": 200,
+      "durationMs": 529,
+      "recordedAt": "2026-08-17T20:26:35.654Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "status": 200,
+      "durationMs": 543,
+      "recordedAt": "2026-08-17T20:26:36.197Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "4488d733-afd3-47c0-a7ba-6a164d02bb45",
+      "status": 200,
+      "durationMs": 510,
+      "recordedAt": "2026-08-17T20:26:36.708Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "5aa0f323-de33-43cf-b23d-758da2169595",
+      "status": 200,
+      "durationMs": 560,
+      "recordedAt": "2026-08-17T20:26:37.267Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "467a3c1a-89b3-44a1-8596-dc144621b1f5",
+      "status": 200,
+      "durationMs": 532,
+      "recordedAt": "2026-08-17T20:26:37.800Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "6b8211fe-3afa-40ab-baa9-5e2e942130f5",
+      "status": 200,
+      "durationMs": 600,
+      "recordedAt": "2026-08-17T20:26:38.400Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "426eab5d-827d-49f2-9fa4-23590a42fa0d",
+      "status": 200,
+      "durationMs": 544,
+      "recordedAt": "2026-08-17T20:26:38.945Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "status": 200,
+      "durationMs": 686,
+      "recordedAt": "2026-08-17T20:26:39.631Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "95d60442-5110-4960-b374-8f2cc1b032f0",
+      "status": 200,
+      "durationMs": 554,
+      "recordedAt": "2026-08-17T20:26:40.185Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "2070ba3a-baa0-49aa-a8e3-a17436a4a02b",
+      "status": 200,
+      "durationMs": 655,
+      "recordedAt": "2026-08-17T20:26:40.840Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a717ccf5-85cb-40f9-b481-fef37168f861",
+      "status": 200,
+      "durationMs": 672,
+      "recordedAt": "2026-08-17T20:26:41.512Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3c3fbeb4-ace7-47ad-b2fd-fe797e494c3a",
+      "status": 200,
+      "durationMs": 617,
+      "recordedAt": "2026-08-17T20:26:42.129Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "a3cdc592-b478-48bb-b465-d680a33994a3",
+      "status": 200,
+      "durationMs": 630,
+      "recordedAt": "2026-08-17T20:26:42.760Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "c76b469c-7f15-4bb2-8e1d-c47ccd00e899",
+      "status": 200,
+      "durationMs": 562,
+      "recordedAt": "2026-08-17T20:26:43.322Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "2c1c90cc-8494-4cd6-bbeb-bdf59eaf8384",
+      "status": 200,
+      "durationMs": 689,
+      "recordedAt": "2026-08-17T20:26:44.011Z"
+    },
+    {
+      "operation": "list-views",
+      "workbookId": "3291c31a-fa45-4551-83c1-dd5b253a9ec1",
+      "status": 200,
+      "durationMs": 647,
+      "recordedAt": "2026-08-17T20:26:44.658Z"
+    },
+    {
+      "operation": "list-site-views",
+      "pageNumber": 1,
+      "status": 200,
+      "durationMs": 599,
+      "recordedAt": "2026-08-17T20:26:45.257Z"
+    },
+    {
+      "operation": "revenue-data",
+      "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+      "status": 200,
+      "contentType": "text/csv",
+      "bytes": 373184,
+      "rowCount": 1528,
+      "durationMs": 7230,
+      "recordedAt": "2026-08-17T20:26:52.499Z"
+    },
+    {
+      "operation": "revenue-data-accept-text-csv",
+      "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+      "status": 406,
+      "contentType": "text/html;charset=utf-8",
+      "bytes": 441,
+      "durationMs": 339,
+      "recordedAt": "2026-08-17T20:26:52.858Z"
+    }
+  ],
+  "inventory": {
+    "workbooks": 18,
+    "workbookViews": 44,
+    "siteViews": 86,
+    "views": 86
+  },
+  "revenue": {
+    "workbookId": "b87e7eb2-ee8f-479d-9fd0-537cd9bc96b5",
+    "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+    "viewName": "Revenue detailed",
+    "viewContentUrl": "Passport_16741406948180/sheets/Revenuedetailed",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373184,
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "sha256": "36de76b6b9e159be3824ca2675a21a88dbb1b7e1abb1e66d383a87b630b48c49",
+    "durationMs": 7230
+  }
+}

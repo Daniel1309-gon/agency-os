@@ -100,10 +100,12 @@ portar su código:
   operadoras entren a Tableau. Cubre FR-18/FR-19. **Investigado (2026-07-29):** la colección
   `Tableau APIs.postman_collection.json` es la API REST oficial de Tableau Server/Cloud (727
   endpoints). Los relevantes para consulta de datos son:
-  - `GET /sites/{site-id}/views/{view-id}/data` → devuelve CSV (o formato crosstab)
+  - `GET /sites/{site-id}/views/{view-id}/data` → devuelve CSV del nivel de resumen expuesto por la vista
   - `GET /sites/{site-id}/views/{view-id}/crosstab/excel` → devuelve Excel
   - Query params: `vf_<fieldname>=<value>` (filtros por campo), `maxAge=<minutes>` (caché, mínimo 1 min)
-  - Autenticación: header `X-Tableau-Auth` con API key
+  - Autenticación: `POST /auth/signin` con PAT; después `X-Tableau-Auth` lleva el token temporal
+  - Un dashboard exportado por REST/crosstab queda en nivel resumen; el detalle que aparece al
+    expandir una jerarquía en la UI no se debe asumir disponible por API.
   - **Limitación crítica no resuelta:** la colección Postman no documenta límite de filas por
     respuesta, paginación, timeout, ni tamaño máximo; no está claro si devuelve datos completos de
     una sola consulta (asume rendimiento/memoria de navegador si es front-end). **Requerido:** antes
@@ -139,7 +141,7 @@ portar su código:
 | 6 | Backend principal = **NestJS sobre adaptador Fastify** (`@nestjs/platform-fastify`) | Node.js + Fastify "plano" | Modularidad forzada por el framework — evita repetir el patrón de "god controllers" (1500–3134 líneas) encontrado en la auditoría de JarvisBot. FastAPI se mantiene, aislado, solo para el motor de IA |
 | 7 | Cláusula de contingencia explícita para el spike de semanas 1–2 (viable / parcialmente viable / no viable), mismo formato que Feature #9 | — | Protege a ambas partes: el spike depende de un tercero (TalkyTimes) fuera de control del equipo |
 | 8 | Refuerzo explícito del vault: exclusión del campo contraseña de cualquier log de auditoría como **criterio de aceptación**, no detalle de implementación | — | JarvisBot tiene exactamente este problema (contraseña en texto plano en `activity_log` vía `spatie/laravel-activitylog`) — no repetirlo |
-| 9 | **ETL batch diario de Tableau** (descargar CSV/Excel a hora fija → worker de procesamiento → almacenar en BD) en lugar de lectura en vivo de API | Tableau API como fuente en vivo | Tableau se refresca una sola vez al día según su propia configuración; dashboard "en vivo" no tiene sentido. Batch diario (a corte del día anterior) es más simple, independiente de Tableau (fallover transparente), predecible en rendimiento, y elimina bloqueadores de límite de filas/timeout de API. Patrón común en data warehousing |
+| 9 | **ETL por vista de Tableau a almacenamiento local** (descargar CSV/Excel según `schedule_cron` → worker de procesamiento → almacenar en BD) en lugar de lectura en vivo de API | Tableau API como fuente en vivo | La conexión real confirmó que Revenue detailed se actualiza cada hora, pero el producto consume Revenue a corte del día operativo vencido (job 09:15 America/Bogota). La cadencia es configurable por vista; una vista resumen sin fecha/hora no puede atribuir turnos. |
 | 19 | **Hash de contraseñas con scrypt** (`N=2^17`, `r=8`, `p=1`, parámetros guardados dentro de cada hash), no con bcrypt | bcrypt cost 12 (lo que nombra §4 del documento de requerimientos y §6.2 del plan de backend) | Aprobado por el cliente el 2026-08-04. bcrypt se había elegido por familiaridad previa, no por una propiedad técnica. scrypt es *memory-hard* y bcrypt no lo es (bcrypt usa ~4 KB fijos, barato de paralelizar en GPU/ASIC); ambos están en la lista recomendada de OWASP y NIST SP 800-63B, con Argon2id > scrypt > bcrypt como orden de preferencia habitual. Beneficio adicional: sin dependencia nativa que compilar en el contenedor de despliegue, y desaparece la truncación silenciosa de bcrypt a 72 bytes (§6.2 del plan la trataba como advertencia). Ver §5.3 para los parámetros y su costo medido |
 
 ### 5.1 Mecanismo concreto de la decisión #1 (2026-07-29)
@@ -309,10 +311,13 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   sesión saliente con ventana de gracia (el precedente de JarvisBot en §4 de este archivo —
   "qué pasa cuando una operadora entra a un perfil que otra dejó abierto" — es el caso exacto y
   conviene mirarlo), y atribución de métricas por `occurred_at` y no por hora de ingesta.
-- **Tableau tiene puntos por hora (2026-08-04) — resuelve la atribución del relevo:** el cliente
-  informó que el reporte de puntos de Tableau existe con grano horario y que se pueden hacer cortes
-  cada 8 h. Esto convierte la atribución en un relevo de "reparto estimado" a **asignación directa
-  por hora**: cada hora de puntos cae dentro del `valid_range` de una sola asignación. Ver
+- **Tableau tiene puntos por hora (2026-08-04) — pendiente de confirmación por exportación REST:** el
+  cliente informó que el reporte de puntos de Tableau existe con grano horario y que se pueden hacer
+  cortes cada 8 h. Sin embargo, la expansión de `ID Trusted User` que se ve en la UI no aparece en
+  `GET /views/{view-id}/data` ni en el crosstab. La vista hermana `Revenue detailed (SourceID)`
+  devuelve 1.539 filas, nueve fechas semanales de `Date aggregated` y `Max Hour=20` constante.
+  La atribución queda diseñada para **asignación directa por hora** solo cuando la clienta publique
+  una worksheet plana con una fila por perfil/SourceID/hora. Ver
   [`backend/PLAN.md`](backend/PLAN.md) §4.2. Tres consecuencias registradas ahí:
   (1) se toma el **grano horario, no los cortes de 8 h** — bloques fijos (00–08, 08–16, 16–00)
   vuelven a partir por la mitad un turno de 14:00–22:00 y los `shift_overrides` de horas extra por
@@ -323,10 +328,9 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   únicamente en la hora que atraviesa un relevo, y **desaparece del todo si los relevos se
   programan en hora en punto** — vale la pena pedirlo, es una restricción de calendario que elimina
   la única parte estimada del cálculo de nómina.
-  **Pendientes que abre:** en qué zona horaria devuelve Tableau esas marcas (un desfase de una hora
-  misatribuye exactamente en cada relevo y en ningún otro lado — el total del perfil cuadra y solo
-  está mal el reparto entre dos personas), y si la vista horaria ya existe en el sitio del cliente
-  o hay que crearla.
+  **Pendientes que abre:** publicar/identificar la worksheet plana horaria y confirmar la zona
+  horaria de sus marcas (un desfase de una hora misatribuye exactamente en cada relevo y en ningún
+  otro lado — el total del perfil cuadra y solo está mal el reparto entre dos personas).
 - **Horario real de turnos: 06:05, 14:05, 22:05 (2026-08-04).** Tres turnos de 8 h consecutivos sin
   hueco entre ellos. Consecuencias registradas en [`backend/PLAN.md`](backend/PLAN.md) §4.1–§4.3:
   (1) **ningún relevo cae en hora en punto**, así que los tres relevos del día atraviesan una hora
@@ -341,26 +345,19 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   y, una vez al mes, el de mes**: se guardan dos fechas por fila de puntos (fecha de inicio de
   turno para nómina, fecha calendario de la hora para conciliar con Tableau), y el periodo de
   nómina no se puede cerrar el día 1 sin dejar sin pagar el turno nocturno de la frontera.
-  **Pendiente que vale la pena resolver antes de construir el troceo:** ver la tarea de
-  verificación de filtros `vf_` más abajo.
-- **TAREA PENDIENTE — probar si los filtros `vf_<campo>` de Tableau aceptan rangos de tiempo
-  (anotada 2026-08-04, no ejecutada):** si aceptan, se puede pedir a la API directamente la ventana
-  de un turno (06:05–14:05) y obtener el total exacto, con **cero estimación** — desaparece el
-  reparto por minutos de [`backend/PLAN.md`](backend/PLAN.md) §4.2 y todo el troceo por horas. Si
-  no aceptan, queda el reparto por minutos, que de todos modos es suficiente.
-  - **No es pregunta para el cliente**, se resuelve probando: `GET /sites/{site-id}/views/{view-id}/data`
-    con `vf_<campo-fecha>` y una sintaxis de rango, contra el sitio Tableau del cliente.
-  - **Requiere lo que aún no tenemos:** credenciales/PAT del Tableau de la clienta 2 y saber qué
-    vista tiene los puntos por hora (pendiente abierto arriba). Hasta tener eso, no se puede probar.
-  - La colección `Tableau APIs.postman_collection.json` (§4) documenta `vf_<fieldname>=<value>`
-    pero **no** dice si `<value>` admite rango — por eso hay que probarlo, no leerlo.
-  - Guardar el resultado como evidencia (petición + respuesta cruda) igual que el resto de spikes,
-    y registrar aquí el hallazgo con fecha.
+  **Pendiente que vale la pena resolver antes de construir el troceo:** obtener esa worksheet plana
+  horaria; los filtros `vf_` no pueden convertir el resumen en detalle.
+- **Filtros `vf_` de Tableau (resuelto 2026-08-17):** la documentación REST excluye rangos,
+  comodines y desigualdades; solo permite valores exactos o listas. La atribución de ventanas
+  06:05/14:05/22:05 usa una worksheet temporal y el reparto 5/55 del backend. El discovery real
+  conservó request metadata, checksums y resultados sanitizados en `tasks/evidence/tableau/`.
 - Rol "Director Operativo" (FR-02) mencionado pero no formalizado aún en la tabla de acceso por rol.
-- **ETL de Tableau** — pendiente de confirmar con el cliente la lista exacta de vistas Tableau a
-  descargar diariamente, su estructura de columnas, valores nulos esperados, y si tiene cambios
-  históricos rastreables (para auditoría de cambios día a día). Implementación de worker, scheduler,
-  y transformaciones de datos en la BD — scope aún por asignar a entrega específica (1 o 2).
+- **ETL de Tableau** — inventario dinámico confirmado el 2026-08-17: 18 workbooks, 44 vistas por
+  workbook y 86 vistas a nivel de sitio. Revenue detailed está mapeada al view LUID
+  `0886ff29-117e-4e3f-b11a-6dafde449803`, pero es un resumen sin fecha/hora; la vista SourceID
+  hermana es semanal en REST, no horaria. Sigue pendiente publicar/identificar la worksheet plana
+  de puntos/revenue y su timezone. Worker, scheduler y transformaciones quedan en Entrega 2, con
+  Revenue a las 09:15 del día operativo vencido.
 - **Credenciales del spike de extensión aún en archivo plano, no en BD (2026-08-04):**
   [`extension/chrome-extension/`](../../AGENCY-OS/agency-os/extension/chrome-extension/) lee hoy
   `credenciales.json` (texto plano, en disco, vía `fetch('file:///...')` desde el background —

@@ -1,0 +1,120 @@
+[
+  {
+    "field": "Revenue type",
+    "candidateType": "observed-value",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 1,
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "rowCount": 0,
+    "headers": [],
+    "changedFromBaseline": true,
+    "durationMs": 8862
+  },
+  {
+    "field": "Max Hour",
+    "candidateType": "observed-value",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373152,
+    "sha256": "800c434688092afff6d1b70a3564c0a0f4f175979337182613b262cf5695debc",
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "changedFromBaseline": true,
+    "durationMs": 10593
+  },
+  {
+    "field": "ID Trusted User",
+    "candidateType": "observed-value",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 1,
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "rowCount": 0,
+    "headers": [],
+    "changedFromBaseline": true,
+    "durationMs": 6477
+  },
+  {
+    "field": "source ID ",
+    "candidateType": "observed-value",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373169,
+    "sha256": "c031a337ebbc91e435fac94502cbb1923cb022af7a48eebb13e6a2e056bfd730",
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "changedFromBaseline": true,
+    "durationMs": 8853
+  },
+  {
+    "field": "Date",
+    "candidateType": "guide-candidate",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373152,
+    "sha256": "c7f6d92b47c598e20529196dd582ecbc28ec26764c3f65eb174ce028f36fa35f",
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "changedFromBaseline": true,
+    "durationMs": 5895
+  },
+  {
+    "field": "__AgencyOSInvalidField",
+    "candidateType": "invalid-sentinel",
+    "value": "<redacted>",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 373173,
+    "sha256": "98c58bebe35d8cf7502e38440d18704796387646d3e2fa5275f96e600d626b88",
+    "rowCount": 1528,
+    "headers": [
+      "Admin",
+      "ID Trusted User",
+      "Max Hour",
+      "Revenue type",
+      "revenue_TU_services_title_1",
+      "revenue_TU_services_title_2",
+      "source ID",
+      "source_ID_alert",
+      "Revenue"
+    ],
+    "changedFromBaseline": true,
+    "durationMs": 6883
+  }
+]

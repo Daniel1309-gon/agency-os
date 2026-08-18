@@ -1,0 +1,530 @@
+{
+  "workbooks": [
+    {
+      "id": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "name": "Regional",
+      "contentUrl": "Regional",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/269121",
+      "project": {
+        "id": "8e98225e-5074-46da-810f-b841326c4ead",
+        "name": "Samples"
+      },
+      "updatedAt": "2023-01-17T09:31:51Z",
+      "defaultViewId": "edc07c78-b11b-4e22-9438-5836dcae539e"
+    },
+    {
+      "id": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "name": "Superstore",
+      "contentUrl": "Superstore",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/269122",
+      "project": {
+        "id": "8e98225e-5074-46da-810f-b841326c4ead",
+        "name": "Samples"
+      },
+      "updatedAt": "2023-01-17T09:31:56Z",
+      "defaultViewId": "61871119-5c81-495d-b4de-3feaad5a485d"
+    },
+    {
+      "id": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "name": "Limits usage",
+      "contentUrl": "Limitsusage_16741407201760",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/270927",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T20:15:51Z",
+      "defaultViewId": "08d3f60f-74cf-4781-b705-c913bca33af2"
+    },
+    {
+      "id": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "name": "Chat posts",
+      "contentUrl": "Chatposts",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/382604",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T09:19:31Z",
+      "defaultViewId": "28a0cfff-4162-4f74-9408-31faf65a0f21"
+    },
+    {
+      "id": "4488d733-afd3-47c0-a7ba-6a164d02bb45",
+      "name": "Contest",
+      "contentUrl": "Contest",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/597733",
+      "project": {
+        "id": "adb42e06-6d11-4b11-9c17-93af2982b5da",
+        "name": "Deprecated"
+      },
+      "updatedAt": "2025-01-03T16:57:19Z",
+      "defaultViewId": "54bbd4f4-dcfc-498c-a082-1a30ea63a2ae"
+    },
+    {
+      "id": "5aa0f323-de33-43cf-b23d-758da2169595",
+      "name": "Ice breakers with photo",
+      "contentUrl": "Icebreakerswithphoto",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/691110",
+      "project": {
+        "id": "9c78954a-ed1d-495e-b289-461081d6639b",
+        "name": "CSM reporting"
+      },
+      "updatedAt": "2026-08-17T05:46:58Z",
+      "defaultViewId": "a9a4457b-3c7d-4f1f-a63a-32540d347626"
+    },
+    {
+      "id": "467a3c1a-89b3-44a1-8596-dc144621b1f5",
+      "name": "Chat request",
+      "contentUrl": "Chatrequest",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/752375",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T07:40:26Z",
+      "defaultViewId": "f175b90b-459b-4e7a-ab89-e908e1225265"
+    },
+    {
+      "id": "6b8211fe-3afa-40ab-baa9-5e2e942130f5",
+      "name": "Blocked pairs",
+      "contentUrl": "Blockedpairs",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1120100",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T06:19:46Z",
+      "defaultViewId": "75fb683b-e050-4bbc-a88e-5bdb046c3436"
+    },
+    {
+      "id": "426eab5d-827d-49f2-9fa4-23590a42fa0d",
+      "name": "TOP connection",
+      "contentUrl": "TOPconnection",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1199012",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T18:07:20Z",
+      "defaultViewId": "198b220e-8eea-4acb-bcb4-1b9a757e72e6"
+    },
+    {
+      "id": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "name": "Video Calls. TU efficiency",
+      "contentUrl": "VideoCalls_TUefficiency",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1216465",
+      "project": {
+        "id": "adb42e06-6d11-4b11-9c17-93af2982b5da",
+        "name": "Deprecated"
+      },
+      "updatedAt": "2025-11-11T12:30:00Z",
+      "defaultViewId": "69513027-f190-4e1c-afb6-5f1bc5f7277d"
+    },
+    {
+      "id": "95d60442-5110-4960-b374-8f2cc1b032f0",
+      "name": "Vip Contacts",
+      "contentUrl": "VipContacts",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1298755",
+      "project": {
+        "id": "5d72149a-56b1-439b-8e75-aee3189fda99",
+        "name": "Reports for partners"
+      },
+      "updatedAt": "2026-08-17T04:01:35Z",
+      "defaultViewId": "a7732266-2df1-4e44-b2e8-d9e01d9eff1f"
+    },
+    {
+      "id": "2070ba3a-baa0-49aa-a8e3-a17436a4a02b",
+      "name": "Profile photo comments",
+      "contentUrl": "Profilephotocomments",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1616277",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T05:33:41Z",
+      "defaultViewId": "8da855ca-7e32-4b1b-b7b3-21270ed18a2a"
+    },
+    {
+      "id": "a717ccf5-85cb-40f9-b481-fef37168f861",
+      "name": "Temporary available photos",
+      "contentUrl": "Temporaryavailablephotos",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1646766",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2025-11-11T12:12:28Z",
+      "defaultViewId": "782cd00f-37b7-4efd-9f26-f6d70d523208"
+    },
+    {
+      "id": "3c3fbeb4-ace7-47ad-b2fd-fe797e494c3a",
+      "name": "Scoring KPI. Partners 2.0",
+      "contentUrl": "ScoringKPI_Partners2025",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1675238",
+      "project": {
+        "id": "d3425e78-de38-4a4f-931a-c5ece6fd0be0",
+        "name": "Scoring"
+      },
+      "updatedAt": "2026-08-17T09:32:38Z",
+      "defaultViewId": "d7cadd5f-836f-4243-a465-13ec4041ac1a"
+    },
+    {
+      "id": "a3cdc592-b478-48bb-b465-d680a33994a3",
+      "name": "Plain avatars monitoring",
+      "contentUrl": "Plainavatarsmonitoring_17436784354240",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1882785",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T05:02:47Z",
+      "defaultViewId": "59b81d49-e26e-4cc3-b4e5-c904c84265ec"
+    },
+    {
+      "id": "c76b469c-7f15-4bb2-8e1d-c47ccd00e899",
+      "name": "TU avatar CTR",
+      "contentUrl": "TUavatarCTR",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/1985575",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T03:22:46Z",
+      "defaultViewId": "f8584c34-387f-4129-87e1-d7abff3df1e0"
+    },
+    {
+      "id": "2c1c90cc-8494-4cd6-bbeb-bdf59eaf8384",
+      "name": "Chat request report",
+      "contentUrl": "Chatrequestreport",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/2067556",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T04:42:28Z",
+      "defaultViewId": "45283d67-00c7-4b9b-a1d3-63f18f0a8cd5"
+    },
+    {
+      "id": "3291c31a-fa45-4551-83c1-dd5b253a9ec1",
+      "name": "Sp. localization partners report",
+      "contentUrl": "Sp_localizationpartnersreport",
+      "webpageUrl": "https://prod-uk-a.online.tableau.com/#/site/partnerdata/workbooks/2737847",
+      "project": {
+        "id": "aa32db5e-d2f9-4e8c-9125-8e8445f96cdb",
+        "name": "General"
+      },
+      "updatedAt": "2026-08-17T01:37:25Z",
+      "defaultViewId": "5613c0ea-f065-4ffa-8cc0-812cad80a5da"
+    }
+  ],
+  "views": [
+    {
+      "id": "edc07c78-b11b-4e22-9438-5836dcae539e",
+      "name": "Obesity",
+      "contentUrl": "Regional/sheets/Obesity",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "9a1b4990-be52-4221-ba0b-0aa9ec4ca39e",
+      "name": "College",
+      "contentUrl": "Regional/sheets/College",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "f0be0ffc-14ce-4448-be55-536ccb42e451",
+      "name": "Global Temperatures",
+      "contentUrl": "Regional/sheets/GlobalTemperatures",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "44cbb4cf-dbd9-463e-afe5-9bbdecc6e677",
+      "name": "Flight Delays",
+      "contentUrl": "Regional/sheets/FlightDelays",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "6c2f5dc8-73f2-4754-bdc1-f12d98689c69",
+      "name": "Economy",
+      "contentUrl": "Regional/sheets/Economy",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "0134934c-f987-46e7-8cc3-85b15f8d5c1e",
+      "name": "Stocks",
+      "contentUrl": "Regional/sheets/Stocks",
+      "workbookId": "3628cbdd-e675-4b55-9d95-39e556f68cad",
+      "workbookContentUrl": "Regional"
+    },
+    {
+      "id": "61871119-5c81-495d-b4de-3feaad5a485d",
+      "name": "Overview",
+      "contentUrl": "Superstore/sheets/Overview",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "00a7ff84-268d-4d21-a2b1-3c258ef3ed94",
+      "name": "Product",
+      "contentUrl": "Superstore/sheets/Product",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "f3020782-6d38-4320-bc37-a71eb51d0f7e",
+      "name": "Customers",
+      "contentUrl": "Superstore/sheets/Customers",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "9d2e0ba7-be1f-4b71-91d4-a306b6a32f98",
+      "name": "Shipping",
+      "contentUrl": "Superstore/sheets/Shipping",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "cff01399-50aa-4221-a4cc-51f3b6e26685",
+      "name": "Performance",
+      "contentUrl": "Superstore/sheets/Performance",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "1b286132-ffd3-49f3-934b-b2fc69a091f3",
+      "name": "Commission Model",
+      "contentUrl": "Superstore/sheets/CommissionModel",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "3c089f3d-97f8-41ab-b2be-115c235ff5f2",
+      "name": "Order Details",
+      "contentUrl": "Superstore/sheets/OrderDetails",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "582726b7-3886-4cca-8c95-3928b18b4ab0",
+      "name": "Forecast",
+      "contentUrl": "Superstore/sheets/Forecast",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "fc7e73d0-06cc-4ede-8775-1964be87f1fd",
+      "name": "What If Forecast",
+      "contentUrl": "Superstore/sheets/WhatIfForecast",
+      "workbookId": "d491f17b-40d5-40d3-b1f0-6b05dcf5023f",
+      "workbookContentUrl": "Superstore"
+    },
+    {
+      "id": "08d3f60f-74cf-4781-b705-c913bca33af2",
+      "name": "Limits usage",
+      "contentUrl": "Limitsusage_16741407201760/sheets/Limitsusage",
+      "workbookId": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "workbookContentUrl": "Limitsusage_16741407201760"
+    },
+    {
+      "id": "2c21ec34-085f-4ec2-aa09-1f6985cbc25b",
+      "name": "Pairs with not used limits",
+      "contentUrl": "Limitsusage_16741407201760/sheets/Pairswithnotusedlimits",
+      "workbookId": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "workbookContentUrl": "Limitsusage_16741407201760"
+    },
+    {
+      "id": "473dc988-8d6e-4560-9e7d-0de447bcf45e",
+      "name": "Pairs with not used dialog start limits",
+      "contentUrl": "Limitsusage_16741407201760/sheets/Pairswithnotuseddialogstartlimits",
+      "workbookId": "a7681caa-fc3b-4d4a-8ecd-1bbeefe0cc9f",
+      "workbookContentUrl": "Limitsusage_16741407201760"
+    },
+    {
+      "id": "28a0cfff-4162-4f74-9408-31faf65a0f21",
+      "name": "Chat posts send",
+      "contentUrl": "Chatposts/sheets/Chatpostssend",
+      "workbookId": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "workbookContentUrl": "Chatposts"
+    },
+    {
+      "id": "22a4f97d-5de1-47ca-8e5d-9455f8947465",
+      "name": "Chat post convertion dashboard",
+      "contentUrl": "Chatposts/sheets/Chatpostconvertiondashboard",
+      "workbookId": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "workbookContentUrl": "Chatposts"
+    },
+    {
+      "id": "88dc2d3a-1398-413c-b234-460c3485bf6d",
+      "name": "Pairs with available chat posts",
+      "contentUrl": "Chatposts/sheets/Pairswithavailablechatposts",
+      "workbookId": "611402ef-92d9-420c-b527-25b40c09c0aa",
+      "workbookContentUrl": "Chatposts"
+    },
+    {
+      "id": "54bbd4f4-dcfc-498c-a082-1a30ea63a2ae",
+      "name": "Contest",
+      "contentUrl": "Contest/sheets/Contest",
+      "workbookId": "4488d733-afd3-47c0-a7ba-6a164d02bb45",
+      "workbookContentUrl": "Contest"
+    },
+    {
+      "id": "863d423d-0c59-43b6-9a94-7a9c80d54c4a",
+      "name": "Contest connections",
+      "contentUrl": "Contest/sheets/Contestconnections",
+      "workbookId": "4488d733-afd3-47c0-a7ba-6a164d02bb45",
+      "workbookContentUrl": "Contest"
+    },
+    {
+      "id": "a9a4457b-3c7d-4f1f-a63a-32540d347626",
+      "name": "Ices with photo",
+      "contentUrl": "Icebreakerswithphoto/sheets/Iceswithphoto",
+      "workbookId": "5aa0f323-de33-43cf-b23d-758da2169595",
+      "workbookContentUrl": "Icebreakerswithphoto"
+    },
+    {
+      "id": "f175b90b-459b-4e7a-ab89-e908e1225265",
+      "name": "Chat request",
+      "contentUrl": "Chatrequest/sheets/Chatrequest",
+      "workbookId": "467a3c1a-89b3-44a1-8596-dc144621b1f5",
+      "workbookContentUrl": "Chatrequest"
+    },
+    {
+      "id": "75fb683b-e050-4bbc-a88e-5bdb046c3436",
+      "name": "Blocked pairs",
+      "contentUrl": "Blockedpairs/sheets/Blockedpairs",
+      "workbookId": "6b8211fe-3afa-40ab-baa9-5e2e942130f5",
+      "workbookContentUrl": "Blockedpairs"
+    },
+    {
+      "id": "198b220e-8eea-4acb-bcb4-1b9a757e72e6",
+      "name": "TOP connection",
+      "contentUrl": "TOPconnection/sheets/TOPconnection",
+      "workbookId": "426eab5d-827d-49f2-9fa4-23590a42fa0d",
+      "workbookContentUrl": "TOPconnection"
+    },
+    {
+      "id": "69513027-f190-4e1c-afb6-5f1bc5f7277d",
+      "name": "Video Calls. TU efficiency (old)",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/VideoCalls_TUefficiencyold",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "6f4dabe4-016a-406d-b256-8664fd3d0f15",
+      "name": "Video Calls. TU metrics",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/VideoCalls_TUmetrics",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "2a3b51ae-558a-42f2-9fd7-32f55a8bdcd2",
+      "name": "Video Calls. TU metrics daily",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/VideoCalls_TUmetricsdaily",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "1e8553b5-4490-4ba1-a25d-e9f800349c9c",
+      "name": "Video Calls. TU metrics (2)",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/VideoCalls_TUmetrics2",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "22ba73ae-3745-4c8a-91bb-e1278dde9463",
+      "name": "Metric in dynamic",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/Metricindynamic",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "c8a98b5b-2585-4d1b-b779-657fe8d6e69c",
+      "name": "Video calls. TU efficiency",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/Videocalls_TUefficiency",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "a4573de0-5638-4f33-bb07-7b159f10a977",
+      "name": "Video calls. TU efficiency daily",
+      "contentUrl": "VideoCalls_TUefficiency/sheets/Videocalls_TUefficiencydaily",
+      "workbookId": "64f553f9-15a8-420f-bbba-23c80a67c4e2",
+      "workbookContentUrl": "VideoCalls_TUefficiency"
+    },
+    {
+      "id": "a7732266-2df1-4e44-b2e8-d9e01d9eff1f",
+      "name": "VIP Contacts Usage",
+      "contentUrl": "VipContacts/sheets/VIPContactsUsage",
+      "workbookId": "95d60442-5110-4960-b374-8f2cc1b032f0",
+      "workbookContentUrl": "VipContacts"
+    },
+    {
+      "id": "8da855ca-7e32-4b1b-b7b3-21270ed18a2a",
+      "name": "Profile photo comments",
+      "contentUrl": "Profilephotocomments/sheets/Profilephotocomments",
+      "workbookId": "2070ba3a-baa0-49aa-a8e3-a17436a4a02b",
+      "workbookContentUrl": "Profilephotocomments"
+    },
+    {
+      "id": "782cd00f-37b7-4efd-9f26-f6d70d523208",
+      "name": "Temporary available photos",
+      "contentUrl": "Temporaryavailablephotos/sheets/Temporaryavailablephotos",
+      "workbookId": "a717ccf5-85cb-40f9-b481-fef37168f861",
+      "workbookContentUrl": "Temporaryavailablephotos"
+    },
+    {
+      "id": "d7cadd5f-836f-4243-a465-13ec4041ac1a",
+      "name": "Scoring board",
+      "contentUrl": "ScoringKPI_Partners2025/sheets/Scoringboard",
+      "workbookId": "3c3fbeb4-ace7-47ad-b2fd-fe797e494c3a",
+      "workbookContentUrl": "ScoringKPI_Partners2025"
+    },
+    {
+      "id": "db333be7-4138-4402-8efe-75bd726097c5",
+      "name": "Plain avatar info for partners",
+      "contentUrl": "Plainavatarsmonitoring_17436784354240/sheets/Plainavatarinfoforpartners",
+      "workbookId": "a3cdc592-b478-48bb-b465-d680a33994a3",
+      "workbookContentUrl": "Plainavatarsmonitoring_17436784354240"
+    },
+    {
+      "id": "7a12fd50-86ca-4bbd-a4db-5e1c62b431de",
+      "name": "Plain avatar remoderation",
+      "contentUrl": "Plainavatarsmonitoring_17436784354240/sheets/Plainavatarremoderation",
+      "workbookId": "a3cdc592-b478-48bb-b465-d680a33994a3",
+      "workbookContentUrl": "Plainavatarsmonitoring_17436784354240"
+    },
+    {
+      "id": "24fb9e17-fd5e-4209-867e-885a287987e0",
+      "name": "TU avatar CTR (partners)",
+      "contentUrl": "TUavatarCTR/sheets/TUavatarCTRpartners",
+      "workbookId": "c76b469c-7f15-4bb2-8e1d-c47ccd00e899",
+      "workbookContentUrl": "TUavatarCTR"
+    },
+    {
+      "id": "45283d67-00c7-4b9b-a1d3-63f18f0a8cd5",
+      "name": "Chat request dashboard",
+      "contentUrl": "Chatrequestreport/sheets/Chatrequestdashboard",
+      "workbookId": "2c1c90cc-8494-4cd6-bbeb-bdf59eaf8384",
+      "workbookContentUrl": "Chatrequestreport"
+    },
+    {
+      "id": "c11d46f0-c880-4375-86d3-4e3400efa7b6",
+      "name": "Chat request content",
+      "contentUrl": "Chatrequestreport/sheets/Chatrequestcontent",
+      "workbookId": "2c1c90cc-8494-4cd6-bbeb-bdf59eaf8384",
+      "workbookContentUrl": "Chatrequestreport"
+    },
+    {
+      "id": "5613c0ea-f065-4ffa-8cc0-812cad80a5da",
+      "name": "Sp. localization partners metrics",
+      "contentUrl": "Sp_localizationpartnersreport/sheets/Sp_localizationpartnersmetrics",
+      "workbookId": "3291c31a-fa45-4551-83c1-dd5b253a9ec1",
+      "workbookContentUrl": "Sp_localizationpartnersreport"
+    }
+  ]
+}
