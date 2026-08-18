@@ -38,6 +38,7 @@ function applyTestEnv(): void {
   process.env.NODE_ENV = 'test';
   process.env.DATABASE_URL = testDatabaseUrl();
   process.env.REDIS_URL = testRedisUrl();
+  process.env.REQUIRE_SHIFT_FOR_AUTH = 'false';
   process.env.JWT_SECRET = TEST_JWT_SECRET;
   process.env.VAULT_KEK = TEST_VAULT_KEK;
   process.env.PASSWORD_SCRYPT_LOG2N = String(TEST_SCRYPT_LOG2N);

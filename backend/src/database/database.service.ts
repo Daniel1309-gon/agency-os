@@ -19,7 +19,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const url = this.config.get('DATABASE_URL');
+    const url = this.config.get('DATABASE_APP_URL') || this.config.get('DATABASE_URL');
     this.pool = new Pool({ connectionString: url });
     this._db = drizzle({ client: this.pool, schema });
     try {

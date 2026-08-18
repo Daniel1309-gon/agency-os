@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
+import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
 import {
   loginAttempts,
   permissions,
@@ -50,6 +52,7 @@ export class AuthService {
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly shiftAccess: ShiftAccessService,
   ) {}
 
   async login(input: LoginInput, ip?: string, userAgent?: string): Promise<AuthTokens> {
@@ -81,6 +84,11 @@ export class AuthService {
         .where(eq(users.id, identity.id));
       await this.recordAttempt(email, identity.id, ip, nextFailed >= 5 ? 'LOCKED' : 'BAD_CREDENTIALS');
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (identity.role === 'OPERADOR' && this.config.get('REQUIRE_SHIFT_FOR_AUTH') && !(await this.shiftAccess.isWithinApprovedWindow(identity.id))) {
+      await this.recordAttempt(email, identity.id, ip, 'OUTSIDE_SHIFT');
+      throw new ForbiddenException('Operator is outside an approved shift');
     }
 
     // Los hashes con parametros viejos (o con el formato previo a la decision #19)
@@ -118,6 +126,9 @@ export class AuthService {
 
     const identity = await this.findIdentityById(current.userId);
     if (!identity || identity.status !== 'ACTIVE') throw new UnauthorizedException('Invalid refresh token');
+    if (identity.role === 'OPERADOR' && this.config.get('REQUIRE_SHIFT_FOR_AUTH') && !(await this.shiftAccess.isWithinApprovedWindow(identity.id))) {
+      throw new ForbiddenException('Operator is outside an approved shift');
+    }
     const nextToken = randomToken();
     const nextId = randomUUID();
     const expiresAt = new Date(Date.now() + this.config.get('JWT_REFRESH_TTL_DAYS') * 86_400_000);

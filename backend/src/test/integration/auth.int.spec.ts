@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '../../config/config.service.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { randomBytes, scryptSync } from 'node:crypto';
 import { AuthService } from '../../modules/auth/auth.service.js';
-import { loginAttempts, refreshTokens, users } from '../../database/schema/index.js';
+import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { loginAttempts, refreshTokens, shifts, users } from '../../database/schema/index.js';
 import { verifyAccessToken } from '../../common/auth/crypto.js';
 import {
   TEST_JWT_SECRET,
@@ -20,7 +22,7 @@ let auth: AuthService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  auth = new AuthService(ctx.database, ctx.config, ctx.redis);
+  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database));
 });
 
 afterAll(async () => {
@@ -44,6 +46,31 @@ async function storedUser(id: string) {
 }
 
 describe('AuthService.login', () => {
+  it('blocks operator login and refresh outside an approved shift when the production policy is enabled', async () => {
+    const previous = process.env.REQUIRE_SHIFT_FOR_AUTH;
+    process.env.REQUIRE_SHIFT_FOR_AUTH = 'true';
+    try {
+      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database));
+      const user = await createUser(ctx);
+
+      await expect(strictAuth.login({ email: user.email, password: user.password }, fromIp(40))).rejects.toThrow(ForbiddenException);
+
+      const now = new Date();
+      await ctx.db.insert(shifts).values({
+        operatorId: user.id,
+        businessDate: '2026-08-17',
+        scheduledRange: `[${new Date(now.getTime() - 60_000).toISOString()},${new Date(now.getTime() + 60_000).toISOString()})`,
+      });
+      const tokens = await strictAuth.login({ email: user.email, password: user.password }, fromIp(41));
+
+      await ctx.db.update(shifts).set({ scheduledRange: `[${new Date(now.getTime() - 120_000).toISOString()},${new Date(now.getTime() - 60_000).toISOString()})` }).where(eq(shifts.operatorId, user.id));
+      await expect(strictAuth.refresh(tokens.refreshToken, fromIp(41))).rejects.toThrow(ForbiddenException);
+    } finally {
+      if (previous === undefined) delete process.env.REQUIRE_SHIFT_FOR_AUTH;
+      else process.env.REQUIRE_SHIFT_FOR_AUTH = previous;
+    }
+  });
+
   it('issues an access token carrying the role and permissions of the user', async () => {
     const user = await createUser(ctx, { role: 'OPERADOR', permissions: ['payroll.read', 'vault.credential.issue'] });
 
