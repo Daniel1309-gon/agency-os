@@ -1,8 +1,8 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
-import { cafeteriaOrders, profileSessions, shifts } from '../../database/schema/index.js';
+import { cafeteriaOrders, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -26,7 +26,34 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async reapSessions(): Promise<void> {
-    await this.db.db.update(profileSessions).set({ status: 'CLOSED', endedAt: new Date(), endReason: 'HEARTBEAT_TIMEOUT' }).where(and(eq(profileSessions.status, 'ACTIVE'), lt(profileSessions.lastHeartbeatAt, new Date(Date.now() - 120_000))));
+    const now = new Date();
+    const assignmentEnded = sql`NOT EXISTS (
+      SELECT 1
+      FROM ${profileAssignments} AS assignment
+      WHERE assignment.id = ${profileSessions.assignmentId}
+        AND assignment.status = 'ACTIVE'
+        AND assignment.valid_range @> now()
+    )`;
+
+    // The assignment boundary is authoritative: a stale heartbeat must not
+    // keep a profile alive after the handoff, and a heartbeat arriving after
+    // the boundary must never revive it.
+    await this.db.db
+      .update(profileSessions)
+      .set({ status: 'CLOSED', endedAt: now, endReason: 'ASSIGNMENT_ENDED' })
+      .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE')), assignmentEnded));
+
+    // LAUNCHING has its own deadline. Otherwise a failed extension handshake
+    // occupies the partial unique index forever and blocks the next operator.
+    await this.db.db
+      .update(profileSessions)
+      .set({ status: 'CLOSED', endedAt: now, endReason: 'LAUNCH_TIMEOUT' })
+      .where(and(eq(profileSessions.status, 'LAUNCHING'), lt(profileSessions.startedAt, new Date(now.getTime() - 120_000))));
+
+    await this.db.db
+      .update(profileSessions)
+      .set({ status: 'CLOSED', endedAt: now, endReason: 'HEARTBEAT_TIMEOUT' })
+      .where(and(eq(profileSessions.status, 'ACTIVE'), lt(profileSessions.lastHeartbeatAt, new Date(now.getTime() - 120_000))));
   }
 
   private async expireOrders(): Promise<void> {

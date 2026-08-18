@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
-import { profileSessions } from '../../database/schema/index.js';
+import { JobsService } from '../../modules/jobs/jobs.service.js';
+import { profileAssignments, profileSessions } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
@@ -17,10 +18,12 @@ import {
 
 let ctx: TestContext;
 let assignments: AssignmentsService;
+let jobs: JobsService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
   assignments = new AssignmentsService(ctx.database);
+  jobs = new JobsService(ctx.database, ctx.redis);
 });
 
 afterAll(async () => {
@@ -203,5 +206,36 @@ describe('AssignmentsService sessions', () => {
     await expect(assignments.updateSession(session.id, { status: 'CLOSED' }, other.id, otherDevice.token)).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  it('closes a LAUNCHING session that never reaches the extension handshake', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await ctx.db.update(profileSessions).set({ startedAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
+
+    await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
+
+    const [closed] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(closed).toEqual({ status: 'CLOSED', endReason: 'LAUNCH_TIMEOUT' });
+  });
+
+  it('closes a live session when its half-open assignment ends at the boundary', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+    await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
+
+    await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
+
+    const [closed] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(closed).toEqual({ status: 'CLOSED', endReason: 'ASSIGNMENT_ENDED' });
   });
 });
