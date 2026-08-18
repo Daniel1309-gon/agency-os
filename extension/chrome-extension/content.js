@@ -1,75 +1,58 @@
-// Spike: inyecta la credencial dummy que corresponde a ESTE perfil nativo,
-// leyendo el mapeo id->credencial desde credenciales.json.
-//
-// La extension no sabe su --profile-directory. El helper le pasa un id ligero
-// via query param (?agencyPerfil=N) al lanzar Chrome, y este content script
-// usa ese id para buscar su credencial en el JSON (via el background worker,
-// que es quien puede hacer fetch a file://).
-//
-// Vue no reacciona a `input.value = x` directo -- hay que usar el setter
-// nativo del prototipo y disparar 'input'/'change' (verificado 2026-07-30).
+let injected = false;
+let requesting = false;
 
-// Ruta absoluta al JSON de mapeo. Ajustala si moves el repo de lugar.
-const CREDENCIALES_URL =
-  'file:///C:/Users/danig/Documents/AGENCY-OS/agency-os/extension/credenciales.json';
-
-let yaInyectado = false;
-
-function ocultarTogglePassword() {
-  document.querySelectorAll('svg#Eye, svg#EyeOff').forEach((icon) => {
-    icon.style.display = 'none';
-    icon.style.pointerEvents = 'none';
-    icon.remove();
-  });
+function hidePasswordToggle() {
+  document.querySelectorAll('svg#Eye, svg#EyeOff').forEach((icon) => icon.remove());
 }
 
-function setNativeValue(el, value) {
-  const proto = Object.getPrototypeOf(el);
-  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-  setter.call(el, value);
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
+function setNativeValue(element, value) {
+  const prototype = Object.getPrototypeOf(element);
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+  if (!setter) throw new Error('No se encontró el setter nativo del formulario');
+  setter.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-async function inyectarCredencial() {
-  if (yaInyectado) return;
-  const perfilId = new URLSearchParams(location.search).get('agencyPerfil');
-  if (!perfilId) {
-    console.warn('[Agency OS spike] Falta ?agencyPerfil=N en la URL. No se inyecta.');
-    return;
-  }
-  const resp = await chrome.runtime.sendMessage({
-    tipo: 'obtenerCredenciales',
-    url: CREDENCIALES_URL,
-  });
-  if (!resp || !resp.ok) {
-    console.error('[Agency OS spike] fetch credenciales fallo:', resp && resp.error);
-    return;
-  }
-  const entrada = resp.data.find((c) => String(c.id) === String(perfilId));
-  if (!entrada) {
-    console.warn('[Agency OS spike] Sin entrada id=' + perfilId + ' en credenciales.json');
-    return;
-  }
-  const emailInput = document.querySelector('input[type="email"]');
-  const passwordInput = document.querySelector('input[type="password"]');
-  if (emailInput && passwordInput && !emailInput.value) {
-    setNativeValue(emailInput, entrada.email);
-    setNativeValue(passwordInput, entrada.password);
-    yaInyectado = true;
-    console.log(
-      '[Agency OS spike] credencial inyectada id=' + perfilId + ' (' + entrada.perfil + ')'
-    );
+async function injectCredential() {
+  if (injected || requesting) return;
+  const query = new URLSearchParams(location.search);
+  const profileId = query.get('agencyProfile');
+  const sessionId = query.get('agencySession');
+  if (!profileId || !sessionId) return;
+  const email = document.querySelector('input[type="email"]');
+  const password = document.querySelector('input[type="password"]');
+  if (!email || !password || email.value) return;
+  requesting = true;
+  let credentialReceived = false;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'requestCredential', profileId, sessionId });
+    if (!response?.ok) throw new Error(response?.error || 'Agency OS no entregó la credencial');
+    credentialReceived = true;
+    try {
+      setNativeValue(email, response.credential.username);
+      setNativeValue(password, response.credential.secret);
+      injected = true;
+    } finally {
+      response.credential.username = '';
+      response.credential.secret = '';
+    }
+    await chrome.runtime.sendMessage({ type: 'credentialInjectionComplete', profileId, sessionId });
+  } catch {
+    if (credentialReceived && !injected) {
+      await chrome.runtime.sendMessage({ type: 'credentialInjectionFailed', profileId, sessionId }).catch(() => undefined);
+    }
+    // No se imprime el error: una respuesta de infraestructura podría incluir
+    // contexto sensible. El backend conserva la causa sanitizada y auditable.
+  } finally {
+    requesting = false;
   }
 }
 
-function revisarDOM() {
-  ocultarTogglePassword();
-  inyectarCredencial();
+function inspectDom() {
+  hidePasswordToggle();
+  void injectCredential();
 }
 
-revisarDOM();
-new MutationObserver(revisarDOM).observe(document.documentElement, {
-  childList: true,
-  subtree: true,
-});
+inspectDom();
+new MutationObserver(inspectDom).observe(document.documentElement, { childList: true, subtree: true });

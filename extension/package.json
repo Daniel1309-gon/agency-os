@@ -1,0 +1,12 @@
+{
+  "name": "agency-os-extension",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "check:js": "node --check chrome-extension/background.js && node --check chrome-extension/content.js",
+    "package:crx": "python empaquetar_y_probar_forcelist.py",
+    "spike:login": "python login_talkytimes.py",
+    "spike:launch": "python lanzar_perfil_nativo.py"
+  }
+}

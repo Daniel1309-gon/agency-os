@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Agency OS - Spike inyeccion por perfil nativo",
-  "version": "0.2.0",
-  "description": "Spike: inyecta la credencial dummy que corresponde a cada perfil nativo de Chrome, leyendo el mapeo desde credenciales.json local.",
+  "name": "Agency OS - Acceso seguro a TalkyTimes",
+  "version": "1.0.0",
+  "description": "Inicia sesiones autorizadas por Agency OS sin persistir ni exponer credenciales de TalkyTimes.",
   "background": {
     "service_worker": "background.js"
   },
@@ -17,7 +17,20 @@
       "run_at": "document_idle"
     }
   ],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
-    "file:///*"
-  ]
+    "https://*/*",
+    "http://localhost:3000/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://*/*",
+      "http://localhost:5173/*"
+    ]
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  }
 }

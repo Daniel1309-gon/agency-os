@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "apiBaseUrl": {
+      "type": "string",
+      "description": "Base URL exacta del API, incluyendo /api/v1."
+    },
+    "webAppOrigin": {
+      "type": "string",
+      "description": "Origin exacto autorizado para preparar sesiones de la extensión."
+    },
+    "deviceToken": {
+      "type": "string",
+      "description": "Token revocable del dispositivo, provisionado mediante política empresarial."
+    }
+  }
+}
