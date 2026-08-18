@@ -7,13 +7,18 @@
     "dev": "tsc -p tsconfig.build.json && concurrently -k -n tsc,node -c blue,green \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch --env-file=.env dist/main.js\"",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
+    "start:local": "node --env-file=.env dist/main.js",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",
     "test:all": "pnpm test && pnpm test:integration",
-    "db:seed": "tsc -p tsconfig.build.json && node --env-file=.env dist/database/seeds/seed.js"
+    "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",
+    "db:bootstrap-runtime": "node --env-file=.env scripts/db-bootstrap-runtime.mjs",
+    "db:bootstrap-ip": "node --env-file=.env scripts/db-bootstrap-ip.mjs",
+    "db:seed": "tsc -p tsconfig.build.json && node --env-file=.env dist/database/seeds/seed.js",
+    "bot:knowledge:import": "pnpm build && node --env-file=.env dist/scripts/bot-knowledge-import.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",

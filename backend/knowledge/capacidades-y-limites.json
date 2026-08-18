@@ -1,0 +1,8 @@
+{
+  "slug": "capacidades-y-limites",
+  "version": 1,
+  "question": "¿Qué puede hacer el bot y cuáles son sus límites?",
+  "answer": "Puedo responder preguntas técnicas aprobadas sobre Agency OS. No cambio turnos, usuarios, asignaciones, credenciales ni otros datos operativos. Para una solicitud de cambio, contacta a tu coordinador o a administración.",
+  "keywords": ["qué puedes hacer", "capacidades", "límites", "cambiar datos", "cambios operativos"],
+  "crewIds": []
+}
