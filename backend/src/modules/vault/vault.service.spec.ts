@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConflictException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VaultService } from './vault.service.js';
 import type { VaultCryptoService } from './vault.crypto.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
 import { hashToken } from '../../common/auth/crypto.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
+import type { AuditService } from '../../common/audit/audit.service.js';
 
 const OPERATOR = '11111111-1111-1111-1111-111111111111';
 const OTHER_OPERATOR = '99999999-9999-9999-9999-999999999999';
@@ -39,6 +40,14 @@ function harness(): Harness {
       store.delete(key);
       return value;
     },
+    async get(key: string) {
+      return store.get(key) ?? null;
+    },
+    async compareAndDelete(key: string, expected: string) {
+      if (store.get(key) !== expected) return false;
+      store.delete(key);
+      return true;
+    },
     async incrWithExpiry(key: string) {
       const next = (counters.get(key) ?? 0) + 1;
       counters.set(key, next);
@@ -58,7 +67,8 @@ function harness(): Harness {
     })),
   } as unknown as VaultCryptoService;
 
-  return { service: new VaultService(db.service, redis, crypto), db, store, ttls, counters, decrypt };
+  const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
+  return { service: new VaultService(db.service, redis, crypto, audit), db, store, ttls, counters, decrypt };
 }
 
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */
@@ -226,13 +236,16 @@ describe('VaultService.redeem', () => {
     await expect(h.service.redeem({ grantId }, context)).rejects.toThrow(NotFoundException);
   });
 
-  it('burns the ticket even when the redeem is refused afterwards', async () => {
-    // El grant se consume en el getDel: un atacante no puede reintentar con
-    // otro dispositivo hasta acertar.
+  it('does not burn a grant when an unauthorized operator tries to redeem it', async () => {
+    // El binding se valida antes del consumo: un atacante no puede inutilizar
+    // el login legitimo quemando un grant que no le pertenece.
     const { grantId } = await h.service.grant(grantInput, context);
-    await expect(h.service.redeem({ grantId }, { ...context, userId: OTHER_OPERATOR })).rejects.toThrow(HttpException);
+    await expect(h.service.redeem({ grantId }, { ...context, userId: OTHER_OPERATOR })).rejects.toThrow(ForbiddenException);
 
-    expect(h.store.has(`vault:grant:${grantId}`)).toBe(false);
-    await expect(h.service.redeem({ grantId }, context)).rejects.toThrow(ConflictException);
+    expect(h.store.has(`vault:grant:${grantId}`)).toBe(true);
+    await expect(h.service.redeem({ grantId }, context)).resolves.toEqual({
+      username: 'perfil@talky.test',
+      secret: 'la-contrasena-del-perfil',
+    });
   });
 });

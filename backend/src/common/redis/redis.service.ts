@@ -40,6 +40,17 @@ export class RedisService implements OnModuleDestroy {
     return typeof result === 'string' ? result : null;
   }
 
+  async compareAndDelete(key: string, expected: string): Promise<boolean> {
+    if (this.client.status === 'wait') await this.client.connect();
+    const result = await this.client.eval(
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+      1,
+      key,
+      expected,
+    );
+    return Number(result) === 1;
+  }
+
   async incrWithExpiry(key: string, seconds: number): Promise<number> {
     if (this.client.status === 'wait') await this.client.connect();
     const count = await this.client.incr(key);
