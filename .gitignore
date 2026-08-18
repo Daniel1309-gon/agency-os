@@ -5,3 +5,5 @@ dist/
 *.crx
 extension/chrome_profiles/
 .pnpm-store/
+chat/
+.local/
