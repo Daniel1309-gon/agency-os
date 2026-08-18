@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const userCreateSchema = z.object({ email: z.string().email().max(320), fullName: z.string().trim().min(1).max(160), password: z.string().min(12).max(72), roleCode: z.string().trim().min(1).max(80), nationalId: z.string().max(40).optional(), phone: z.string().max(40).optional() });
-export const userPatchSchema = z.object({ fullName: z.string().trim().min(1).max(160).optional(), phone: z.string().max(40).optional(), roleCode: z.string().max(80).optional() });
+export const userCreateSchema = z.object({ email: z.string().email().max(320), fullName: z.string().trim().min(1).max(160), password: z.string().min(12).max(72), roleCode: z.string().trim().min(1).max(80), nationalId: z.string().max(40).optional(), phone: z.string().max(40).optional(), rocketchatUserId: z.string().max(160).optional(), rocketchatDirectRoomId: z.string().max(160).optional() });
+export const userPatchSchema = z.object({ fullName: z.string().trim().min(1).max(160).optional(), phone: z.string().max(40).optional(), roleCode: z.string().max(80).optional(), rocketchatUserId: z.string().max(160).optional(), rocketchatDirectRoomId: z.string().max(160).optional() });
 export const settingSchema = z.object({ value: z.unknown(), description: z.string().max(500).optional(), isSecret: z.boolean().optional() });
 export const featureFlagSchema = z.object({ isEnabled: z.boolean(), rollout: z.record(z.unknown()).optional(), description: z.string().max(500).optional() });
 export const ipAllowlistSchema = z.object({ label: z.string().trim().min(1).max(160), cidr: z.string().trim().min(1).max(64), scope: z.enum(['ALL', 'ROLE', 'USER']).default('ALL'), roleId: z.string().uuid().optional(), userId: z.string().uuid().optional(), expiresAt: z.string().datetime({ offset: true }).optional() });

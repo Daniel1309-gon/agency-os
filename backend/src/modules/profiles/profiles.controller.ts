@@ -11,31 +11,31 @@ export class ProfilesController {
 
   @Get()
   @RequirePermissions('profiles.read')
-  list(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.profiles.list(Number(page ?? 1), Number(pageSize ?? 20));
+  list(@CurrentUser() user: AccessTokenClaims, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.profiles.list(user, Number(page ?? 1), Number(pageSize ?? 20));
   }
 
   @Post()
   @RequirePermissions('profiles.create')
   @UsePipes(new ZodValidationPipe(profileCreateSchema))
   create(@Body() body: ProfileCreateInput, @CurrentUser() user: AccessTokenClaims) {
-    return this.profiles.create(body, user.sub);
+    return this.profiles.create(body, user);
   }
 
   @Get(':id')
   @RequirePermissions('profiles.read')
-  get(@Param('id') id: string) { return this.profiles.get(id); }
+  get(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.profiles.get(id, user); }
 
   @Patch(':id')
   @RequirePermissions('profiles.update')
   @UsePipes(new ZodValidationPipe(profileUpdateSchema))
-  update(@Param('id') id: string, @Body() body: ProfileUpdateInput, @CurrentUser() user: AccessTokenClaims) { return this.profiles.update(id, body, user.sub); }
+  update(@Param('id') id: string, @Body() body: ProfileUpdateInput, @CurrentUser() user: AccessTokenClaims) { return this.profiles.update(id, body, user); }
 
   @Post(':id/deactivate')
   @RequirePermissions('profiles.update')
-  deactivate(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.profiles.deactivate(id, user.sub); }
+  deactivate(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.profiles.deactivate(id, user); }
 
   @Get(':id/access-log')
   @RequirePermissions('audit.read')
-  accessLog(@Param('id') id: string) { return this.profiles.accessLog(id); }
+  accessLog(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.profiles.accessLog(id, user); }
 }

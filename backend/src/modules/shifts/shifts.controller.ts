@@ -31,7 +31,7 @@ export class ShiftsController {
 export class ShiftTemplatesController {
   constructor(private readonly shifts: ShiftsService) {}
   @Get() @RequirePermissions('shifts.read') list() { return this.shifts.listTemplates(); }
-  @Post() @RequirePermissions('shifts.manage') @UsePipes(new ZodValidationPipe(shiftTemplateSchema)) create(@Body() body: ShiftTemplateInput) { return this.shifts.createTemplate(body); }
+  @Post() @RequirePermissions('shifts.manage') @UsePipes(new ZodValidationPipe(shiftTemplateSchema)) create(@Body() body: ShiftTemplateInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.createTemplate(body, user.sub); }
 }
 
 @Controller('shift-overrides')

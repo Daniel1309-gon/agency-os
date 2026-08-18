@@ -2,14 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
+import { AuditService } from '../../common/audit/audit.service.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { JobsService } from '../../modules/jobs/jobs.service.js';
-import { profileAssignments, profileSessions } from '../../database/schema/index.js';
+import { auditLog, crewMembers, crews, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
   createTestContext,
   createUser,
   destroyTestContext,
+  halfOpen,
   isoOffset,
   resetDatabase,
   seedRoles,
@@ -22,8 +25,8 @@ let jobs: JobsService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  assignments = new AssignmentsService(ctx.database);
-  jobs = new JobsService(ctx.database, ctx.redis);
+  assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database));
+  jobs = new JobsService(ctx.database, ctx.redis, new RealtimeService(ctx.database));
 });
 
 afterAll(async () => {
@@ -99,6 +102,78 @@ describe('AssignmentsService.create', () => {
     await expect(assignments.create({ profileId: active.id, operatorId: disabled.id, ...NOW_WINDOW() }, admin.id)).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  it('only assigns users with the OPERADOR role', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const profile = await createProfile(ctx);
+
+    await expect(
+      assignments.create({ profileId: profile.id, operatorId: coordinator.id, ...NOW_WINDOW() }, admin.id),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('limits coordinators to operators in their current crews', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const managedProfile = await createProfile(ctx);
+    const outsiderProfile = await createProfile(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Managed crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+
+    await expect(assignments.create({ profileId: managedProfile.id, operatorId: managed.id, ...NOW_WINDOW() }, coordinator.id)).resolves.toMatchObject({ operatorId: managed.id });
+    await expect(assignments.create({ profileId: outsiderProfile.id, operatorId: outsider.id, ...NOW_WINDOW() }, coordinator.id)).rejects.toThrow('outside the actor crew scope');
+    await expect(assignments.history({ page: 1, pageSize: 10 }, coordinator.id)).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ operatorId: managed.id })] });
+  });
+
+  it('requires an assignment linked to a shift to match its operator and window', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const other = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const validFrom = isoOffset(-60);
+    const validTo = isoOffset(60);
+    const [shift] = await ctx.db
+      .insert(shifts)
+      .values({
+        operatorId: other.id,
+        businessDate: '2026-08-17',
+        scheduledRange: `[${validFrom},${validTo})`,
+        createdBy: admin.id,
+      })
+      .returning({ id: shifts.id });
+
+    await expect(
+      assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom, validTo }, admin.id),
+    ).rejects.toThrow(ConflictException);
+
+    await ctx.db.update(shifts).set({ operatorId: operator.id }).where(eq(shifts.id, shift.id));
+    await expect(
+      assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom: isoOffset(-120), validTo }, admin.id),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('lets a different authorized actor end an assignment and exposes paginated history', async () => {
+    const creator = await createUser(ctx, { role: 'ADMIN' });
+    const closer = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const row = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, creator.id);
+
+    await expect(assignments.end(row.id, closer.id)).resolves.toEqual({ id: row.id });
+    const history = await assignments.history({ page: 1, pageSize: 10, operatorId: operator.id }, closer.id);
+    expect(history).toMatchObject({ page: 1, pageSize: 10, total: 1 });
+    expect(history.items[0]).toMatchObject({ id: row.id, status: 'ENDED', operatorId: operator.id });
+    const audit = await ctx.db
+      .select({ action: auditLog.action, actorUserId: auditLog.actorUserId })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, row.id));
+    expect(audit).toEqual([
+      { action: 'assignment.created', actorUserId: creator.id },
+      { action: 'assignment.ended', actorUserId: closer.id },
+    ]);
   });
 });
 
@@ -191,6 +266,37 @@ describe('AssignmentsService sessions', () => {
       .from(profileSessions)
       .where(eq(profileSessions.id, session.id));
     expect(errored).toMatchObject({ status: 'ERROR', errorCode: 'LOGIN_FAILED' });
+  });
+
+  it('does not reopen a closed session through PATCH', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await assignments.closeSession(session.id, s.operatorId, s.deviceToken);
+
+    await expect(
+      assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('revalidates the assignment window before every session transition', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await ctx.db
+      .update(profileAssignments)
+      .set({ validRange: `[${isoOffset(-120)},${isoOffset(-60)})` })
+      .where(eq(profileAssignments.id, s.assignmentId));
+
+    await expect(
+      assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   it('does not let one operator touch another operator session', async () => {

@@ -1,6 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
+import { AuditService } from '../../common/audit/audit.service.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
+import type { Server } from 'socket.io';
 import { OperatorStatusService } from '../../modules/operator-status/operator-status.service.js';
 import { ShiftsService } from '../../modules/shifts/shifts.service.js';
 import { breaks, operatorCurrentStatus } from '../../database/schema/index.js';
@@ -20,12 +23,18 @@ let ctx: TestContext;
 let assignments: AssignmentsService;
 let shiftsService: ShiftsService;
 let status: OperatorStatusService;
+let emitted: Array<{ event: string; payload: { operatorId: string; status: string } }>;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  assignments = new AssignmentsService(ctx.database);
-  shiftsService = new ShiftsService(ctx.database);
-  status = new OperatorStatusService(ctx.database);
+  const realtime = new RealtimeService(ctx.database);
+  emitted = [];
+  realtime.attach({
+    to: vi.fn(() => ({ emit: (event: string, payload: { operatorId: string; status: string }) => emitted.push({ event, payload }) })),
+  } as unknown as Server);
+  assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), realtime);
+  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime);
+  status = new OperatorStatusService(ctx.database, realtime);
 });
 
 afterAll(async () => {
@@ -43,21 +52,24 @@ describe('operator status projection', () => {
     const operator = await createUser(ctx, { role: 'OPERADOR' });
     const profile = await createProfile(ctx);
     const device = await createDevice(ctx, { operatorId: operator.id });
+    const scheduledFrom = isoOffset(-60);
+    const scheduledTo = isoOffset(60);
     const shift = await shiftsService.create({
       operatorId: operator.id,
       businessDate: '2026-08-17',
-      scheduledFrom: isoOffset(-60),
-      scheduledTo: isoOffset(60),
+      scheduledFrom,
+      scheduledTo,
     }, admin.id);
     const assignment = await assignments.create({
       profileId: profile.id,
       operatorId: operator.id,
       shiftId: shift.id,
-      validFrom: isoOffset(-60),
-      validTo: isoOffset(60),
+      validFrom: scheduledFrom,
+      validTo: scheduledTo,
     }, admin.id);
     const session = await assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.token);
     await assignments.updateSession(session.id, { status: 'ACTIVE' }, operator.id, device.token);
+    expect(emitted.at(-1)).toMatchObject({ event: 'operator.status.changed', payload: { operatorId: operator.id, status: 'ONLINE' } });
 
     let [row] = await status.list();
     expect(row).toMatchObject({ operatorId: operator.id, status: 'ONLINE' });

@@ -1,20 +1,22 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
-import { cafeteriaOrders, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
+import { breaks, cafeteriaOrders, outboxEvents, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
   private readonly timers: NodeJS.Timeout[] = [];
 
-  constructor(private readonly db: DatabaseService, private readonly redis: RedisService) {}
+  constructor(private readonly db: DatabaseService, private readonly redis: RedisService, private readonly realtime: RealtimeService) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
     this.timers.push(setInterval(() => void this.runExclusive('sessions:reap', 55, () => this.reapSessions()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('cafeteria:expire-orders', 55, () => this.expireOrders()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('shifts:open-close', 55, () => this.closeExpiredShifts()), 60_000));
+    this.timers.push(setInterval(() => void this.runExclusive('breaks:notify', 55, () => this.notifyUpcomingBreaks()), 60_000));
   }
 
   async onModuleDestroy(): Promise<void> { for (const timer of this.timers) clearInterval(timer); }
@@ -38,22 +40,27 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     // The assignment boundary is authoritative: a stale heartbeat must not
     // keep a profile alive after the handoff, and a heartbeat arriving after
     // the boundary must never revive it.
-    await this.db.db
+    const assignmentClosed = await this.db.db
       .update(profileSessions)
       .set({ status: 'CLOSED', endedAt: now, endReason: 'ASSIGNMENT_ENDED' })
-      .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE')), assignmentEnded));
+      .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE')), assignmentEnded))
+      .returning({ operatorId: profileSessions.operatorId });
 
     // LAUNCHING has its own deadline. Otherwise a failed extension handshake
     // occupies the partial unique index forever and blocks the next operator.
-    await this.db.db
+    const launchClosed = await this.db.db
       .update(profileSessions)
       .set({ status: 'CLOSED', endedAt: now, endReason: 'LAUNCH_TIMEOUT' })
-      .where(and(eq(profileSessions.status, 'LAUNCHING'), lt(profileSessions.startedAt, new Date(now.getTime() - 120_000))));
+      .where(and(eq(profileSessions.status, 'LAUNCHING'), lt(profileSessions.startedAt, new Date(now.getTime() - 120_000))))
+      .returning({ operatorId: profileSessions.operatorId });
 
-    await this.db.db
+    const heartbeatClosed = await this.db.db
       .update(profileSessions)
       .set({ status: 'CLOSED', endedAt: now, endReason: 'HEARTBEAT_TIMEOUT' })
-      .where(and(eq(profileSessions.status, 'ACTIVE'), lt(profileSessions.lastHeartbeatAt, new Date(now.getTime() - 120_000))));
+      .where(and(eq(profileSessions.status, 'ACTIVE'), lt(profileSessions.lastHeartbeatAt, new Date(now.getTime() - 120_000))))
+      .returning({ operatorId: profileSessions.operatorId });
+    const changed = new Set([...assignmentClosed, ...launchClosed, ...heartbeatClosed].map((row) => row.operatorId));
+    await Promise.all([...changed].map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));
   }
 
   private async expireOrders(): Promise<void> {
@@ -61,7 +68,43 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async closeExpiredShifts(): Promise<void> {
-    await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`));
-    await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: new Date(), effectiveMinutes: sql`greatest(0, extract(epoch from (now() - coalesce(${shifts.actualStartAt}, now()))) / 60)::int` }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`));
+    const endedAt = new Date();
+    const operatorIds = await this.db.transaction(async () => {
+      const missed = await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
+      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt, effectiveMinutes: sql`greatest(0, extract(epoch from (now() - coalesce(${shifts.actualStartAt}, now()))) / 60)::int` }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
+      const ids = [...missed, ...completed].map((row) => row.id);
+      if (!ids.length) return [];
+      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
+      await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'PENDING')));
+      return [...new Set([...missed, ...completed].map((row) => row.operatorId))];
+    });
+    await Promise.all(operatorIds.map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));
+  }
+
+  private async notifyUpcomingBreaks(): Promise<void> {
+    await this.db.transaction(async () => {
+      const candidates = await this.db.db
+        .select({ id: breaks.id, shiftId: breaks.shiftId, scheduledAt: breaks.scheduledAt, operatorId: shifts.operatorId })
+        .from(breaks)
+        .innerJoin(shifts, eq(shifts.id, breaks.shiftId))
+        .where(and(
+          eq(breaks.status, 'PENDING'),
+          isNull(breaks.notifiedAt),
+          isNotNull(breaks.scheduledAt),
+          lte(breaks.scheduledAt, new Date(Date.now() + 10 * 60_000)),
+          or(eq(shifts.status, 'SCHEDULED'), eq(shifts.status, 'IN_PROGRESS')),
+        ))
+        .limit(250);
+      for (const candidate of candidates) {
+        const [claimed] = await this.db.db.update(breaks).set({ notifiedAt: new Date() }).where(and(eq(breaks.id, candidate.id), isNull(breaks.notifiedAt))).returning({ id: breaks.id });
+        if (!claimed) continue;
+        await this.db.db.insert(outboxEvents).values({
+          eventType: 'break.reminder',
+          aggregateType: 'break',
+          aggregateId: candidate.id,
+          payload: { breakId: candidate.id, shiftId: candidate.shiftId, operatorId: candidate.operatorId, scheduledAt: candidate.scheduledAt?.toISOString() },
+        });
+      }
+    });
   }
 }
