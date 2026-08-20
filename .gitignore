@@ -7,3 +7,5 @@ extension/chrome_profiles/
 .pnpm-store/
 chat/
 .local/
+.claude/
+.go-cache/
