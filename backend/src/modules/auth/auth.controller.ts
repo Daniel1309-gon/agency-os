@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, Post, Req, Res, UsePipes } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '../../config/config.service.js';
 import { CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -11,20 +12,20 @@ function cookieValue(cookieHeader: string | undefined, name: string): string | u
   return cookieHeader?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-function setRefreshCookie(reply: FastifyReply, token: string, maxAgeSeconds: number): void {
-  reply.header('set-cookie', `agency_refresh=${encodeURIComponent(token)}; Max-Age=${maxAgeSeconds}; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict`);
+function setRefreshCookie(reply: FastifyReply, token: string, maxAgeSeconds: number, secure: boolean): void {
+  reply.header('set-cookie', `agency_refresh=${encodeURIComponent(token)}; Max-Age=${maxAgeSeconds}; Path=/api/v1/auth; HttpOnly${secure ? '; Secure' : ''}; SameSite=Strict`);
 }
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly config: ConfigService) {}
 
   @Public()
   @Post('login')
   @UsePipes(new ZodValidationPipe(loginSchema))
   async login(@Body() body: LoginInput, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     const result = await this.auth.login(body, req.ip, req.headers['user-agent']);
-    setRefreshCookie(reply, result.refreshToken, 7 * 86_400);
+    setRefreshCookie(reply, result.refreshToken, 7 * 86_400, this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }
 
@@ -35,14 +36,15 @@ export class AuthController {
     const token = body.refreshToken ?? cookieValue(cookie, 'agency_refresh');
     if (!token) throw new UnauthorizedException('Refresh token required');
     const result = await this.auth.refresh(token, req.ip, req.headers['user-agent']);
-    setRefreshCookie(reply, result.refreshToken, 7 * 86_400);
+    setRefreshCookie(reply, result.refreshToken, 7 * 86_400, this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }
 
   @Post('logout')
-  async logout(@Headers('cookie') cookie: string | undefined, @Body() body: RefreshInput): Promise<{ ok: true }> {
+  async logout(@Headers('cookie') cookie: string | undefined, @Body() body: RefreshInput, @Res({ passthrough: true }) reply: FastifyReply): Promise<{ ok: true }> {
     const token = body?.refreshToken ?? cookieValue(cookie, 'agency_refresh');
     if (token) await this.auth.logout(token);
+    setRefreshCookie(reply, '', 0, this.config.get('NODE_ENV') === 'production');
     return { ok: true };
   }
 
