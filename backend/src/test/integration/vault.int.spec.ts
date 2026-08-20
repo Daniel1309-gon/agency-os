@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 /** Operador en turno, con dispositivo aprobado, asignacion vigente y sesion viva. */
-async function scenario(options: { profileStatus?: string; sessionStatus?: string } = {}): Promise<Scenario> {
+async function scenario(options: { profileStatus?: string; sessionStatus?: string; sessionDeviceId?: string | null } = {}): Promise<Scenario> {
   const admin = await createUser(ctx, { role: 'ADMIN' });
   const operator = await createUser(ctx);
   const other = await createUser(ctx);
@@ -79,10 +79,10 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
     .values({
       profileId: profile.id,
       operatorId: operator.id,
-      deviceId: device.id,
+      deviceId: options.sessionDeviceId === undefined ? device.id : options.sessionDeviceId,
       assignmentId: assignment.id,
       chromeProfileDir: 'Profile 3',
-      status: options.sessionStatus ?? 'ACTIVE',
+      status: options.sessionStatus ?? 'LAUNCHING',
     })
     .returning({ id: profileSessions.id });
 
@@ -253,13 +253,36 @@ describe('grant denials are recorded with their reason', () => {
     );
   });
 
-  it('denies a device that belongs to another operator', async () => {
-    const s = await scenario();
-    const intruder = await createDevice(ctx, { operatorId: s.otherOperatorId });
+  it('lets any approved office station claim a web-prepared session', async () => {
+    const s = await scenario({ sessionDeviceId: null });
+    const sharedStation = await createDevice(ctx, { operatorId: s.otherOperatorId });
 
-    await expect(
-      vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, { userId: s.operatorId, deviceToken: intruder.token }),
-    ).rejects.toThrow(ForbiddenException);
+    await expect(vault.grant(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { userId: s.operatorId, deviceToken: sharedStation.token, ip: '10.20.30.40' },
+    )).resolves.toMatchObject({ grantId: expect.any(String) });
+
+    const [claimed] = await ctx.db
+      .select({ deviceId: profileSessions.deviceId })
+      .from(profileSessions)
+      .where(eq(profileSessions.id, s.sessionId));
+    expect(claimed.deviceId).toBe(sharedStation.id);
+  });
+
+  it('rejects a second station after the prepared session has been claimed', async () => {
+    const s = await scenario({ sessionDeviceId: null });
+    const firstStation = await createDevice(ctx);
+    const secondStation = await createDevice(ctx);
+
+    await vault.grant(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { userId: s.operatorId, deviceToken: firstStation.token, ip: '10.20.30.40' },
+    );
+
+    await expect(vault.grant(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { userId: s.operatorId, deviceToken: secondStation.token, ip: '10.20.30.40' },
+    )).rejects.toThrow('Session was claimed by another station');
   });
 
   it('rate limits after 30 grants in the hour and records RATE_LIMITED', async () => {

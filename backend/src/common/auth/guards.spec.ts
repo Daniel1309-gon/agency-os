@@ -133,7 +133,7 @@ describe('RolesGuard', () => {
 describe('DeviceTokenGuard', () => {
   const approvedDevice = {
     id: 'device-1',
-    assignedOperatorId: 'user-1',
+    assignedOperatorId: 'another-user',
     label: 'Office laptop',
     tokenExpiresAt: new Date(Date.now() + 60_000),
   };
@@ -145,7 +145,7 @@ describe('DeviceTokenGuard', () => {
     await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).rejects.toThrow(ForbiddenException);
   });
 
-  it('attaches a validated device principal bound to the operator', async () => {
+  it('accepts an approved office station regardless of which operator is using it', async () => {
     const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit);
     const { context, request } = requestContext({
       user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
@@ -154,13 +154,12 @@ describe('DeviceTokenGuard', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.device).toEqual({
       id: 'device-1',
-      operatorId: 'user-1',
       label: 'Office laptop',
       tokenExpiresAt: approvedDevice.tokenExpiresAt,
     });
   });
 
-  it('rejects an expired or unbound device token', async () => {
+  it('rejects an invalid or expired device token', async () => {
     const guard = new DeviceTokenGuard(dbFor(undefined) as never, audit);
     const request = { user: { sub: 'user-2', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' }, headers: { 'x-device-token': 'abc' } };
     await expect(guard.canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);

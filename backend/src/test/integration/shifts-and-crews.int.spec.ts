@@ -365,7 +365,7 @@ describe('AdminService', () => {
 });
 
 describe('Delivery 1 crew-scoped resources', () => {
-  it('limits device management to operators in the coordinator current crews', async () => {
+  it('treats enrolled computers as shared office stations instead of crew-owned devices', async () => {
     const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
     const managed = await createUser(ctx);
     const outsider = await createUser(ctx);
@@ -375,9 +375,12 @@ describe('Delivery 1 crew-scoped resources', () => {
     const foreignDevice = await createDevice(ctx, { operatorId: outsider.id });
     const actor = { sub: coordinator.id, role: 'COORDINADOR' };
 
-    await expect(devicesService.list(actor)).resolves.toEqual([expect.objectContaining({ id: ownDevice.id })]);
-    await expect(devicesService.get(foreignDevice.id, actor)).rejects.toThrow(NotFoundException);
-    await expect(devicesService.create({ hostname: 'foreign-host', label: 'Foreign', assignedOperatorId: outsider.id }, actor)).rejects.toThrow('outside the actor crew scope');
+    await expect(devicesService.list(actor)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ownDevice.id }),
+      expect.objectContaining({ id: foreignDevice.id }),
+    ]));
+    await expect(devicesService.get(foreignDevice.id, actor)).resolves.toMatchObject({ id: foreignDevice.id });
+    await expect(devicesService.create({ hostname: 'shared-host', label: 'Shared station' }, actor)).resolves.toMatchObject({ label: 'Shared station' });
   });
 
   it('shows profiles only through ownership or a current in-scope assignment', async () => {

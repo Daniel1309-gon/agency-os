@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { credentialAccessLog, profileAssignments, ttProfiles } from '../../database/schema/index.js';
+import { credentialAccessLog, profileAssignments, profileSessions, ttProfiles } from '../../database/schema/index.js';
 import type { ProfileCreateInput, ProfileUpdateInput } from './profiles.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 
@@ -85,7 +85,52 @@ export class ProfilesService {
   }
 
   async assignedTo(operatorId: string) {
-    return this.db.db.select({ id: ttProfiles.id, displayName: ttProfiles.displayName, chromeProfileDir: ttProfiles.chromeProfileDir, assignmentId: profileAssignments.id, validRange: profileAssignments.validRange }).from(profileAssignments).innerJoin(ttProfiles, eq(ttProfiles.id, profileAssignments.profileId)).where(and(eq(profileAssignments.operatorId, operatorId), eq(profileAssignments.status, 'ACTIVE'), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt), sql`${profileAssignments.validRange} @> now()`));
+    const rows = await this.db.db
+      .select({
+        assignmentId: profileAssignments.id,
+        profileId: ttProfiles.id,
+        profileName: ttProfiles.displayName,
+        profileUsername: ttProfiles.loginEmail,
+        status: ttProfiles.status,
+        chromeProfileDir: sql<string>`coalesce(${ttProfiles.chromeProfileDir}, '')`,
+        validFrom: sql<string>`lower(${profileAssignments.validRange})`,
+        validTo: sql<string>`upper(${profileAssignments.validRange})`,
+        sessionId: profileSessions.id,
+        sessionStatus: profileSessions.status,
+        sessionStartedAt: profileSessions.startedAt,
+        sessionErrorCode: profileSessions.errorCode,
+      })
+      .from(profileAssignments)
+      .innerJoin(ttProfiles, eq(ttProfiles.id, profileAssignments.profileId))
+      .leftJoin(profileSessions, and(
+        eq(profileSessions.profileId, profileAssignments.profileId),
+        eq(profileSessions.operatorId, operatorId),
+        sql`${profileSessions.status} IN ('LAUNCHING', 'ACTIVE', 'ERROR')`,
+      ))
+      .where(and(
+        eq(profileAssignments.operatorId, operatorId),
+        eq(profileAssignments.status, 'ACTIVE'),
+        eq(ttProfiles.status, 'ACTIVE'),
+        isNull(ttProfiles.deletedAt),
+        sql`${profileAssignments.validRange} @> now()`,
+      ));
+
+    return rows.map((row) => ({
+      assignmentId: row.assignmentId,
+      profileId: row.profileId,
+      profileName: row.profileName,
+      profileUsername: row.profileUsername,
+      status: row.status,
+      chromeProfileDir: row.chromeProfileDir,
+      validFrom: row.validFrom,
+      validTo: row.validTo,
+      session: row.sessionId ? {
+        id: row.sessionId,
+        status: row.sessionStatus,
+        startedAt: row.sessionStartedAt,
+        errorCode: row.sessionErrorCode,
+      } : null,
+    }));
   }
 
   async accessLog(profileId: string, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {

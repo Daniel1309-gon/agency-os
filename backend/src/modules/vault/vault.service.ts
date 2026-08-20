@@ -80,14 +80,14 @@ export class VaultService {
   }
 
   async grant(input: CredentialGrantInput, context: RequestContext): Promise<{ grantId: string; expiresAt: Date }> {
-    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED')) });
-    if (!device || device.assignedOperatorId !== context.userId) throw new ForbiddenException('Device is not approved for this operator');
+    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED'), sql`${devices.tokenExpiresAt} > now()`) });
+    if (!device) throw new ForbiddenException('Device is not approved');
     const profile = await this.db.db.query.ttProfiles.findFirst({ where: and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)) });
     if (!profile) {
       await this.deny(input.profileId, context, 'PROFILE_INACTIVE');
       throw new ForbiddenException('Profile is inactive');
     }
-    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, input.sessionId), eq(profileSessions.profileId, input.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.status, 'ACTIVE')) });
+    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, input.sessionId), eq(profileSessions.profileId, input.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.status, 'LAUNCHING')) });
     const assignment = session
       ? await this.db.db
           .select({ id: profileAssignments.id })
@@ -105,6 +105,27 @@ export class VaultService {
     if (!assignment || !session) {
       await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
       throw new ForbiddenException('No active assignment for this profile');
+    }
+    if (session.deviceId && session.deviceId !== device.id) {
+      await this.deny(input.profileId, context, 'SESSION_DEVICE_MISMATCH');
+      throw new ForbiddenException('Session was claimed by another station');
+    }
+    if (!session.deviceId) {
+      const [claimed] = await this.db.db
+        .update(profileSessions)
+        .set({ deviceId: device.id, lastHeartbeatAt: new Date() })
+        .where(and(
+          eq(profileSessions.id, input.sessionId),
+          eq(profileSessions.profileId, input.profileId),
+          eq(profileSessions.operatorId, context.userId),
+          eq(profileSessions.status, 'LAUNCHING'),
+          isNull(profileSessions.deviceId),
+        ))
+        .returning({ id: profileSessions.id });
+      if (!claimed) {
+        await this.deny(input.profileId, context, 'SESSION_DEVICE_MISMATCH');
+        throw new ForbiddenException('Session was claimed by another station');
+      }
     }
     const rateKey = `vault:grant-rate:${context.userId}:${input.profileId}`;
     if ((await this.redis.incrWithExpiry(rateKey, 3600)) > 30) {
@@ -129,10 +150,10 @@ export class VaultService {
     }
     const grant = JSON.parse(raw) as { profileId: string; sessionId: string; userId: string; deviceId: string; assignmentId: string };
     if (grant.userId !== context.userId) throw new ForbiddenException('Grant is not assigned to this operator');
-    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.id, grant.deviceId), eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED')) });
+    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.id, grant.deviceId), eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED'), sql`${devices.tokenExpiresAt} > now()`) });
     if (!device) throw new ForbiddenException('Device is not approved');
-    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, grant.sessionId), eq(profileSessions.profileId, grant.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.deviceId, grant.deviceId), eq(profileSessions.status, 'ACTIVE')) });
-    if (!session) throw new ForbiddenException('Session is not active');
+    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, grant.sessionId), eq(profileSessions.profileId, grant.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.deviceId, grant.deviceId), eq(profileSessions.status, 'LAUNCHING')) });
+    if (!session) throw new ForbiddenException('Session is not ready for credential redemption');
     const assignment = await this.db.db
       .select({ id: profileAssignments.id })
       .from(profileAssignments)

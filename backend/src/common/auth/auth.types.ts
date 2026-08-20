@@ -11,7 +11,6 @@ export interface AuthenticatedRequest {
 
 export interface DevicePrincipal {
   id: string;
-  operatorId: string;
   label: string;
   tokenExpiresAt: Date;
 }

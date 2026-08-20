@@ -75,7 +75,7 @@ function harness(): Harness {
 function happyPath(db: FakeDatabase): void {
   db.stub('devices').findFirst({ id: DEVICE, tokenHash: hashToken(DEVICE_TOKEN), status: 'APPROVED', assignedOperatorId: OPERATOR });
   db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null });
-  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, status: 'ACTIVE', assignmentId: ASSIGNMENT });
+  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT });
   db.stub('profile_assignments').select([{ id: ASSIGNMENT }]);
 }
 
@@ -125,13 +125,22 @@ describe('VaultService.grant', () => {
     expect(Object.keys(logged)).not.toContain('secret');
   });
 
-  it('denies a device that is not approved for this operator', async () => {
+  it('accepts an approved office station even when it was previously associated with another operator', async () => {
     happyPath(h.db);
     h.db.stub('devices').findFirst({ id: DEVICE, status: 'APPROVED', assignedOperatorId: OTHER_OPERATOR });
 
-    await expect(h.service.grant(grantInput, context)).rejects.toThrow(ForbiddenException);
-    // Sin dispositivo valido no hay nada que auditar contra un perfil concreto.
-    expect(h.db.inserted('credential_access_log')).toHaveLength(0);
+    await expect(h.service.grant(grantInput, context)).resolves.toMatchObject({ grantId: expect.any(String) });
+  });
+
+  it('claims an unbound web-prepared session for the station requesting the grant', async () => {
+    happyPath(h.db);
+    h.db.stub('profile_sessions')
+      .findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: null, status: 'LAUNCHING', assignmentId: ASSIGNMENT })
+      .returning([{ id: SESSION, deviceId: DEVICE }]);
+
+    await h.service.grant(grantInput, context);
+
+    expect(h.db.updated('profile_sessions')[0]).toMatchObject({ deviceId: DEVICE });
   });
 
   it('denies an inactive profile and records PROFILE_INACTIVE', async () => {

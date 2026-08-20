@@ -134,7 +134,7 @@ describe('Entrega 1 HTTP security acceptance', () => {
     const token = accessToken(operator, 'OPERADOR', ['profiles.read']);
 
     for (const device of [revoked, expired]) {
-      const response = await app.inject({ method: 'GET', url: '/api/v1/agent/profiles/assigned', headers: authorization(token, device.token) });
+      const response = await app.inject({ method: 'POST', url: '/api/v1/agent/devices/heartbeat', headers: authorization(token, device.token), payload: {} });
       expect(response.statusCode).toBe(403);
       expect(response.json()).toMatchObject({ message: 'Device token is invalid or expired' });
     }

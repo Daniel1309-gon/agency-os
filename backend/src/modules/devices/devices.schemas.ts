@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const deviceCreateSchema = z.object({ hostname: z.string().trim().min(1).max(255), label: z.string().trim().min(1).max(160), assignedOperatorId: z.string().uuid().optional() });
+export const deviceCreateSchema = z.object({ hostname: z.string().trim().min(1).max(255), label: z.string().trim().min(1).max(160) });
 export const deviceEnrollSchema = z.object({ code: z.string().min(20).max(128), hostname: z.string().trim().min(1).max(255), label: z.string().trim().min(1).max(160) });
 export const deviceHeartbeatSchema = z.object({ extensionVersion: z.string().max(64).optional(), helperVersion: z.string().max(64).optional(), osVersion: z.string().max(128).optional() });
 export type DeviceCreateInput = z.infer<typeof deviceCreateSchema>;

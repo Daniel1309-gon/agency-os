@@ -197,6 +197,20 @@ describe('AssignmentsService sessions', () => {
     expect(session).toMatchObject({ status: 'LAUNCHING' });
   });
 
+  it('prepares a session without choosing a workstation for the operator', async () => {
+    const s = await ready();
+    const session = await assignments.prepareSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+    );
+
+    const [stored] = await ctx.db
+      .select({ deviceId: profileSessions.deviceId, status: profileSessions.status })
+      .from(profileSessions)
+      .where(eq(profileSessions.id, session.id));
+    expect(stored).toEqual({ deviceId: null, status: 'LAUNCHING' });
+  });
+
   it('turns the single-live-session index into a 409', async () => {
     const s = await ready();
     const input = { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' };
@@ -223,14 +237,14 @@ describe('AssignmentsService sessions', () => {
     expect(closed.endedAt).toBeInstanceOf(Date);
   });
 
-  it('refuses a device that is not enrolled to the operator', async () => {
+  it('allows the operator to open a session from any approved office station', async () => {
     const s = await ready();
-    const intruder = await createUser(ctx);
-    const foreign = await createDevice(ctx, { operatorId: intruder.id });
+    const previousUser = await createUser(ctx);
+    const sharedStation = await createDevice(ctx, { operatorId: previousUser.id });
 
     await expect(
-      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'P' }, s.operatorId, foreign.token),
-    ).rejects.toThrow(ForbiddenException);
+      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 2' }, s.operatorId, sharedStation.token),
+    ).resolves.toMatchObject({ status: 'LAUNCHING' });
   });
 
   it('refuses to open a session on an assignment that is not the operator own', async () => {

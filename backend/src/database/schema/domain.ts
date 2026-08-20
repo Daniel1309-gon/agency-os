@@ -72,6 +72,7 @@ export const devices = pgTable('devices', {
   id: id(),
   hostname: text('hostname').notNull(),
   label: text('label').notNull(),
+  // Legacy only: stations are shared and authorization must never depend on this field.
   assignedOperatorId: uuid('assigned_operator_id').references(() => users.id),
   status: varchar('status', { length: 16 }).notNull().default('PENDING'),
   enrollmentCodeHash: text('enrollment_code_hash'),
@@ -273,7 +274,7 @@ export const profileSessions = pgTable(
     id: id(),
     profileId: uuid('profile_id').notNull().references(() => ttProfiles.id),
     operatorId: uuid('operator_id').notNull().references(() => users.id),
-    deviceId: uuid('device_id').notNull().references(() => devices.id),
+    deviceId: uuid('device_id').references(() => devices.id),
     assignmentId: uuid('assignment_id').notNull().references(() => profileAssignments.id),
     chromeProfileDir: text('chrome_profile_dir').notNull(),
     status: varchar('status', { length: 16 }).notNull().default('LAUNCHING'),

@@ -28,7 +28,6 @@ export class AssignmentsController {
 }
 
 @Controller('agent')
-@UseGuards(DeviceTokenGuard)
 @RequireRoles('OPERADOR')
 @RequireShift()
 export class AgentSessionsController {
@@ -38,14 +37,22 @@ export class AgentSessionsController {
   @RequirePermissions('profiles.read')
   assigned(@CurrentUser() user: AccessTokenClaims) { return this.profiles.assignedTo(user.sub); }
 
+  @Post('sessions/prepare')
+  @RequirePermissions('profiles.read')
+  @UsePipes(new ZodValidationPipe(sessionCreateSchema))
+  prepare(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims) { return this.assignments.prepareSession(body, user.sub); }
+
   @Post('sessions')
+  @UseGuards(DeviceTokenGuard)
   @UsePipes(new ZodValidationPipe(sessionCreateSchema))
   open(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.openSession(body, user.sub, token); }
 
   @Patch('sessions/:id')
+  @UseGuards(DeviceTokenGuard)
   @UsePipes(new ZodValidationPipe(sessionPatchSchema))
   update(@Param('id') id: string, @Body() body: SessionPatchInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.updateSession(id, body, user.sub, token); }
 
   @Post('sessions/:id/close')
+  @UseGuards(DeviceTokenGuard)
   close(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, user.sub, token); }
 }

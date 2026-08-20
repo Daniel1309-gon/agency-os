@@ -130,17 +130,15 @@ export class DeviceTokenGuard implements CanActivate {
       where: and(
         eq(devices.tokenHash, hashToken(token)),
         eq(devices.status, 'APPROVED'),
-        eq(devices.assignedOperatorId, request.user.sub),
         sql`${devices.tokenExpiresAt} > now()`,
       ),
     });
-    if (!device || !device.assignedOperatorId || !device.tokenExpiresAt || device.tokenExpiresAt.getTime() <= Date.now()) {
+    if (!device || !device.tokenExpiresAt || device.tokenExpiresAt.getTime() <= Date.now()) {
       await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'INVALID_OR_EXPIRED' });
       throw new ForbiddenException('Device token is invalid or expired');
     }
     request.device = {
       id: device.id,
-      operatorId: device.assignedOperatorId,
       label: device.label,
       tokenExpiresAt: device.tokenExpiresAt,
     };

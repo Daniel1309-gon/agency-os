@@ -56,7 +56,7 @@ describe('Entrega 1 security guards against real infrastructure', () => {
     await expect(guard.canActivate(contextFor({ ip: '192.0.2.10' }).context)).rejects.toThrow('IP address is not allowed');
   });
 
-  it('accepts a device only when the token is approved, unexpired, and bound to the JWT operator', async () => {
+  it('accepts an approved office station for any authenticated operator', async () => {
     const operator = await createUser(ctx);
     const other = await createUser(ctx);
     const device = await createDevice(ctx, { operatorId: operator.id });
@@ -64,10 +64,11 @@ describe('Entrega 1 security guards against real infrastructure', () => {
 
     const valid = contextFor({ user: claims(operator.id), headers: { 'x-device-token': device.token } });
     await expect(guard.canActivate(valid.context)).resolves.toBe(true);
-    expect(valid.request.device).toMatchObject({ id: device.id, operatorId: operator.id });
+    expect(valid.request.device).toMatchObject({ id: device.id });
+    expect(valid.request.device).not.toHaveProperty('operatorId');
 
     const foreign = contextFor({ user: claims(other.id), headers: { 'x-device-token': device.token } });
-    await expect(guard.canActivate(foreign.context)).rejects.toThrow(ForbiddenException);
+    await expect(guard.canActivate(foreign.context)).resolves.toBe(true);
 
     await ctx.db.update(devices).set({ tokenExpiresAt: new Date(Date.now() - 1_000) }).where(eq(devices.id, device.id));
     await expect(guard.canActivate(valid.context)).rejects.toThrow(ForbiddenException);
