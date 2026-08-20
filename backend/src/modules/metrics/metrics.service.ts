@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { metricEvents, metricReconciliation, profileDailyMetrics, ttProfiles } from '../../database/schema/index.js';
+import { cafeteriaOrders, crewMembers, crews, metricEvents, metricReconciliation, profileDailyMetrics, profileSessions, shifts, ttProfiles } from '../../database/schema/index.js';
 import type { MetricBatchInput } from './metrics.schemas.js';
 
 @Injectable()
@@ -49,5 +50,39 @@ export class MetricsService {
 
   async reconciliation(date?: string) {
     return this.db.db.select({ id: metricReconciliation.id, profileId: metricReconciliation.profileId, businessDate: metricReconciliation.businessDate, extensionPoints: metricReconciliation.extensionPoints, tableauPoints: metricReconciliation.tableauPoints, differencePoints: metricReconciliation.differencePoints, tolerancePoints: metricReconciliation.tolerancePoints, status: metricReconciliation.status, details: metricReconciliation.details, createdAt: metricReconciliation.createdAt }).from(metricReconciliation).where(date ? eq(metricReconciliation.businessDate, date) : undefined).orderBy(asc(metricReconciliation.businessDate));
+  }
+
+  async operations(user: Pick<AccessTokenClaims, 'sub' | 'role'>) {
+    const operatorSessionScope = user.role === 'ADMIN' || user.role === 'DIRECTOR_OPERATIVO'
+      ? undefined
+      : user.role === 'COORDINADOR'
+        ? sql`exists (select 1 from ${crewMembers} member inner join ${crews} crew on crew.id = member.crew_id where member.user_id = ${profileSessions.operatorId} and member.valid_range @> now() and crew.coordinator_id = ${user.sub} and crew.is_active = true)`
+        : eq(profileSessions.operatorId, user.sub);
+    const shiftScope = user.role === 'ADMIN' || user.role === 'DIRECTOR_OPERATIVO'
+      ? undefined
+      : user.role === 'COORDINADOR'
+        ? sql`exists (select 1 from ${crewMembers} member inner join ${crews} crew on crew.id = member.crew_id where member.user_id = ${shifts.operatorId} and member.valid_range @> now() and crew.coordinator_id = ${user.sub} and crew.is_active = true)`
+        : eq(shifts.operatorId, user.sub);
+    const orderScope = user.role === 'ADMIN' || user.role === 'DIRECTOR_OPERATIVO'
+      ? undefined
+      : user.role === 'COORDINADOR'
+        ? sql`exists (select 1 from ${crewMembers} member inner join ${crews} crew on crew.id = member.crew_id where member.user_id = ${cafeteriaOrders.operatorId} and member.valid_range @> now() and crew.coordinator_id = ${user.sub} and crew.is_active = true)`
+        : eq(cafeteriaOrders.operatorId, user.sub);
+
+    const [[online], [activeSessions], [scheduled], [covered], [pendingOrders]] = await Promise.all([
+      this.db.db.select({ value: count(sql`distinct ${profileSessions.operatorId}`) }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))),
+      this.db.db.select({ value: count() }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))),
+      this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, inArray(shifts.status, ['SCHEDULED', 'IN_PROGRESS']))),
+      this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS'), sql`exists (select 1 from ${profileSessions} session where session.operator_id = ${shifts.operatorId} and session.status in ('LAUNCHING', 'ACTIVE'))`)),
+      this.db.db.select({ value: count() }).from(cafeteriaOrders).where(and(orderScope, inArray(cafeteriaOrders.status, ['PLACED', 'ACCEPTED', 'PREPARING', 'READY']))),
+    ]);
+    return {
+      operatorsOnline: Number(online?.value ?? 0),
+      operatorsScheduled: Number(scheduled?.value ?? 0),
+      activeSessions: Number(activeSessions?.value ?? 0),
+      coveredShifts: Number(covered?.value ?? 0),
+      pendingOrders: Number(pendingOrders?.value ?? 0),
+      measuredAt: new Date().toISOString(),
+    };
   }
 }

@@ -39,6 +39,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       const crewIds = await this.authorizedCrewIds(user);
       if (crewIds.length) await client.join(crewIds.map((id) => `crew:${id}`));
       client.emit('operators.snapshot', await this.realtime.snapshotFor(user));
+      if (user.role === 'CAFETERIA' || user.role === 'OPERADOR') {
+        client.emit('cafeteria.orders.snapshot', await this.realtime.snapshotCafeteriaFor(user));
+      }
     } catch {
       await this.audit.record({ actorType: 'ANONYMOUS', action: 'realtime.connection.denied', result: 'DENIED', ip: client.handshake.address }).catch(() => undefined);
       client.disconnect(true);

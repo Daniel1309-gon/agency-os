@@ -3,7 +3,7 @@ import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { Server } from 'socket.io';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { breaks, crewMembers, crews, operatorCurrentStatus, profileSessions, roles, shifts, users } from '../../database/schema/index.js';
+import { breaks, cafeteriaOrderItems, cafeteriaOrders, crewMembers, crews, operatorCurrentStatus, profileSessions, roles, shifts, users } from '../../database/schema/index.js';
 
 export interface OperatorStatusSnapshot {
   operatorId: string;
@@ -11,6 +11,28 @@ export interface OperatorStatusSnapshot {
   status: string;
   reason: string;
   changedAt: Date | null;
+}
+
+export interface CafeteriaOrderSnapshot {
+  id: string;
+  orderNumber: number;
+  operatorId: string;
+  status: string;
+  placedAt: Date;
+  acceptedAt: Date | null;
+  readyAt: Date | null;
+  pickupDeadlineAt: Date | null;
+  deliveredAt: Date | null;
+  totalCop: string;
+  notes: string | null;
+  items: Array<{
+    productId: string;
+    productNameSnapshot: string;
+    quantity: number;
+    unitPriceCop: string;
+    lineTotalCop: string;
+    notes: string | null;
+  }>;
 }
 
 @Injectable()
@@ -40,6 +62,19 @@ export class RealtimeService {
 
   async publishOperatorChanged(operatorId: string): Promise<void> {
     await this.db.afterCommit(() => this.emitOperatorChanged(operatorId));
+  }
+
+  async snapshotCafeteriaFor(user: AccessTokenClaims): Promise<CafeteriaOrderSnapshot[]> {
+    return this.snapshotCafeteria(user.role === 'OPERADOR' ? user.sub : undefined);
+  }
+
+  async publishCafeteriaOrderChanged(orderId: string, eventName = 'cafeteria.order.changed'): Promise<void> {
+    await this.db.afterCommit(async () => {
+      if (!this.server) return;
+      const order = await this.orderSnapshot(orderId);
+      if (!order) return;
+      this.server.to(['role:CAFETERIA', `user:${order.operatorId}`]).emit(eventName, order);
+    });
   }
 
   private async emitOperatorChanged(operatorId: string): Promise<void> {
@@ -81,5 +116,40 @@ export class RealtimeService {
         changedAt: operator.changedAt,
       };
     });
+  }
+
+  private async snapshotCafeteria(operatorId?: string): Promise<CafeteriaOrderSnapshot[]> {
+    const rows = await this.db.db
+      .select({ id: cafeteriaOrders.id, orderNumber: cafeteriaOrders.orderNumber, operatorId: cafeteriaOrders.operatorId, status: cafeteriaOrders.status, placedAt: cafeteriaOrders.placedAt, acceptedAt: cafeteriaOrders.acceptedAt, readyAt: cafeteriaOrders.readyAt, pickupDeadlineAt: cafeteriaOrders.pickupDeadlineAt, deliveredAt: cafeteriaOrders.deliveredAt, totalCop: cafeteriaOrders.totalCop, notes: cafeteriaOrders.notes })
+      .from(cafeteriaOrders)
+      .where(operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined)
+      .orderBy(sql`${cafeteriaOrders.placedAt} desc`)
+      .limit(100);
+    return this.attachCafeteriaItems(rows);
+  }
+
+  private async orderSnapshot(orderId: string): Promise<CafeteriaOrderSnapshot | undefined> {
+    const rows = await this.db.db
+      .select({ id: cafeteriaOrders.id, orderNumber: cafeteriaOrders.orderNumber, operatorId: cafeteriaOrders.operatorId, status: cafeteriaOrders.status, placedAt: cafeteriaOrders.placedAt, acceptedAt: cafeteriaOrders.acceptedAt, readyAt: cafeteriaOrders.readyAt, pickupDeadlineAt: cafeteriaOrders.pickupDeadlineAt, deliveredAt: cafeteriaOrders.deliveredAt, totalCop: cafeteriaOrders.totalCop, notes: cafeteriaOrders.notes })
+      .from(cafeteriaOrders)
+      .where(eq(cafeteriaOrders.id, orderId))
+      .limit(1);
+    const [snapshot] = await this.attachCafeteriaItems(rows);
+    return snapshot;
+  }
+
+  private async attachCafeteriaItems<T extends { id: string }>(rows: T[]): Promise<Array<T & { items: CafeteriaOrderSnapshot['items'] }>> {
+    if (!rows.length) return [];
+    const itemRows = await this.db.db
+      .select({ orderId: cafeteriaOrderItems.orderId, productId: cafeteriaOrderItems.productId, productNameSnapshot: cafeteriaOrderItems.productNameSnapshot, quantity: cafeteriaOrderItems.quantity, unitPriceCop: cafeteriaOrderItems.unitPriceCop, lineTotalCop: cafeteriaOrderItems.lineTotalCop, notes: cafeteriaOrderItems.notes })
+      .from(cafeteriaOrderItems)
+      .where(sql`${cafeteriaOrderItems.orderId} in (${sql.join(rows.map((row) => sql`${row.id}`), sql`, `)})`);
+    const byOrder = new Map<string, CafeteriaOrderSnapshot['items']>();
+    for (const item of itemRows) {
+      const list = byOrder.get(item.orderId) ?? [];
+      list.push({ productId: item.productId, productNameSnapshot: item.productNameSnapshot, quantity: item.quantity, unitPriceCop: item.unitPriceCop, lineTotalCop: item.lineTotalCop, notes: item.notes });
+      byOrder.set(item.orderId, list);
+    }
+    return rows.map((row) => ({ ...row, items: byOrder.get(row.id) ?? [] }));
   }
 }

@@ -29,4 +29,5 @@ export class MetricsController {
 
   @Get('metrics/profiles/:id/timeseries') @RequirePermissions('metrics.audit') timeseries(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) { return this.metrics.timeseries(id, from, to); }
   @Get('metrics/reconciliation') @RequirePermissions('metrics.audit') reconciliation(@Query('date') date?: string) { return this.metrics.reconciliation(date); }
+  @Get('metrics/operations') @RequirePermissions('metrics.audit') operations(@CurrentUser() user: AccessTokenClaims) { return this.metrics.operations(user); }
 }
