@@ -297,21 +297,22 @@ GRANT  SELECT (id, profile_id, username, version, is_current, rotated_at)
 | `assignment_id` | uuid NULL | Asignación que la autorizó |
 | `purpose` | enum | `LOGIN_INJECTION`, `ADMIN_ROTATION` |
 | `granted` | boolean | |
-| `deny_reason` | enum NULL | `NO_ASSIGNMENT`, `OUT_OF_SHIFT`, `IP_BLOCKED`, `DEVICE_REVOKED`, `RATE_LIMITED`, `PROFILE_INACTIVE` |
+| `deny_reason` | enum NULL | `NO_ASSIGNMENT`, `OUT_OF_SHIFT`, `IP_BLOCKED`, `DEVICE_REVOKED`, `SESSION_DEVICE_MISMATCH`, `RATE_LIMITED`, `PROFILE_INACTIVE` |
 | `grant_jti` | uuid NULL | El id del ticket de un solo uso (decisión #18) |
 | `consumed_at` | timestamptz NULL | Cuándo se canjeó el ticket |
 | `reuse_attempted` | boolean | Señal de compromiso |
 | `ip` / `occurred_at` | | |
 
-**`devices`** — identidad de cada PC de oficina (helper + extensión). Resuelve el punto (3) del
-riesgo abierto de agents.md §6.
+**`devices`** — identidad técnica de cada estación compartida de oficina (helper + extensión).
+No identifica al operador ni limita qué persona puede sentarse en cada PC; ese perímetro lo define
+`ip_allowlist`, y la persona se autoriza con JWT + turno + asignación.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
 | `hostname` | text | |
-| `label` | text | "PC-Operador-04" |
-| `assigned_operator_id` | uuid NULL FK users | |
+| `label` | text | "PC-Recepción-04" |
+| `assigned_operator_id` | uuid NULL FK users | Campo legado; no participa en autorización ni se expone en el contrato nuevo |
 | `status` | enum | `PENDING`, `APPROVED`, `REVOKED` |
 | `enrollment_code_hash` | text NULL | Código de un solo uso que el admin entrega al instalar |
 | `token_hash` | text NULL | SHA-256 del token de dispositivo |
@@ -342,7 +343,8 @@ riesgo abierto de agents.md §6.
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
-| `profile_id` / `operator_id` / `device_id` / `assignment_id` | uuid FK | |
+| `profile_id` / `operator_id` / `assignment_id` | uuid FK | |
+| `device_id` | uuid NULL FK devices | Nace NULL desde web; la primera estación aprobada que solicita el grant la reclama atómicamente |
 | `chrome_profile_dir` | text | Con qué `--profile-directory` se lanzó |
 | `status` | enum | `LAUNCHING`, `ACTIVE`, `ERROR`, `CLOSED` |
 | `started_at` / `last_heartbeat_at` / `ended_at` | timestamptz | |
@@ -1097,7 +1099,14 @@ buena la primera carga.
 
 ### 5.5 Vault para la extensión — la superficie crítica
 
-Autenticación doble: JWT del operador **y** token del dispositivo (header `X-Device-Token`).
+Perímetro principal: IP pública de oficina en `ip_allowlist`. Dentro de ese perímetro, el JWT
+identifica al operador y el token de dispositivo (`X-Device-Token`) acredita únicamente que la
+solicitud pasa por una extensión/helper administrados; no existe vínculo operador→PC.
+
+En producción se registra la IP pública de salida de cada oficina, normalmente como `/32`. Si el
+API está detrás de Nginx, Cloudflare o un balanceador, `TRUSTED_PROXY_CIDRS` debe contener solamente
+los proxies controlados para que `request.ip` no pueda falsearse con un `X-Forwarded-For` enviado
+directamente por el cliente. Una oficina con IP dinámica necesita IP fija o VPN con egreso fijo.
 
 | Método | Ruta | Nota |
 |---|---|---|
@@ -1113,6 +1122,7 @@ El detalle del flujo y sus controles está en §6.3.
 | POST | `/devices/enroll` | Con código de un solo uso emitido por el admin. Devuelve token de dispositivo |
 | POST | `/agent/devices/heartbeat` | Actualiza `last_seen_at`, versiones de helper y extensión |
 | GET | `/agent/profiles/assigned` | Perfiles del turno vigente + `chromeProfileDir` (FR-10) |
+| POST | `/agent/sessions/prepare` | Web crea una sesión `LAUNCHING` sin elegir PC; requiere JWT, turno, asignación e IP permitida |
 | POST | `/agent/sessions` | Abre `profile_sessions`. 409 si el perfil ya tiene sesión viva |
 | PATCH | `/agent/sessions/:id` | Cambio de estado / heartbeat |
 | POST | `/agent/sessions/:id/close` | Cierre limpio (FR-15) |
@@ -1265,13 +1275,14 @@ Extensión (background service worker) — no el content script, no el helper
 
   Backend valida, en este orden, y aborta al primer fallo:
      a. IP de origen dentro de ip_allowlist                     → si no: 403 IP_BLOCKED
-     b. Dispositivo existe y status = APPROVED                  → si no: 403 DEVICE_REVOKED
-     c. Dispositivo corresponde al operador del JWT             → si no: 403
-     d. Operador con turno vigente (o shift_override activo)    → si no: 403 OUT_OF_SHIFT
-     e. Existe profile_assignment ACTIVE (operador, perfil, ahora) → si no: 403 NO_ASSIGNMENT
-     f. Perfil en status ACTIVE                                 → si no: 403 PROFILE_INACTIVE
-     g. Rate limit: N solicitudes por (operador, perfil, hora)   → si no: 429
-     h. No hay otra sesión viva del mismo perfil                → si no: 409
+     b. Estación existe, token vigente y status = APPROVED       → si no: 403 DEVICE_REVOKED
+     c. Operador con turno vigente (o shift_override activo)     → si no: 403 OUT_OF_SHIFT
+     d. Existe profile_assignment ACTIVE (operador, perfil, ahora) → si no: 403 NO_ASSIGNMENT
+     e. Perfil en status ACTIVE                                  → si no: 403 PROFILE_INACTIVE
+     f. La sesión LAUNCHING está libre o pertenece a esta estación → si no: 403 SESSION_DEVICE_MISMATCH
+     g. Si está libre, la estación la reclama con UPDATE atómico  → si pierde la carrera: 403
+     h. Rate limit: N solicitudes por (operador, perfil, hora)    → si no: 429
+     i. No hay otra sesión viva del mismo perfil                 → si no: 409
 
   Si pasa todo: crea un grant de un solo uso con TTL 60 s (Redis, clave = grantId),
   escribe credential_access_log(granted = true, grant_jti = grantId),
