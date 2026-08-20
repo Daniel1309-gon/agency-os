@@ -6,6 +6,7 @@ import * as schema from '../schema/index.js';
 import { appSettings, featureFlags, permissions, rolePermissions, roles } from '../schema/index.js';
 import { users } from '../schema/index.js';
 import { hashPassword } from '../../common/auth/crypto.js';
+import { rolePermissionCodes } from './role-permissions.js';
 
 const permissionDefinitions = [
   ['users.read', 'users', 'Read users'],
@@ -68,11 +69,11 @@ async function seed(): Promise<void> {
     const permissionRows = await db.select({ id: permissions.id, code: permissions.code }).from(permissions);
     const permissionIds = new Map(permissionRows.map((row) => [row.code, row.id]));
     const all = permissionDefinitions.map(([code]) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
-    const coordinator = ['users.read', 'crews.read', 'crews.manage', 'profiles.read', 'profiles.create', 'profiles.update', 'vault.credential.issue', 'vault.read_meta', 'devices.manage', 'shifts.read', 'shifts.manage', 'shifts.approve_overtime', 'operators.monitor', 'metrics.audit', 'icebreaker.review', 'payroll.read', 'cafeteria.manage', 'chat.manage', 'audit.read'];
-    const operator = ['profiles.read', 'vault.credential.issue', 'vault.read_meta', 'shifts.read', 'payroll.read'];
-    const cafeteria = ['cafeteria.manage', 'chat.manage'];
     const rolePermissionRows = roleRows.flatMap((role) => {
-      const codes = role.code === 'ADMIN' || role.code === 'DIRECTOR_OPERATIVO' ? all : role.code === 'COORDINADOR' ? coordinator.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id)) : role.code === 'OPERADOR' ? operator.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id)) : cafeteria.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
+      const configured = rolePermissionCodes[role.code as keyof typeof rolePermissionCodes] ?? [];
+      const codes = configured.includes('*')
+        ? all
+        : configured.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
       return codes.map((permissionId) => ({ roleId: role.id, permissionId }));
     });
     if (rolePermissionRows.length) await db.insert(rolePermissions).values(rolePermissionRows).onConflictDoNothing();

@@ -18,6 +18,7 @@
     "db:bootstrap-runtime": "node --env-file=.env scripts/db-bootstrap-runtime.mjs",
     "db:bootstrap-ip": "node --env-file=.env scripts/db-bootstrap-ip.mjs",
     "db:seed": "tsc -p tsconfig.build.json && node --env-file=.env dist/database/seeds/seed.js",
+    "db:seed:demo": "pnpm db:seed && node --env-file=.env dist/database/seeds/demo-seed.js",
     "bot:knowledge:import": "pnpm build && node --env-file=.env dist/scripts/bot-knowledge-import.js"
   },
   "dependencies": {
