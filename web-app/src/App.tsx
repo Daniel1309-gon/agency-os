@@ -1,13 +1,30 @@
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import LoginPage from './pages/LoginPage/LoginPage';
+import PasswordChangePage from './pages/PasswordChangePage/PasswordChangePage';
+import DashboardPage from './pages/DashboardPage/DashboardPage';
+
+function AuthenticatedApp() {
+  const { user, accessToken, status, isSubmitting, error, login, changePassword, logout } = useAuth();
+
+  if (status === 'loading') {
+    return (
+      <main className="auth-loading" aria-live="polite">
+        <div className="auth-loading__mark" aria-hidden="true">AO</div>
+        <p>Verificando tu sesión segura…</p>
+      </main>
+    );
+  }
+
+  if (!user) return <LoginPage onAuthenticated={login} isSubmitting={isSubmitting} error={error} />;
+  if (user.mustChangePassword) return <PasswordChangePage onSubmit={changePassword} error={error} />;
+
+  return <DashboardPage user={user} accessToken={accessToken} onLogout={logout} />;
+}
+
 export default function App() {
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-16 text-slate-100">
-      <section className="mx-auto max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-300">Agency OS</p>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tight">Frontend independiente</h1>
-        <p className="mt-4 max-w-xl text-slate-300">
-          El proyecto React está aislado del backend y listo para conectar el contrato HTTP versionado.
-        </p>
-      </section>
-    </main>
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
   );
 }

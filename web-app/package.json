@@ -12,8 +12,10 @@
     "lint": "node scripts/lint.mjs"
   },
   "dependencies": {
+    "@agency-os/shared": "workspace:*",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
