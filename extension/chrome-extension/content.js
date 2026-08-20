@@ -22,7 +22,7 @@ async function injectCredential() {
   if (!profileId || !sessionId) return;
   const email = document.querySelector('input[type="email"]');
   const password = document.querySelector('input[type="password"]');
-  if (!email || !password || email.value) return;
+  if (!email || !password || (email.value && password.value)) return;
   requesting = true;
   let credentialReceived = false;
   try {

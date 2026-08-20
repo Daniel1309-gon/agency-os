@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Agency OS - Acceso seguro a TalkyTimes",
+  "version": "1.0.0",
+  "description": "Inicia sesiones autorizadas por Agency OS sin persistir ni exponer credenciales de TalkyTimes.",
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://talkytimes.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "nativeMessaging"],
+  "host_permissions": [
+    "https://talkytimes.com/*",
+    "__API_ORIGIN__/*"
+  ],
+  "externally_connectable": {
+    "matches": ["__WEB_APP_ORIGIN__/*"]
+  },
+  "storage": { "managed_schema": "managed_schema.json" }
+}

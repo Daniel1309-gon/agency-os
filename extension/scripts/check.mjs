@@ -17,12 +17,18 @@ if (!Array.isArray(manifest.content_scripts) || manifest.content_scripts.length 
 }
 if (manifest.host_permissions?.some((permission) => permission.startsWith('file:'))) failures.push('file:// host permission is forbidden');
 if (!manifest.permissions?.includes('storage')) failures.push('storage permission is required');
+if (!manifest.permissions?.includes('nativeMessaging')) failures.push('nativeMessaging permission is required');
 if (!manifest.externally_connectable?.matches?.length) failures.push('externally_connectable is required');
+if (manifest.externally_connectable?.matches?.some((match) => match.includes('*/*'))) failures.push('externally_connectable must use exact configured origins');
+if (manifest.host_permissions?.some((permission) => permission === 'https://*/*')) failures.push('broad HTTPS host permission is forbidden');
 if (!manifest.storage?.managed_schema) failures.push('managed storage schema is required');
 if (/credenciales\.json|file:\/\//i.test(`${background}\n${content}`)) failures.push('local credential files are forbidden');
 for (const endpoint of ['/agent/sessions/', '/agent/session/credential-grant', '/agent/session/credential-redeem']) {
   if (!background.includes(endpoint)) failures.push(`background.js must call ${endpoint}`);
 }
+if (!background.includes('sendNativeMessage')) failures.push('background.js must use Native Messaging');
+const nativeMessageSection = background.slice(background.indexOf('sendNativeMessage'), background.indexOf('async function obtenerCredencial'));
+if (/accessToken|credential|secret/i.test(nativeMessageSection)) failures.push('Native Messaging payload must not contain secrets');
 
 for (const file of ['background.js', 'content.js']) {
   const result = spawnSync(process.execPath, ['--check', join(root, 'chrome-extension', file)], { encoding: 'utf8' });

@@ -18,15 +18,16 @@
     }
   ],
   "permissions": [
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "host_permissions": [
-    "https://*/*",
+    "https://talkytimes.com/*",
     "http://localhost:3000/*"
   ],
   "externally_connectable": {
     "matches": [
-      "https://*/*",
+      "https://app.agency-os.example/*",
       "http://localhost:5173/*"
     ]
   },

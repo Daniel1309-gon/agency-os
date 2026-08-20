@@ -1,7 +1,7 @@
 const SESSION_KEY = 'agencySessionContext';
 
 async function managedConfiguration() {
-  const config = await chrome.storage.managed.get(['apiBaseUrl', 'webAppOrigin', 'deviceToken']);
+  const config = await chrome.storage.managed.get(['apiBaseUrl', 'webAppOrigin', 'deviceToken', 'nativeHostName']);
   if (!config.apiBaseUrl || !config.webAppOrigin || !config.deviceToken) {
     throw new Error('La política administrada de Agency OS está incompleta');
   }
@@ -13,6 +13,7 @@ async function managedConfiguration() {
     apiBaseUrl: api.href.replace(/\/$/, ''),
     webAppOrigin: webApp.origin,
     deviceToken: config.deviceToken,
+    nativeHostName: config.nativeHostName || 'com.agencyos.helper',
   };
 }
 
@@ -29,8 +30,41 @@ async function apiRequest(path, options, context, config) {
     },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `Agency OS respondió ${response.status}`);
+  if (!response.ok) throw new Error(body?.error?.message || body?.message || `Agency OS respondió ${response.status}`);
   return body;
+}
+
+function isValidChromeProfileDir(value) {
+  return typeof value === 'string' && /^(Default|Profile \d{1,3})$/.test(value);
+}
+
+function isValidLaunchUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'talkytimes.com' && url.pathname.startsWith('/auth/login');
+  } catch {
+    return false;
+  }
+}
+
+function validateSessionContext(message) {
+  if (![message.profileId, message.sessionId, message.accessToken].every((value) => typeof value === 'string' && value.length > 0)) {
+    throw new Error('Contexto de sesión inválido');
+  }
+  if (!isValidChromeProfileDir(message.chromeProfileDir) || !isValidLaunchUrl(message.launchUrl)) {
+    throw new Error('Destino de sesión inválido');
+  }
+}
+
+async function launchNativeProfile(message, config) {
+  const response = await chrome.runtime.sendNativeMessage(config.nativeHostName, {
+    action: 'launchProfile',
+    profileId: message.profileId,
+    sessionId: message.sessionId,
+    chromeProfileDir: message.chromeProfileDir,
+    launchUrl: message.launchUrl,
+  });
+  if (!response?.ok) throw new Error('El helper local no pudo abrir el perfil');
 }
 
 async function obtenerCredencial(profileId, sessionId) {
@@ -41,10 +75,6 @@ async function obtenerCredencial(profileId, sessionId) {
   }
   const config = await managedConfiguration();
   try {
-    await apiRequest(`/agent/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'ACTIVE' }),
-    }, context, config);
     const grant = await apiRequest('/agent/session/credential-grant', {
       method: 'POST',
       body: JSON.stringify({ profileId, sessionId }),
@@ -85,6 +115,12 @@ async function finishCredentialInjection(message) {
       method: 'PATCH',
       body: JSON.stringify({ status: 'ERROR', errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
     }, context, config).catch(() => undefined);
+  } else {
+    const config = await managedConfiguration();
+    await apiRequest(`/agent/sessions/${encodeURIComponent(context.sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'ACTIVE' }),
+    }, context, config);
   }
   await chrome.storage.session.remove(SESSION_KEY);
   return { ok: true };
@@ -95,17 +131,23 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     const config = await managedConfiguration();
     if (!sender.url || new URL(sender.url).origin !== config.webAppOrigin) throw new Error('Origin no autorizado');
     if (message?.action !== 'prepareSession') throw new Error('Acción no permitida');
-    if (![message.profileId, message.sessionId, message.accessToken].every((value) => typeof value === 'string' && value.length > 0)) {
-      throw new Error('Contexto de sesión inválido');
-    }
+    validateSessionContext(message);
     await chrome.storage.session.set({
       [SESSION_KEY]: {
         profileId: message.profileId,
         sessionId: message.sessionId,
         accessToken: message.accessToken,
-        expiresAt: Date.now() + 2 * 60_000,
+        chromeProfileDir: message.chromeProfileDir,
+        launchUrl: message.launchUrl,
+        expiresAt: Date.now() + 60_000,
       },
     });
+    try {
+      await launchNativeProfile(message, config);
+    } catch (error) {
+      await chrome.storage.session.remove(SESSION_KEY);
+      throw error;
+    }
     return { ok: true };
   })().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
   return true;

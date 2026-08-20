@@ -5,6 +5,7 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "check:js": "node --check chrome-extension/background.js && node --check chrome-extension/content.js",
+    "manifest:render": "node scripts/render-manifest.mjs",
     "package:crx": "python empaquetar_y_probar_forcelist.py",
     "spike:login": "python login_talkytimes.py",
     "spike:launch": "python lanzar_perfil_nativo.py"
