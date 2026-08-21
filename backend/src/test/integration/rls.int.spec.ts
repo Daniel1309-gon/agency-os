@@ -24,29 +24,15 @@ import {
  * RLS es la defensa en profundidad de PLAN.md §6.5: si un servicio olvida su
  * filtro por operador, la base tiene que negar igual.
  *
- * Las pruebas corren bajo un rol que NO es el dueno de las tablas. El dueno
- * salta RLS por definicion de Postgres (salvo FORCE ROW LEVEL SECURITY), asi
- * que comprobarlo con el usuario de la aplicacion de desarrollo daria un falso
- * verde: parecerian pasar sin que ninguna politica se hubiera evaluado.
+ * Las pruebas corren bajo el rol real de runtime HTTP. El dueño salta RLS por
+ * definición de PostgreSQL (salvo FORCE ROW LEVEL SECURITY), así que usar un
+ * rol artificial ocultaría si los grants y el rol desplegado están alineados.
  */
-
-const RLS_ROLE = 'agency_rls_test';
 
 let ctx: TestContext;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  await ctx.pool.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${RLS_ROLE}') THEN
-        CREATE ROLE ${RLS_ROLE} NOLOGIN;
-      END IF;
-    END $$;
-  `);
-  await ctx.pool.query(`GRANT USAGE ON SCHEMA public TO ${RLS_ROLE}`);
-  await ctx.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${RLS_ROLE}`);
-  await ctx.pool.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RLS_ROLE}`);
 });
 
 afterAll(async () => {
@@ -59,7 +45,7 @@ beforeEach(async () => {
 });
 
 /**
- * Ejecuta una consulta como lo haria un request: rol sin privilegios y las
+ * Ejecuta una consulta como lo haría un request: el rol real de API y las
  * variables de sesion que fija DatabaseService.withRequestContext. Siempre en
  * una transaccion que se deshace, para no dejar rastro.
  */
@@ -67,7 +53,7 @@ async function asRequest<T>(
   identity: { userId?: string; roleCode?: string },
   run: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
-  return asRole(RLS_ROLE, identity, run);
+  return asRole('agency_app', identity, run);
 }
 
 async function asRole<T>(
