@@ -12,9 +12,9 @@ try {
   const quotedPassword = (await pool.query('SELECT quote_literal($1) AS value', [password])).rows[0].value;
   const runtime = await pool.query("SELECT 1 FROM pg_roles WHERE rolname = 'agency_runtime'");
   if (runtime.rowCount) {
-    await pool.query(`ALTER ROLE agency_runtime LOGIN PASSWORD ${quotedPassword} IN ROLE agency_app`);
+    await pool.query(`ALTER ROLE agency_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD ${quotedPassword}`);
   } else {
-    await pool.query(`CREATE ROLE agency_runtime LOGIN PASSWORD ${quotedPassword} IN ROLE agency_app`);
+    await pool.query(`CREATE ROLE agency_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD ${quotedPassword}`);
   }
   await pool.query('GRANT agency_app TO agency_runtime');
   await pool.query('ALTER ROLE agency_runtime SET row_security = on');

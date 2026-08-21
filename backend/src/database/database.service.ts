@@ -9,14 +9,15 @@ import { LoggerService } from '../common/logger/logger.service.js';
 
 export interface RuntimeRoleSecurity {
   currentUser: string;
-  isAgencyAppMember: boolean;
+  isRuntimeRoleMember: boolean;
+  isAgencyOwnerMember: boolean;
   isSuperuser: boolean;
   ownsTables: boolean;
 }
 
 export function assertLeastPrivilegedRuntimeRole(role: RuntimeRoleSecurity): void {
-  if (!role.isAgencyAppMember || role.isSuperuser || role.ownsTables) {
-    throw new Error(`Unsafe production database role "${role.currentUser}": it must inherit agency_app, be non-superuser, and own no application tables`);
+  if (!role.isRuntimeRoleMember || role.isAgencyOwnerMember || role.isSuperuser || role.ownsTables) {
+    throw new Error(`Unsafe production database role "${role.currentUser}": it must inherit its runtime role, never agency_owner, be non-superuser, and own no application tables`);
   }
 }
 
@@ -37,21 +38,33 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const url = this.config.get('DATABASE_APP_URL') || this.config.get('DATABASE_URL');
+    const runtimeRole = this.config.get('DATABASE_RUNTIME_ROLE');
+    const configuredRuntimeUrl = runtimeRole === 'worker'
+      ? this.config.get('DATABASE_WORKER_URL')
+      : runtimeRole === 'readonly'
+        ? this.config.get('DATABASE_READONLY_URL')
+        : this.config.get('DATABASE_APP_URL');
+    if (runtimeRole !== 'app' && !configuredRuntimeUrl) {
+      throw new Error(`DATABASE_${runtimeRole.toUpperCase()}_URL is required for DATABASE_RUNTIME_ROLE=${runtimeRole}`);
+    }
+    const url = configuredRuntimeUrl || this.config.get('DATABASE_URL');
     this.pool = new Pool({ connectionString: url });
     this._db = drizzle({ client: this.pool, schema });
     try {
       await this.pool.query('SELECT 1');
       if (this.config.get('NODE_ENV') === 'production') {
+        const expectedRuntimeRole = runtimeRole === 'worker' ? 'agency_worker' : runtimeRole === 'readonly' ? 'agency_readonly' : 'agency_app';
         const security = await this.pool.query<{
           currentUser: string;
-          isAgencyAppMember: boolean;
+          isRuntimeRoleMember: boolean;
+          isAgencyOwnerMember: boolean;
           isSuperuser: boolean;
           ownsTables: boolean;
         }>(`
           SELECT
             current_user AS "currentUser",
-            pg_has_role(current_user, 'agency_app', 'MEMBER') AS "isAgencyAppMember",
+            pg_has_role(current_user, $1, 'MEMBER') AS "isRuntimeRoleMember",
+            pg_has_role(current_user, 'agency_owner', 'MEMBER') AS "isAgencyOwnerMember",
             (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS "isSuperuser",
             EXISTS (
               SELECT 1
@@ -61,7 +74,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
                 AND relation.relkind IN ('r', 'p')
                 AND pg_get_userbyid(relation.relowner) = current_user
             ) AS "ownsTables"
-        `);
+        `, [expectedRuntimeRole]);
         assertLeastPrivilegedRuntimeRole(security.rows[0]);
       }
       this.logger.info('Database connected');

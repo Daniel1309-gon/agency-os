@@ -3,7 +3,8 @@ import { assertLeastPrivilegedRuntimeRole, type RuntimeRoleSecurity } from './da
 
 const safeRole: RuntimeRoleSecurity = {
   currentUser: 'agency_runtime',
-  isAgencyAppMember: true,
+  isRuntimeRoleMember: true,
+  isAgencyOwnerMember: false,
   isSuperuser: false,
   ownsTables: false,
 };
@@ -14,7 +15,8 @@ describe('production runtime database role', () => {
   });
 
   it.each([
-    { isAgencyAppMember: false },
+    { isRuntimeRoleMember: false },
+    { isAgencyOwnerMember: true },
     { isSuperuser: true },
     { ownsTables: true },
   ])('rejects unsafe role capabilities: %o', (override) => {

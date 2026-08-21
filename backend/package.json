@@ -23,6 +23,7 @@
     "db:seed": "pnpm build && pnpm db:seed:run",
     "db:seed:run": "node --env-file-if-exists=.env dist/database/seeds/seed.js",
     "db:seed:demo": "pnpm db:seed && node --env-file=.env dist/database/seeds/demo-seed.js",
+    "db:bootstrap-worker": "node --env-file=.env scripts/db-bootstrap-worker.mjs",
     "openapi:update": "pnpm build && node scripts/write-openapi.mjs",
     "bot:knowledge:import": "pnpm build && node --env-file=.env dist/scripts/bot-knowledge-import.js"
   },

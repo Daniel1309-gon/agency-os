@@ -33,6 +33,7 @@ describe('ConfigService', () => {
     expect(config.get('JWT_ACCESS_TTL_SECONDS')).toBe(900);
     expect(config.get('JWT_REFRESH_TTL_DAYS')).toBe(7);
     expect(config.get('PASSWORD_SCRYPT_LOG2N')).toBe(17);
+    expect(config.get('DATABASE_RUNTIME_ROLE')).toBe('app');
     expect(config.get('TRUSTED_PROXY_CIDRS')).toBe('');
     expect(config.get('LOG_LEVEL')).toBe('info');
   });
@@ -65,6 +66,14 @@ describe('ConfigService', () => {
 
     process.env.DATABASE_APP_URL = VALID.DATABASE_URL;
     expect(() => new ConfigService()).toThrow(/different PostgreSQL roles/);
+  });
+
+  it('requires the selected worker connection when a worker process is configured', () => {
+    process.env.DATABASE_RUNTIME_ROLE = 'worker';
+    expect(() => new ConfigService()).toThrow(/DATABASE_WORKER_URL/);
+
+    process.env.DATABASE_WORKER_URL = 'postgresql://agency_worker_runtime:worker@db:5432/agency_os';
+    expect(() => new ConfigService()).not.toThrow();
   });
 
   it('requires complete Rocket.Chat credentials and a strong webhook secret in production', () => {

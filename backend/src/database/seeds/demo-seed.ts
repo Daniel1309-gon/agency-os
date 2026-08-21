@@ -65,10 +65,14 @@ export function validateDemoSeedConfig(nodeEnv: string | undefined, password: st
 export async function seedDemo(): Promise<void> {
   const password = validateDemoSeedConfig(process.env.NODE_ENV, process.env.DEMO_USER_PASSWORD);
   const config = new ConfigService();
-  const pool = new Pool({ connectionString: config.get('DATABASE_URL') });
+  const pool = new Pool({ connectionString: config.get('DATABASE_URL'), max: 1 });
   const db = drizzle({ client: pool, schema });
 
   try {
+    const ownerRole = process.env.DATABASE_OWNER_ROLE ?? 'agency_owner';
+    if (!/^[a-z_][a-z0-9_]*$/.test(ownerRole)) throw new Error('DATABASE_OWNER_ROLE contains an invalid PostgreSQL identifier');
+    const ownerExists = await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [ownerRole]);
+    if (ownerExists.rowCount) await pool.query(`SET ROLE "${ownerRole}"`);
     await db.transaction(async (tx) => {
       const roleRows = await tx.select({ id: roles.id, code: roles.code }).from(roles);
       const roleIds = new Map(roleRows.map((role) => [role.code, role.id]));

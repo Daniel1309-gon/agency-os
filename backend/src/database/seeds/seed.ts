@@ -53,9 +53,13 @@ const roleDefinitions = [
 
 async function seed(): Promise<void> {
   const config = new ConfigService();
-  const pool = new Pool({ connectionString: config.get('DATABASE_URL') });
+  const pool = new Pool({ connectionString: config.get('DATABASE_URL'), max: 1 });
   const db = drizzle({ client: pool, schema });
   try {
+    const ownerRole = process.env.DATABASE_OWNER_ROLE ?? 'agency_owner';
+    if (!/^[a-z_][a-z0-9_]*$/.test(ownerRole)) throw new Error('DATABASE_OWNER_ROLE contains an invalid PostgreSQL identifier');
+    const ownerExists = await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [ownerRole]);
+    if (ownerExists.rowCount) await pool.query(`SET ROLE "${ownerRole}"`);
     await db.insert(roles).values(roleDefinitions.map(([code, name, hierarchyLevel, isSystem]) => ({ code, name, hierarchyLevel, isSystem }))).onConflictDoUpdate({
       target: roles.code,
       set: { name: sql`excluded.name`, hierarchyLevel: sql`excluded.hierarchy_level`, isSystem: sql`excluded.is_system` },
