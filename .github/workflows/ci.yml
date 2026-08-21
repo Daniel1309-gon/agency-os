@@ -92,7 +92,7 @@ jobs:
       - name: Install frozen workspace
         run: pnpm install --frozen-lockfile
       - name: Build backend for database commands
-        run: pnpm --filter @agency-os/api build
+        run: pnpm --filter @agency-os/api... build
       - name: Apply migrations
         run: pnpm db:migrate
       - name: Run minimum seed
