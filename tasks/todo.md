@@ -18,10 +18,10 @@ bot/estado de Rocket.Chat. Tableau, ETL, nómina, icebreakers avanzados, cafeter
 FR-39 quedan fuera de prioridad en este ciclo; sus tareas permanecen pendientes o bloqueadas y
 no deben consumir trabajo del hito de semanas 1–9. Ver `tasks/requirements-matrix.md`.
 
-Evidencia ejecutada el 2026-08-21: [CI run 32535144446](https://github.com/Daniel1309-gon/agency-os/actions/runs/32535144446)
+Evidencia ejecutada el 2026-08-21: [CI run 32536754293](https://github.com/Daniel1309-gon/agency-os/actions/runs/32536754293)
 verde desde checkout limpio; instalación frozen, migraciones, seed idempotente, build, lint, typecheck,
-unitarias, contratos API y 161 integraciones contra PostgreSQL 16 y Redis 7. La trazabilidad vive en
-`tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
+unitarias, contratos API y pruebas de integración contra PostgreSQL 16 y Redis 7. La trazabilidad vive
+en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 
 ## Fase 0 — baseline y contratos
 
@@ -34,7 +34,7 @@ unitarias, contratos API y 161 integraciones contra PostgreSQL 16 y Redis 7. La 
 
 ## Fase 1 — seguridad
 
-- [ ] **SEC-01** Roles DB owner/app/worker/readonly y grants mínimos. Depende de FND-03.
+- [x] **SEC-01** Roles DB owner/app/worker/readonly y grants mínimos. Evidencia: `backend/src/database/migrations/0008_database_deployment_roles.sql`, `backend/src/test/integration/database-roles.int.spec.ts`, `backend/scripts/db-bootstrap-runtime.mjs`, `backend/scripts/db-bootstrap-worker.mjs`, `docs/decisions/0002-postgresql-deployment-roles.md`, [CI run 32536754293](https://github.com/Daniel1309-gon/agency-os/actions/runs/32536754293).
 - [ ] **SEC-02** RLS real por rol/cuadrilla/operación. Depende de SEC-01/FND-04. BLOCKED parcial: OQ-01/OQ-02.
 - [ ] **SEC-03** IP allowlist fail-closed y proxies confiables. Depende de FND-04/OQ-12.
 - [ ] **SEC-04** Refresh atómico, reuse detection, cookies/rate limit/scrypt. Depende de SEC-03.
