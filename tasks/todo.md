@@ -35,7 +35,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 ## Fase 1 — seguridad
 
 - [x] **SEC-01** Roles DB owner/app/worker/readonly y grants mínimos. Evidencia: `backend/src/database/migrations/0008_database_deployment_roles.sql`, `backend/src/test/integration/database-roles.int.spec.ts`, `backend/scripts/db-bootstrap-runtime.mjs`, `backend/scripts/db-bootstrap-worker.mjs`, `docs/decisions/0002-postgresql-deployment-roles.md`, [CI run 32536754293](https://github.com/Daniel1309-gon/agency-os/actions/runs/32536754293).
-- [ ] **SEC-02** RLS real por rol/cuadrilla/operación. Depende de SEC-01/FND-04. BLOCKED parcial: OQ-01/OQ-02.
+- [ ] **SEC-02** RLS real por rol/cuadrilla/operación. Depende de SEC-01/FND-04. BLOCKED parcial: OQ-01/OQ-02. Subavance verificado: `0009_force_sensitive_rls.sql`, pruebas con `agency_app`/`agency_owner` real y [CI run 32537522547](https://github.com/Daniel1309-gon/agency-os/actions/runs/32537522547); falta cerrar la matriz de coordinador/cuadrilla cuando se resuelvan OQ-01/OQ-02.
 - [ ] **SEC-03** IP allowlist fail-closed y proxies confiables. Depende de FND-04/OQ-12.
 - [ ] **SEC-04** Refresh atómico, reuse detection, cookies/rate limit/scrypt. Depende de SEC-03.
 - [ ] **SEC-05** Principal y lifecycle de dispositivo. Depende de SEC-01/FND-04.

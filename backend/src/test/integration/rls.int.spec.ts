@@ -79,6 +79,28 @@ const countOf = async (client: PoolClient, table: string): Promise<number> => {
   return result.rows[0].n as number;
 };
 
+describe('RLS deployment invariants', () => {
+  it('forces row security on every sensitive table', async () => {
+    const sensitiveTables = [
+      'tt_profile_credentials',
+      'points_ledger',
+      'payroll_lines',
+      'operator_account_entries',
+      'icebreakers',
+      'credential_access_log',
+    ];
+    const result = await ctx.pool.query<{ relname: string; relforcerowsecurity: boolean }>(
+      `SELECT relname, relforcerowsecurity
+         FROM pg_class
+        WHERE relnamespace = 'public'::regnamespace AND relname = ANY($1::text[])
+        ORDER BY relname`,
+      [sensitiveTables],
+    );
+    expect(result.rows).toHaveLength(sensitiveTables.length);
+    expect(result.rows.every((row) => row.relforcerowsecurity)).toBe(true);
+  });
+});
+
 describe('points_ledger row level security', () => {
   it('does not let the owner role bypass policies without request context', async () => {
     const operator = await createUser(ctx);
