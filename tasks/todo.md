@@ -18,19 +18,19 @@ bot/estado de Rocket.Chat. Tableau, ETL, nómina, icebreakers avanzados, cafeter
 FR-39 quedan fuera de prioridad en este ciclo; sus tareas permanecen pendientes o bloqueadas y
 no deben consumir trabajo del hito de semanas 1–9. Ver `tasks/requirements-matrix.md`.
 
-Evidencia ejecutada el 2026-08-20: [CI #3](https://github.com/Daniel1309-gon/agency-os/actions/runs/32436187602)
-verde desde checkout limpio; 138 unitarias backend, 3 frontend y 160 integraciones en 14 archivos
-contra PostgreSQL 16 y Redis 7. La trazabilidad vive en `tasks/requirements-catalog.json` y se
-verifica con `pnpm test:requirements`.
+Evidencia ejecutada el 2026-08-21: [CI #6](https://github.com/Daniel1309-gon/agency-os/actions/runs/32520285060)
+verde desde checkout limpio; 3 pruebas de contratos compartidos, 140 unitarias backend, 3 frontend,
+6 de contrato API y 161 integraciones en 14 archivos contra PostgreSQL 16 y Redis 7. La trazabilidad
+vive en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 
 ## Fase 0 — baseline y contratos
 
 - [x] **FND-01** Trazabilidad FR-01…FR-39/NFR y registro de decisiones. Evidencia: `tasks/requirements-catalog.json`, `tasks/requirements-matrix.md`, `pnpm test:requirements`.
 - [x] **FND-02** Toolchain reproducible: install/build/lint/typecheck/unit verdes. Evidencia: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
 - [x] **FND-03** CI unificado con PostgreSQL/Redis/migraciones/integración. Evidencia: [CI #3](https://github.com/Daniel1309-gon/agency-os/actions/runs/32436187602), commit `4e534cd`.
-- [x] **FND-04** DTO compartidos, OpenAPI y matriz ruta×política. Evidencia: `packages/shared/test/operator-contracts.test.mjs`, `backend/openapi.snapshot.json`, `tasks/route-policy-matrix.md`, `pnpm test:contracts`.
+- [x] **FND-04** DTO compartidos, OpenAPI y matriz ruta×política. Evidencia: `packages/shared/test/operator-contracts.test.mjs`, `backend/openapi.snapshot.json`, `tasks/route-policy-matrix.md`, `pnpm test:contracts`, [CI #6](https://github.com/Daniel1309-gon/agency-os/actions/runs/32520285060).
 - [ ] **FND-05** Boundaries repository/port y slice piloto.
-- [ ] **Checkpoint 0:** clon limpio y CI verde; ninguna ruta sin clasificación.
+- [x] **Checkpoint 0:** clon limpio y CI verde; ninguna ruta sin clasificación. Evidencia: [CI #6](https://github.com/Daniel1309-gon/agency-os/actions/runs/32520285060), commits `e491af8` y `cd86266`.
 
 ## Fase 1 — seguridad
 
