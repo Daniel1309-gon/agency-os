@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req, UsePipes } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { CurrentUser, Public, RequirePermissions, RequireRoles } from '../../common/auth/decorators.js';
-import { DeviceTokenGuard } from '../../common/auth/guards.js';
+import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { DevicesService } from './devices.service.js';
@@ -35,7 +35,7 @@ export class DevicesController {
 }
 
 @Controller('agent/devices')
-@UseGuards(DeviceTokenGuard)
+@RequireDevice()
 @RequireRoles('OPERADOR')
 export class AgentDevicesController {
   constructor(private readonly devices: DevicesService) {}

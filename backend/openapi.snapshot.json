@@ -1,0 +1,6596 @@
+{
+  "components": {
+    "schemas": {
+      "AssignedProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "assignmentId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chromeProfileDir": {
+            "type": "string"
+          },
+          "profileId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "profileName": {
+            "type": "string"
+          },
+          "profileUsername": {
+            "type": "string"
+          },
+          "session": {
+            "nullable": true,
+            "properties": {
+              "errorCode": {
+                "nullable": true,
+                "type": "string"
+              },
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "startedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "LAUNCHING",
+                  "ACTIVE",
+                  "ERROR",
+                  "CLOSED"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "startedAt",
+              "errorCode"
+            ],
+            "type": "object"
+          },
+          "shiftId": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "INACTIVE",
+              "SUSPENDED",
+              "RETIRED"
+            ],
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validTo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignmentId",
+          "profileId",
+          "profileName",
+          "profileUsername",
+          "status",
+          "chromeProfileDir",
+          "shiftId",
+          "validFrom",
+          "validTo",
+          "session"
+        ],
+        "type": "object"
+      },
+      "AssignedProfileList": {
+        "items": {
+          "$ref": "#/components/schemas/AssignedProfile"
+        },
+        "type": "array"
+      },
+      "CafeteriaOrder": {
+        "properties": {
+          "acceptedAt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "deliveredAt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "lineTotalCop": {
+                  "type": "string"
+                },
+                "notes": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "productId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "productNameSnapshot": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "exclusiveMinimum": true,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "unitPriceCop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "productId",
+                "productNameSnapshot",
+                "quantity",
+                "unitPriceCop",
+                "lineTotalCop"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "nullable": true,
+            "type": "string"
+          },
+          "operatorId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "orderNumber": {
+            "type": "integer"
+          },
+          "pickupDeadlineAt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "placedAt": {
+            "type": "string"
+          },
+          "readyAt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PLACED",
+              "ACCEPTED",
+              "PREPARING",
+              "READY",
+              "DELIVERED",
+              "CANCELLED",
+              "EXPIRED"
+            ],
+            "type": "string"
+          },
+          "totalCop": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "orderNumber",
+          "operatorId",
+          "status",
+          "placedAt",
+          "totalCop",
+          "items"
+        ],
+        "type": "object"
+      },
+      "CafeteriaOrderList": {
+        "items": {
+          "$ref": "#/components/schemas/CafeteriaOrder"
+        },
+        "type": "array"
+      },
+      "CafeteriaProduct": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "imageUri": {
+            "nullable": true,
+            "type": "string"
+          },
+          "isAvailable": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pickupDeadlineMinutes": {
+            "nullable": true,
+            "type": "number"
+          },
+          "prepMinutes": {
+            "nullable": true,
+            "type": "number"
+          },
+          "priceCop": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sku",
+          "name",
+          "category",
+          "priceCop"
+        ],
+        "type": "object"
+      },
+      "CafeteriaProductList": {
+        "items": {
+          "$ref": "#/components/schemas/CafeteriaProduct"
+        },
+        "type": "array"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "details": {
+                "additionalProperties": {
+                  "nullable": true
+                },
+                "type": "object"
+              },
+              "message": {
+                "type": "string"
+              },
+              "requestId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "LaunchProfileMessage": {
+        "properties": {
+          "action": {
+            "enum": [
+              "launchProfile"
+            ],
+            "type": "string"
+          },
+          "chromeProfileDir": {
+            "pattern": "^(Default|Profile \\d{1,3})$",
+            "type": "string"
+          },
+          "launchUrl": {
+            "format": "uri",
+            "type": "string"
+          },
+          "profileId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "profileId",
+          "sessionId",
+          "chromeProfileDir",
+          "launchUrl"
+        ],
+        "type": "object"
+      },
+      "MetricBatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dedupeKey": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "eventType": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "payload": {
+                  "additionalProperties": {
+                    "nullable": true
+                  },
+                  "default": {},
+                  "type": "object"
+                },
+                "points": {
+                  "type": "number"
+                },
+                "profileId": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "dedupeKey",
+                "profileId",
+                "eventType",
+                "occurredAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "type": "object"
+      },
+      "OperationalMetrics": {
+        "properties": {
+          "activeSessions": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "coveredShifts": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "measuredAt": {
+            "type": "string"
+          },
+          "operatorsOnline": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operatorsScheduled": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pendingOrders": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operatorsOnline",
+          "operatorsScheduled",
+          "activeSessions",
+          "coveredShifts",
+          "pendingOrders",
+          "measuredAt"
+        ],
+        "type": "object"
+      },
+      "Pagination": {
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "totalItems": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "totalPages": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "type": "object"
+      },
+      "PrepareSessionMessage": {
+        "properties": {
+          "accessToken": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "prepareSession"
+            ],
+            "type": "string"
+          },
+          "chromeProfileDir": {
+            "pattern": "^(Default|Profile \\d{1,3})$",
+            "type": "string"
+          },
+          "launchUrl": {
+            "format": "uri",
+            "type": "string"
+          },
+          "profileId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "accessToken",
+          "profileId",
+          "sessionId",
+          "chromeProfileDir",
+          "launchUrl"
+        ],
+        "type": "object"
+      },
+      "SessionCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "assignmentId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "chromeProfileDir": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "profileId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "assignmentId",
+          "chromeProfileDir"
+        ],
+        "type": "object"
+      },
+      "SessionPatchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "errorCode": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "errorDetail": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "LAUNCHING",
+              "ACTIVE",
+              "ERROR",
+              "CLOSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "UserSummary": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "ADMIN",
+              "DIRECTOR_OPERATIVO",
+              "COORDINADOR",
+              "OPERADOR",
+              "CAFETERIA"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "role",
+          "permissions",
+          "mustChangePassword"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "accessToken": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {},
+    "description": "API operacional de Agency OS",
+    "title": "Agency OS API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/agent/devices/heartbeat": {
+      "post": {
+        "operationId": "AgentDevicesController.heartbeat",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentDevices"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/devices/heartbeat",
+          "scope": "SELF",
+          "shift": false
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
+      }
+    },
+    "/api/v1/agent/metrics/batch": {
+      "post": {
+        "operationId": "MetricsController.ingest",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-session-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricBatchInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NATURAL_KEY",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/metrics/batch",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/profiles/assigned": {
+      "get": {
+        "operationId": "AgentSessionsController.assigned",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignedProfileList"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentSessions"
+        ],
+        "x-agency-permissions": [
+          "profiles.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.read"
+            ],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/agent/profiles/assigned",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/session/credential-grant": {
+      "post": {
+        "operationId": "AgentVaultController.grant",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentVault"
+        ],
+        "x-agency-device": true,
+        "x-agency-permissions": [
+          "vault.credential.issue"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.credential.issue"
+            ],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/session/credential-grant",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/session/credential-redeem": {
+      "post": {
+        "operationId": "AgentVaultController.redeem",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentVault"
+        ],
+        "x-agency-device": true,
+        "x-agency-permissions": [
+          "vault.credential.issue"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.credential.issue"
+            ],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/session/credential-redeem",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/sessions": {
+      "post": {
+        "operationId": "AgentSessionsController.open",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentSessions"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/sessions",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/sessions/{id}": {
+      "patch": {
+        "operationId": "AgentSessionsController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionPatchInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentSessions"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/sessions/{id}",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/sessions/{id}/close": {
+      "post": {
+        "operationId": "AgentSessionsController.close",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentSessions"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/sessions/{id}/close",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/agent/sessions/prepare": {
+      "post": {
+        "operationId": "AgentSessionsController.prepare",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "AgentSessions"
+        ],
+        "x-agency-permissions": [
+          "profiles.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.read"
+            ],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/agent/sessions/prepare",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/assignments": {
+      "get": {
+        "operationId": "AssignmentsController.history",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Assignments"
+        ],
+        "x-agency-permissions": [
+          "profiles.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "OFFSET",
+          "path": "/api/v1/assignments",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "AssignmentsController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Assignments"
+        ],
+        "x-agency-permissions": [
+          "profiles.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/assignments",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/assignments/{id}/end": {
+      "post": {
+        "operationId": "AssignmentsController.end",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Assignments"
+        ],
+        "x-agency-permissions": [
+          "profiles.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/assignments/{id}/end",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/audit-log": {
+      "get": {
+        "operationId": "AdminController.audit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "audit.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "audit.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/audit-log",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController.login",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/login",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController.logout",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/logout",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "AuthController.me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSummary"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/me",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/auth/password": {
+      "post": {
+        "operationId": "AuthController.changePassword",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/password",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "operationId": "AuthController.resetPassword",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "users.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "users.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/password/reset",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "AuthController.refresh",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "Auth"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/auth/refresh",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    },
+    "/api/v1/breaks/{id}/end": {
+      "post": {
+        "operationId": "BreaksController.end",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Breaks"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/breaks/{id}/end",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/breaks/{id}/start": {
+      "post": {
+        "operationId": "BreaksController.start",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Breaks"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/breaks/{id}/start",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/breaks/{shiftId}": {
+      "get": {
+        "operationId": "BreaksController.list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "shiftId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Breaks"
+        ],
+        "x-agency-permissions": [
+          "shifts.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/breaks/{shiftId}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/accounts/me": {
+      "get": {
+        "operationId": "CafeteriaController.account",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/accounts/me",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/menu": {
+      "get": {
+        "operationId": "CafeteriaController.menu",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CafeteriaProductList"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/cafeteria/menu",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/orders": {
+      "get": {
+        "operationId": "CafeteriaController.orders",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CafeteriaOrderList"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/cafeteria/orders",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "CafeteriaController.order",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "IDEMPOTENCY_KEY",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/orders",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/cafeteria/orders/{id}/cancel": {
+      "post": {
+        "operationId": "CafeteriaController.cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/orders/{id}/cancel",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/orders/{id}/status": {
+      "patch": {
+        "operationId": "CafeteriaController.status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/orders/{id}/status",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/products": {
+      "get": {
+        "operationId": "CafeteriaController.products",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CafeteriaProductList"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/cafeteria/products",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "CafeteriaController.product",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/products",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/products/{id}": {
+      "patch": {
+        "operationId": "CafeteriaController.updateProduct",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/cafeteria/products/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/competitions": {
+      "get": {
+        "operationId": "CompetitionsController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Competitions"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/competitions",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "CompetitionsController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Competitions"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/competitions",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/competitions/{id}/leaderboard": {
+      "get": {
+        "operationId": "CompetitionsController.leaderboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Competitions"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/competitions/{id}/leaderboard",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/crews": {
+      "get": {
+        "operationId": "CrewsController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Crews"
+        ],
+        "x-agency-permissions": [
+          "crews.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "crews.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/crews",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "CrewsController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Crews"
+        ],
+        "x-agency-permissions": [
+          "crews.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "crews.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/crews",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/crews/{id}/members": {
+      "post": {
+        "operationId": "CrewsController.add",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Crews"
+        ],
+        "x-agency-permissions": [
+          "crews.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "crews.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/crews/{id}/members",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/crews/{id}/members/{userId}": {
+      "delete": {
+        "operationId": "CrewsController.remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Crews"
+        ],
+        "x-agency-permissions": [
+          "crews.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "crews.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "DELETE",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/crews/{id}/members/{userId}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/devices": {
+      "get": {
+        "operationId": "DevicesController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/devices",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "DevicesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/devices/{id}": {
+      "get": {
+        "operationId": "DevicesController.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/devices/{id}/revoke": {
+      "post": {
+        "operationId": "DevicesController.revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices/{id}/revoke",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/devices/enroll": {
+      "post": {
+        "operationId": "DevicesController.enroll",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices/enroll",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    },
+    "/api/v1/feature-flags": {
+      "get": {
+        "operationId": "AdminController.flags",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "settings.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "settings.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/feature-flags",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/feature-flags/{key}": {
+      "patch": {
+        "operationId": "AdminController.flag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "settings.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "settings.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/feature-flags/{key}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreaker-rules": {
+      "get": {
+        "operationId": "IcebreakerRulesController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "IcebreakerRules"
+        ],
+        "x-agency-permissions": [
+          "icebreaker.rules.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "icebreaker.rules.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/icebreaker-rules",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "IcebreakerRulesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "IcebreakerRules"
+        ],
+        "x-agency-permissions": [
+          "icebreaker.rules.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "icebreaker.rules.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreaker-rules",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreaker-rules/{id}": {
+      "patch": {
+        "operationId": "IcebreakerRulesController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "IcebreakerRules"
+        ],
+        "x-agency-permissions": [
+          "icebreaker.rules.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "icebreaker.rules.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreaker-rules/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers": {
+      "get": {
+        "operationId": "IcebreakersController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/icebreakers",
+          "scope": "SELF",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "IcebreakersController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}": {
+      "patch": {
+        "operationId": "IcebreakersController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers/{id}",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}/effectiveness": {
+      "get": {
+        "operationId": "IcebreakersController.effectiveness",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers/{id}/effectiveness",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}/evaluate": {
+      "post": {
+        "operationId": "IcebreakersController.evaluate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers/{id}/evaluate",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}/evaluations": {
+      "get": {
+        "operationId": "IcebreakersController.evaluations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/icebreakers/{id}/evaluations",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}/publish": {
+      "post": {
+        "operationId": "IcebreakersController.publish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers/{id}/publish",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/{id}/reviews": {
+      "post": {
+        "operationId": "IcebreakersController.review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "icebreaker.review"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "icebreaker.review"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/icebreakers/{id}/reviews",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/icebreakers/violations": {
+      "get": {
+        "operationId": "IcebreakersController.violations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operatorId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Icebreakers"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "icebreaker.review"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "icebreaker.review"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/icebreakers/violations",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/metrics/operations": {
+      "get": {
+        "operationId": "MetricsController.operations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalMetrics"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-permissions": [
+          "metrics.audit"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "metrics.audit"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/metrics/operations",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/metrics/profiles": {
+      "get": {
+        "operationId": "MetricsController.profiles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-permissions": [
+          "metrics.audit"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "metrics.audit"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/metrics/profiles",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/metrics/profiles/{id}/timeseries": {
+      "get": {
+        "operationId": "MetricsController.timeseries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-permissions": [
+          "metrics.audit"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "metrics.audit"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/metrics/profiles/{id}/timeseries",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/metrics/ranking": {
+      "get": {
+        "operationId": "MetricsController.ranking",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-permissions": [
+          "metrics.audit"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "metrics.audit"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/metrics/ranking",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/metrics/reconciliation": {
+      "get": {
+        "operationId": "MetricsController.reconciliation",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-permissions": [
+          "metrics.audit"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "metrics.audit"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/metrics/reconciliation",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "NotificationsController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Notifications"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/notifications",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/notifications/{id}/read": {
+      "patch": {
+        "operationId": "NotificationsController.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Notifications"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/notifications/{id}/read",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/operators/me/status": {
+      "post": {
+        "operationId": "OperatorStatusController.set",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "OperatorStatus"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/operators/me/status",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
+    "/api/v1/operators/status": {
+      "get": {
+        "operationId": "OperatorStatusController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "OperatorStatus"
+        ],
+        "x-agency-permissions": [
+          "operators.monitor"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "operators.monitor"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/operators/status",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/goals": {
+      "get": {
+        "operationId": "PayrollController.goals",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "periodId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/payroll/goals",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "PayrollController.createGoal",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/goals",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/goals/me/progress": {
+      "get": {
+        "operationId": "PayrollController.goalProgress",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "periodId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/goals/me/progress",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/lines/{id}/adjustments": {
+      "post": {
+        "operationId": "PayrollController.adjustment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.adjust"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.adjust"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/lines/{id}/adjustments",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/me/summary": {
+      "get": {
+        "operationId": "PayrollController.summary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "periodId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/me/summary",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/periods": {
+      "get": {
+        "operationId": "PayrollController.periods",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/payroll/periods",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "PayrollController.createPeriod",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/periods",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/periods/{id}/close": {
+      "post": {
+        "operationId": "PayrollController.close",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.close"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.close"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/periods/{id}/close",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/periods/{id}/compute": {
+      "post": {
+        "operationId": "PayrollController.compute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/periods/{id}/compute",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/periods/{id}/lines": {
+      "get": {
+        "operationId": "PayrollController.lines",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/payroll/periods/{id}/lines",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/periods/{id}/lock": {
+      "post": {
+        "operationId": "PayrollController.lock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.close"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.close"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/periods/{id}/lock",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/points/adjustments": {
+      "post": {
+        "operationId": "PayrollController.pointsAdjustment",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.adjust"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.adjust"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/points/adjustments",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/permissions": {
+      "get": {
+        "operationId": "AdminController.permissions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "rbac.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "rbac.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/permissions",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles": {
+      "get": {
+        "operationId": "ProfilesController.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "profiles.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "OFFSET",
+          "path": "/api/v1/profiles",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "ProfilesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "profiles.create"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.create"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles/{id}": {
+      "get": {
+        "operationId": "ProfilesController.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "profiles.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      },
+      "patch": {
+        "operationId": "ProfilesController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "profiles.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/access-log": {
+      "get": {
+        "operationId": "ProfilesController.accessLog",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "audit.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "audit.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/profiles/{id}/access-log",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/deactivate": {
+      "post": {
+        "operationId": "ProfilesController.deactivate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Profiles"
+        ],
+        "x-agency-permissions": [
+          "profiles.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "profiles.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles/{id}/deactivate",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles/{profileId}/credential": {
+      "put": {
+        "operationId": "VaultController.rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Vault"
+        ],
+        "x-agency-permissions": [
+          "vault.rotate"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.rotate"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NATURAL_KEY",
+          "method": "PUT",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles/{profileId}/credential",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/profiles/{profileId}/credential/meta": {
+      "get": {
+        "operationId": "VaultController.meta",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Vault"
+        ],
+        "x-agency-permissions": [
+          "vault.read_meta"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.read_meta"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/profiles/{profileId}/credential/meta",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/reports/effective-time": {
+      "get": {
+        "operationId": "ReportsController.report",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Reports"
+        ],
+        "x-agency-permissions": [
+          "reports.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "reports.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/reports/effective-time",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/rocketchat/bot/events": {
+      "post": {
+        "operationId": "RocketChatBotController.event",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "RocketChatBot"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NATURAL_KEY",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/bot/events",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    },
+    "/api/v1/rocketchat/bot/knowledge": {
+      "get": {
+        "operationId": "RocketChatBotController.knowledge",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChatBot"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/rocketchat/bot/knowledge",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/rocketchat/bot/knowledge/{slug}": {
+      "put": {
+        "operationId": "RocketChatBotController.setKnowledge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChatBot"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NATURAL_KEY",
+          "method": "PUT",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/bot/knowledge/{slug}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/rocketchat/channels": {
+      "get": {
+        "operationId": "RocketChatController.channels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChat"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/rocketchat/channels",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "RocketChatController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChat"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/channels",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/rocketchat/messages": {
+      "post": {
+        "operationId": "RocketChatController.message",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChat"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/messages",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "operationId": "AdminController.roles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "rbac.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "rbac.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/roles",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/scheduled-messages": {
+      "get": {
+        "operationId": "ScheduledMessagesController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ScheduledMessages"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/scheduled-messages",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "ScheduledMessagesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ScheduledMessages"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/scheduled-messages",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/scheduled-messages/{id}": {
+      "delete": {
+        "operationId": "ScheduledMessagesController.cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ScheduledMessages"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "DELETE",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/scheduled-messages/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "operationId": "AdminController.settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "settings.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "settings.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/settings",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/settings/{key}": {
+      "patch": {
+        "operationId": "AdminController.setting",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "settings.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "settings.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/settings/{key}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/settings/ip-allowlist": {
+      "get": {
+        "operationId": "AdminController.allowlist",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "security.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "security.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/settings/ip-allowlist",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "AdminController.addAllowlist",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "security.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "security.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/settings/ip-allowlist",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/settings/ip-allowlist/{id}/disable": {
+      "post": {
+        "operationId": "AdminController.disableAllowlist",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "security.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "security.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/settings/ip-allowlist/{id}/disable",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shift-overrides": {
+      "post": {
+        "operationId": "ShiftOverridesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ShiftOverrides"
+        ],
+        "x-agency-permissions": [
+          "shifts.approve_overtime"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.approve_overtime"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shift-overrides",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shift-templates": {
+      "get": {
+        "operationId": "ShiftTemplatesController.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ShiftTemplates"
+        ],
+        "x-agency-permissions": [
+          "shifts.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/shift-templates",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "ShiftTemplatesController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ShiftTemplates"
+        ],
+        "x-agency-permissions": [
+          "shifts.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shift-templates",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shifts": {
+      "post": {
+        "operationId": "ShiftsController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Shifts"
+        ],
+        "x-agency-permissions": [
+          "shifts.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shifts",
+          "scope": "CREW",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shifts/{id}/end": {
+      "post": {
+        "operationId": "ShiftsController.end",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Shifts"
+        ],
+        "x-agency-permissions": [
+          "shifts.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shifts/{id}/end",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shifts/{id}/start": {
+      "post": {
+        "operationId": "ShiftsController.start",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Shifts"
+        ],
+        "x-agency-permissions": [
+          "shifts.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shifts/{id}/start",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/shifts/me/current": {
+      "get": {
+        "operationId": "ShiftsController.current",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Shifts"
+        ],
+        "x-agency-permissions": [
+          "shifts.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shifts/me/current",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/tableau/runs": {
+      "get": {
+        "operationId": "TableauController.runs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "viewId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/tableau/runs",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "TableauController.run",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/tableau/runs",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/tableau/runs/{id}/execute": {
+      "post": {
+        "operationId": "TableauController.execute",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/tableau/runs/{id}/execute",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/tableau/views": {
+      "get": {
+        "operationId": "TableauController.views",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/tableau/views",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "TableauController.createView",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/tableau/views",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "AdminController.users",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "users.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "users.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/users",
+          "scope": "CREW",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "AdminController.create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "users.create"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "users.create"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/users",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/users/{id}": {
+      "patch": {
+        "operationId": "AdminController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "users.update"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "users.update"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/users/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/users/{id}/compensation": {
+      "get": {
+        "operationId": "AdminController.compensation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/users/{id}/compensation",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      },
+      "post": {
+        "operationId": "AdminController.addCompensation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/users/{id}/compensation",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/users/{id}/disable": {
+      "post": {
+        "operationId": "AdminController.disable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Admin"
+        ],
+        "x-agency-permissions": [
+          "users.disable"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "users.disable"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/users/{id}/disable",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "HealthController.live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "Health"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/health/live",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "HealthController.ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [],
+        "tags": [
+          "Health"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": true,
+            "roles": []
+          },
+          "actors": [
+            "ANONYMOUS"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/health/ready",
+          "scope": "PUBLIC",
+          "shift": false
+        },
+        "x-agency-public": true
+      }
+    }
+  },
+  "servers": [],
+  "tags": []
+}

@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post, Put, Req, Res, UseGuards, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put, Req, Res, UsePipes } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
-import { DeviceTokenGuard } from '../../common/auth/guards.js';
+import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { VaultService } from './vault.service.js';
@@ -26,7 +26,7 @@ export class VaultController {
 }
 
 @Controller('agent/session')
-@UseGuards(DeviceTokenGuard)
+@RequireDevice()
 @RequireRoles('OPERADOR')
 @RequireShift()
 export class AgentVaultController {

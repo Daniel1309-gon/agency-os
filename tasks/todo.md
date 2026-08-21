@@ -28,7 +28,7 @@ verifica con `pnpm test:requirements`.
 - [x] **FND-01** Trazabilidad FR-01…FR-39/NFR y registro de decisiones. Evidencia: `tasks/requirements-catalog.json`, `tasks/requirements-matrix.md`, `pnpm test:requirements`.
 - [x] **FND-02** Toolchain reproducible: install/build/lint/typecheck/unit verdes. Evidencia: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
 - [x] **FND-03** CI unificado con PostgreSQL/Redis/migraciones/integración. Evidencia: [CI #3](https://github.com/Daniel1309-gon/agency-os/actions/runs/32436187602), commit `4e534cd`.
-- [ ] **FND-04** DTO compartidos, OpenAPI y matriz ruta×política.
+- [x] **FND-04** DTO compartidos, OpenAPI y matriz ruta×política. Evidencia: `packages/shared/test/operator-contracts.test.mjs`, `backend/openapi.snapshot.json`, `tasks/route-policy-matrix.md`, `pnpm test:contracts`.
 - [ ] **FND-05** Boundaries repository/port y slice piloto.
 - [ ] **Checkpoint 0:** clon limpio y CI verde; ninguna ruta sin clasificación.
 

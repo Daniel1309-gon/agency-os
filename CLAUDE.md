@@ -66,12 +66,14 @@ Per task, from the root:
 | `pnpm build` | Builds shared contracts, backend and frontend |
 | `pnpm lint` / `pnpm typecheck` / `pnpm test` | Runs the corresponding workspace gate; `test` is unit-only |
 | `pnpm test:integration` | Runs the backend integration suite against real PostgreSQL and Redis |
+| `pnpm test:contracts` | Builds the backend and verifies the reviewed OpenAPI snapshot plus the route × policy matrix |
 | `pnpm test:requirements` | Verifies FR-01…FR-39, five NFR groups, evidence links and the OQ register |
 | `pnpm ci:quality` | Build, lint, typecheck, unit tests and production dependency audit |
 | `pnpm ci:database` | Backend build, migrations, minimum seed twice (idempotence), schema check and real integration tests |
 | `pnpm ci:verify` | Full local equivalent of unified CI; loads `backend/.env` and recreates the integration database |
 | `pnpm db:generate` | drizzle-kit generate, after changing the schema |
 | `pnpm db:migrate` | Applies pending migrations |
+| `pnpm --filter @agency-os/api openapi:update` | Regenerates the reviewed OpenAPI snapshot and human route policy matrix after an approved contract change |
 | `pnpm db:studio` | drizzle-kit studio |
 
 Backend-only, via `pnpm --filter @agency-os/api <script>`:

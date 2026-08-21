@@ -5,6 +5,47 @@ import { DatabaseService } from '../../database/database.service.js';
 import { credentialAccessLog, profileAssignments, profileSessions, ttProfiles } from '../../database/schema/index.js';
 import type { ProfileCreateInput, ProfileUpdateInput } from './profiles.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { assignedProfileSchema, type AssignedProfile } from '@agency-os/shared';
+
+interface AssignedProfileRow {
+  assignmentId: string;
+  chromeProfileDir: string;
+  profileId: string;
+  profileName: string;
+  profileUsername: string;
+  sessionErrorCode: string | null;
+  sessionId: string | null;
+  sessionStartedAt: Date | string | null;
+  sessionStatus: string | null;
+  shiftId: string | null;
+  status: string;
+  validFrom: Date | string;
+  validTo: Date | string;
+}
+
+function isoTimestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+export function mapAssignedProfile(row: AssignedProfileRow): AssignedProfile {
+  return assignedProfileSchema.parse({
+    assignmentId: row.assignmentId,
+    profileId: row.profileId,
+    profileName: row.profileName,
+    profileUsername: row.profileUsername,
+    status: row.status,
+    chromeProfileDir: row.chromeProfileDir,
+    shiftId: row.shiftId,
+    validFrom: isoTimestamp(row.validFrom),
+    validTo: isoTimestamp(row.validTo),
+    session: row.sessionId ? {
+      id: row.sessionId,
+      status: row.sessionStatus,
+      startedAt: row.sessionStartedAt ? isoTimestamp(row.sessionStartedAt) : null,
+      errorCode: row.sessionErrorCode,
+    } : null,
+  });
+}
 
 @Injectable()
 export class ProfilesService {
@@ -93,6 +134,7 @@ export class ProfilesService {
         profileUsername: ttProfiles.loginEmail,
         status: ttProfiles.status,
         chromeProfileDir: sql<string>`coalesce(${ttProfiles.chromeProfileDir}, '')`,
+        shiftId: profileAssignments.shiftId,
         validFrom: sql<string>`lower(${profileAssignments.validRange})`,
         validTo: sql<string>`upper(${profileAssignments.validRange})`,
         sessionId: profileSessions.id,
@@ -115,22 +157,7 @@ export class ProfilesService {
         sql`${profileAssignments.validRange} @> now()`,
       ));
 
-    return rows.map((row) => ({
-      assignmentId: row.assignmentId,
-      profileId: row.profileId,
-      profileName: row.profileName,
-      profileUsername: row.profileUsername,
-      status: row.status,
-      chromeProfileDir: row.chromeProfileDir,
-      validFrom: row.validFrom,
-      validTo: row.validTo,
-      session: row.sessionId ? {
-        id: row.sessionId,
-        status: row.sessionStatus,
-        startedAt: row.sessionStartedAt,
-        errorCode: row.sessionErrorCode,
-      } : null,
-    }));
+    return rows.map(mapAssignedProfile);
   }
 
   async accessLog(profileId: string, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {

@@ -11,6 +11,8 @@
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:contracts": "pnpm build && node --test test/api-contracts.test.mjs",
+    "test:contracts:run": "node --test test/api-contracts.test.mjs",
     "test:watch": "vitest",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",
     "test:all": "pnpm test && pnpm test:integration",
@@ -20,9 +22,12 @@
     "db:seed": "pnpm build && pnpm db:seed:run",
     "db:seed:run": "node --env-file-if-exists=.env dist/database/seeds/seed.js",
     "db:seed:demo": "pnpm db:seed && node --env-file=.env dist/database/seeds/demo-seed.js",
+    "openapi:update": "pnpm build && node scripts/write-openapi.mjs",
     "bot:knowledge:import": "pnpm build && node --env-file=.env dist/scripts/bot-knowledge-import.js"
   },
   "dependencies": {
+    "@agency-os/shared": "workspace:*",
+    "@asteasolutions/zod-to-openapi": "7.3.4",
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.1.0",
     "@fastify/static": "^10.1.3",

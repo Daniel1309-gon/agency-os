@@ -1,6 +1,16 @@
 export { errorEnvelopeSchema, paginationSchema, paginatedResponseSchema } from './schemas/api.js';
 export { configSchema, type Config } from './schemas/config.js';
 export {
+  metricBatchSchema,
+  metricEventSchema,
+  sessionCreateSchema,
+  sessionPatchSchema,
+  type MetricBatchInput,
+  type MetricEventInput,
+  type SessionCreateInput,
+  type SessionPatchInput,
+} from './contracts/operator.js';
+export {
   assignedProfileSchema,
   cafeteriaOrderItemSchema,
   cafeteriaOrderSchema,

@@ -1,8 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { RequestMethod } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { AppModule } from './app.module.js';
@@ -10,6 +9,7 @@ import { ConfigService } from './config/config.service.js';
 import { LoggerService } from './common/logger/logger.service.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter.js';
+import { buildOpenApiDocument, configureApiRouting } from './openapi.js';
 
 async function bootstrap() {
   const bootstrapConfig = new ConfigService();
@@ -51,47 +51,10 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Rutas exactas, no wildcard: la sintaxis de patrones de exclusion de Nest
-  // ha cambiado entre versiones mayores (path-to-regexp), y solo hay dos
-  // rutas de salud que agregar aqui si llega a haber una tercera.
-  app.setGlobalPrefix('api/v1', {
-    exclude: [
-      { path: 'health/live', method: RequestMethod.GET },
-      { path: 'health/ready', method: RequestMethod.GET },
-    ],
-  });
+  configureApiRouting(app);
 
   if (config.get('NODE_ENV') !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Agency OS API')
-      .setDescription('API operacional de Agency OS')
-      .setVersion('1.0.0')
-      .addBearerAuth(
-        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-        'accessToken',
-      )
-      .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    const publicOperations = new Set([
-      'GET /health/live',
-      'GET /health/ready',
-      'POST /api/v1/auth/login',
-      'POST /api/v1/auth/refresh',
-      'POST /api/v1/devices/enroll',
-      'POST /api/v1/rocketchat/bot/events',
-    ]);
-    const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'] as const;
-    type DocumentedOperation = { security?: Array<Record<string, string[]>> };
-    type DocumentedPathItem = Partial<Record<(typeof methods)[number], DocumentedOperation>>;
-    const pathItems = document.paths as Record<string, DocumentedPathItem>;
-    for (const [path, pathItem] of Object.entries(pathItems)) {
-      for (const method of methods) {
-        const operation = pathItem[method];
-        if (operation && !publicOperations.has(`${method.toUpperCase()} ${path}`)) {
-          operation.security = [{ accessToken: [] }];
-        }
-      }
-    }
+    const document = buildOpenApiDocument(app);
     SwaggerModule.setup('docs', app, document, {
       useGlobalPrefix: false,
       jsonDocumentUrl: 'docs-json',

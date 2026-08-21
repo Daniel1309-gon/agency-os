@@ -76,7 +76,7 @@ export const assignedProfileSchema = z.object({
     startedAt: z.string().nullable(),
     errorCode: z.string().nullable(),
   }).nullable(),
-});
+}).strict();
 export type AssignedProfile = z.infer<typeof assignedProfileSchema>;
 
 export const cafeteriaProductSchema = z.object({

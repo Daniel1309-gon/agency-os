@@ -2,10 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
+import { ProfilesService } from '../../modules/profiles/profiles.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { auditLog, crewMembers, crews, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
+import { assignedProfileSchema } from '@agency-os/shared';
 import {
   createDevice,
   createProfile,
@@ -21,11 +23,13 @@ import {
 
 let ctx: TestContext;
 let assignments: AssignmentsService;
+let profiles: ProfilesService;
 let jobs: JobsService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
   assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database));
+  profiles = new ProfilesService(ctx.database, new AuditService(ctx.database));
   jobs = new JobsService(ctx.database, ctx.redis, new RealtimeService(ctx.database));
 });
 
@@ -41,6 +45,26 @@ beforeEach(async () => {
 const NOW_WINDOW = () => ({ validFrom: isoOffset(-60), validTo: isoOffset(60) });
 
 describe('AssignmentsService.create', () => {
+  it('returns assigned profiles that conform to the shared operator response contract', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const validFrom = isoOffset(-60);
+    const validTo = isoOffset(60);
+    const [shift] = await ctx.db.insert(shifts).values({
+      operatorId: operator.id,
+      businessDate: new Date().toISOString().slice(0, 10),
+      scheduledRange: halfOpen(validFrom, validTo),
+      createdBy: admin.id,
+    }).returning({ id: shifts.id });
+    await assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom, validTo }, admin.id);
+
+    const [assigned] = await profiles.assignedTo(operator.id);
+
+    expect(assignedProfileSchema.safeParse(assigned)).toMatchObject({ success: true });
+    expect(assigned).toMatchObject({ shiftId: shift.id });
+  });
+
   it('assigns an active profile to an active operator', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);

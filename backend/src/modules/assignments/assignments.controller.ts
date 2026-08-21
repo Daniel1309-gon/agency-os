@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
 import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
+import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
-import { DeviceTokenGuard } from '../../common/auth/guards.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { ProfilesService } from '../profiles/profiles.service.js';
 import { AssignmentsService } from './assignments.service.js';
@@ -43,16 +43,16 @@ export class AgentSessionsController {
   prepare(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims) { return this.assignments.prepareSession(body, user.sub); }
 
   @Post('sessions')
-  @UseGuards(DeviceTokenGuard)
+  @RequireDevice()
   @UsePipes(new ZodValidationPipe(sessionCreateSchema))
   open(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.openSession(body, user.sub, token); }
 
   @Patch('sessions/:id')
-  @UseGuards(DeviceTokenGuard)
+  @RequireDevice()
   @UsePipes(new ZodValidationPipe(sessionPatchSchema))
   update(@Param('id') id: string, @Body() body: SessionPatchInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.updateSession(id, body, user.sub, token); }
 
   @Post('sessions/:id/close')
-  @UseGuards(DeviceTokenGuard)
+  @RequireDevice()
   close(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, user.sub, token); }
 }
