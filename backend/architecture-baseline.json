@@ -31,6 +31,6 @@
     "module-no-direct-schema:src/modules/shifts/shifts.service.ts:../../database/schema/index.js:breaks,crewMembers,crews,roles,shiftOverrides,shiftTemplates,shifts,users",
     "module-no-private-cross-import:src/modules/shifts/shifts.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/tableau/tableau.service.ts:../../database/schema/index.js:etlRuns,etlStagingRows,tableauHourlyPoints,tableauViews,ttProfiles",
-    "module-no-direct-schema:src/modules/vault/vault.service.ts:../../database/schema/index.js:credentialAccessLog,devices,profileAssignments,profileSessions,ttProfileCredentials,ttProfiles"
+    "module-no-direct-schema:src/modules/vault/vault.crypto.ts:../../database/schema/index.js:encryptionKeys"
   ]
 }

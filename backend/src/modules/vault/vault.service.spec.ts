@@ -6,6 +6,7 @@ import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-d
 import { hashToken } from '../../common/auth/crypto.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
 import type { AuditService } from '../../common/audit/audit.service.js';
+import { DrizzleVaultRepository } from './vault.drizzle-repository.js';
 
 const OPERATOR = '11111111-1111-1111-1111-111111111111';
 const OTHER_OPERATOR = '99999999-9999-9999-9999-999999999999';
@@ -68,7 +69,7 @@ function harness(): Harness {
   } as unknown as VaultCryptoService;
 
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
-  return { service: new VaultService(db.service, redis, crypto, audit), db, store, ttls, counters, decrypt };
+  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit), db, store, ttls, counters, decrypt };
 }
 
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */

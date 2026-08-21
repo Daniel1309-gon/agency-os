@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join, posix, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-const APPLICATION_FILE = /\.(controller|gateway|service|worker)\.ts$/;
+const REPOSITORY_FILE = /\.(drizzle-repository|repository)\.ts$/;
 const PUBLIC_MODULE_FILE = /\.(contracts|module|port)\.js$/;
 const SELECT_STAR = /\bSELECT\s+\*/i;
 
@@ -53,14 +53,14 @@ export function analyzeTypeScriptSource(filePath, source) {
   function visit(node) {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const specifier = node.moduleSpecifier.text;
-      if (moduleName(normalizedFile) && APPLICATION_FILE.test(basename(normalizedFile)) && /(?:^|\/)database\/schema(?:\/|$)/.test(specifier)) {
+      if (moduleName(normalizedFile) && !REPOSITORY_FILE.test(basename(normalizedFile)) && /(?:^|\/)database\/schema(?:\/|$)/.test(specifier)) {
         const names = importNames(node).join(',');
         violations.push(violation(
           sourceFile,
           node,
           'module-no-direct-schema',
           `${specifier}:${names}`,
-          'application code must use a domain repository port instead of importing database schema',
+          'module code must use a domain repository adapter instead of importing database schema',
         ));
       }
 

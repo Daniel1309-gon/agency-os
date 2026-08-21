@@ -16,6 +16,15 @@ test('rejects schema imports from application services', () => {
   assert.deepEqual(rules, ['module-no-direct-schema']);
 });
 
+test('rejects schema imports from any non-repository module file', () => {
+  const rules = rulesFor(
+    'src/modules/vault/vault.crypto.ts',
+    "import { encryptionKeys } from '../../database/schema/index.js';",
+  );
+
+  assert.deepEqual(rules, ['module-no-direct-schema']);
+});
+
 test('allows schema imports inside a domain-specific repository adapter', () => {
   const rules = rulesFor(
     'src/modules/vault/vault.drizzle-repository.ts',

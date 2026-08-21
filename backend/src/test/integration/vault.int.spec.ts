@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { VaultService } from '../../modules/vault/vault.service.js';
 import { VaultCryptoService } from '../../modules/vault/vault.crypto.js';
+import { DrizzleVaultRepository } from '../../modules/vault/vault.drizzle-repository.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { credentialAccessLog, profileAssignments, profileSessions, ttProfileCredentials } from '../../database/schema/index.js';
 import {
@@ -39,7 +40,7 @@ interface Scenario {
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  vault = new VaultService(ctx.database, ctx.redis, new VaultCryptoService(ctx.config, ctx.database), new AuditService(ctx.database));
+  vault = new VaultService(new DrizzleVaultRepository(ctx.database), ctx.redis, new VaultCryptoService(ctx.config, ctx.database), new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -308,7 +309,7 @@ describe('the secret never reaches the logs', () => {
     const debugCtx = await createTestContext('debug');
     try {
       const debugVault = new VaultService(
-        debugCtx.database,
+        new DrizzleVaultRepository(debugCtx.database),
         debugCtx.redis,
         new VaultCryptoService(debugCtx.config, debugCtx.database),
         new AuditService(debugCtx.database),
