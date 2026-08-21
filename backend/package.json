@@ -10,7 +10,7 @@
     "start:local": "node --env-file=.env dist/main.js",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test test/architecture-rules.test.mjs",
     "test:contracts": "pnpm build && node --test test/api-contracts.test.mjs",
     "test:contracts:run": "node --test test/api-contracts.test.mjs",
     "test:watch": "vitest",
