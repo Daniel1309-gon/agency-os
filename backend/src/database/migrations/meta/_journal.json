@@ -64,6 +64,13 @@
       "when": 1787004000000,
       "tag": "0008_database_deployment_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787005000000,
+      "tag": "0009_force_sensitive_rls",
+      "breakpoints": true
     }
   ]
 }

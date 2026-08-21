@@ -80,6 +80,23 @@ const countOf = async (client: PoolClient, table: string): Promise<number> => {
 };
 
 describe('points_ledger row level security', () => {
+  it('does not let the owner role bypass policies without request context', async () => {
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    await ctx.db.insert(pointsLedger).values({
+      operatorId: operator.id,
+      profileId: profile.id,
+      businessDate: '2026-08-04',
+      shiftBusinessDate: '2026-08-04',
+      points: '100.0000',
+      source: 'TABLEAU_ETL',
+    });
+
+    await asRole('agency_owner', {}, async (client) => {
+      expect(await countOf(client, 'points_ledger')).toBe(0);
+    });
+  });
+
   it('denies everything when app.user_id is empty', async () => {
     // Criterio de entrega de PLAN.md §9: sin identidad, las politicas niegan,
     // no permiten. Un `NULLIF(...,'')::uuid` mal escrito abriria la tabla entera.
