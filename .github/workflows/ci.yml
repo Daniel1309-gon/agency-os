@@ -30,6 +30,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install frozen workspace
         run: pnpm install --frozen-lockfile
+      - name: Verify requirements traceability
+        run: pnpm test:requirements
       - name: Build workspace
         run: pnpm build
       - name: Lint workspace

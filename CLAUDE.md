@@ -66,6 +66,7 @@ Per task, from the root:
 | `pnpm build` | Builds shared contracts, backend and frontend |
 | `pnpm lint` / `pnpm typecheck` / `pnpm test` | Runs the corresponding workspace gate; `test` is unit-only |
 | `pnpm test:integration` | Runs the backend integration suite against real PostgreSQL and Redis |
+| `pnpm test:requirements` | Verifies FR-01…FR-39, five NFR groups, evidence links and the OQ register |
 | `pnpm ci:quality` | Build, lint, typecheck, unit tests and production dependency audit |
 | `pnpm ci:database` | Backend build, migrations, minimum seed twice (idempotence), schema check and real integration tests |
 | `pnpm ci:verify` | Full local equivalent of unified CI; loads `backend/.env` and recreates the integration database |

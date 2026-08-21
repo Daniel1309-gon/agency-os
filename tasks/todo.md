@@ -18,15 +18,16 @@ bot/estado de Rocket.Chat. Tableau, ETL, nómina, icebreakers avanzados, cafeter
 FR-39 quedan fuera de prioridad en este ciclo; sus tareas permanecen pendientes o bloqueadas y
 no deben consumir trabajo del hito de semanas 1–9. Ver `tasks/requirements-matrix.md`.
 
-Evidencia ejecutada el 2026-08-17 contra PostgreSQL 16 y Redis 7 en Docker: 9 archivos de
-integración y 119 tests verdes antes de añadir las pruebas nuevas de reaper, semáforo y trust
-boundaries.
+Evidencia ejecutada el 2026-08-20: [CI #3](https://github.com/Daniel1309-gon/agency-os/actions/runs/32436187602)
+verde desde checkout limpio; 138 unitarias backend, 3 frontend y 160 integraciones en 14 archivos
+contra PostgreSQL 16 y Redis 7. La trazabilidad vive en `tasks/requirements-catalog.json` y se
+verifica con `pnpm test:requirements`.
 
 ## Fase 0 — baseline y contratos
 
-- [ ] **FND-01** Trazabilidad FR-01…FR-39/NFR y registro de decisiones.
+- [x] **FND-01** Trazabilidad FR-01…FR-39/NFR y registro de decisiones. Evidencia: `tasks/requirements-catalog.json`, `tasks/requirements-matrix.md`, `pnpm test:requirements`.
 - [x] **FND-02** Toolchain reproducible: install/build/lint/typecheck/unit verdes. Evidencia: `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
-- [ ] **FND-03** CI unificado con PostgreSQL/Redis/migraciones/integración.
+- [x] **FND-03** CI unificado con PostgreSQL/Redis/migraciones/integración. Evidencia: [CI #3](https://github.com/Daniel1309-gon/agency-os/actions/runs/32436187602), commit `4e534cd`.
 - [ ] **FND-04** DTO compartidos, OpenAPI y matriz ruta×política.
 - [ ] **FND-05** Boundaries repository/port y slice piloto.
 - [ ] **Checkpoint 0:** clon limpio y CI verde; ninguna ruta sin clasificación.
