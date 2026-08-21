@@ -91,9 +91,16 @@ schema invariants and the PostgreSQL/Redis integration suite cannot be skipped.
 
 ## Conventions the tooling enforces
 
-- **`lint` is a custom script**, not ESLint: [`backend/scripts/lint.mjs`](backend/scripts/lint.mjs)
-  walks `backend/src` and fails on `SELECT *`, on `sql.raw(`, and on `console.log(`. It scans test
-  files too. There is no ESLint or Prettier check wired into CI.
+- **`lint` is a custom AST script**, not ESLint: [`backend/scripts/lint.mjs`](backend/scripts/lint.mjs)
+  uses [`backend/scripts/architecture-rules.mjs`](backend/scripts/architecture-rules.mjs) and the
+  TypeScript Compiler API to reject executable `SELECT *`, `sql.raw()` and `console.log()` calls,
+  direct schema imports from module code, and private cross-module imports. Historical exceptions
+  are exact fingerprints in [`backend/architecture-baseline.json`](backend/architecture-baseline.json);
+  stale or new exceptions fail CI.
+- **Module boundaries:** application services depend on a domain port; only a domain-specific
+  `*.drizzle-repository.ts` adapter may import the Drizzle schema. Cross-module consumers use a
+  public `*.module.ts`, `*.port.ts` or `*.contracts.ts` surface. The vault pilot is documented in
+  [`docs/decisions/0001-module-boundaries-and-domain-repositories.md`](docs/decisions/0001-module-boundaries-and-domain-repositories.md).
 - **Two TypeScript configs.** `backend/tsconfig.json` is the typecheck config: `noEmit`, and it
   covers `src` plus the root `*.config.ts` files. `backend/tsconfig.build.json` is the one that
   emits, and it excludes `src/**/*.spec.ts` and `src/test` so no test code reaches `dist/`. Anything
