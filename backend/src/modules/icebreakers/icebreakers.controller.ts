@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
+import { Authenticated, CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { IcebreakersService } from './icebreakers.service.js';
 import { icebreakerCreateSchema, icebreakerUpdateSchema, reviewSchema, ruleSchema, ruleUpdateSchema, type IcebreakerCreateInput, type IcebreakerUpdateInput, type ReviewInput, type RuleInput, type RuleUpdateInput } from './icebreakers.schemas.js';
 
 @Controller('icebreakers')
+@Authenticated()
 export class IcebreakersController {
   constructor(private readonly icebreakers: IcebreakersService) {}
   @Get() list(@CurrentUser() user: AccessTokenClaims) { return this.icebreakers.list(user.sub); }

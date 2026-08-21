@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, UsePipes } from '@nestjs/common';
-import { BypassIpAllowlist, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import { Authenticated, BypassIpAllowlist, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { botKnowledgeSchema, channelSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type ChannelInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
@@ -43,6 +43,7 @@ export class ScheduledMessagesController {
 }
 
 @Controller('notifications')
+@Authenticated()
 export class NotificationsController {
   constructor(private readonly communication: CommunicationService) {}
   @Get() list(@CurrentUser() user: AccessTokenClaims) { return this.communication.userNotifications(user.sub); }

@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
+import { Authenticated, CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CafeteriaService } from './cafeteria.service.js';
 import { orderSchema, orderStatusSchema, productSchema, productUpdateSchema, type OrderInput, type OrderStatusInput, type ProductInput, type ProductUpdateInput } from './cafeteria.schemas.js';
 
 @Controller('cafeteria')
+@Authenticated()
 export class CafeteriaController {
   constructor(private readonly cafeteria: CafeteriaService) {}
 

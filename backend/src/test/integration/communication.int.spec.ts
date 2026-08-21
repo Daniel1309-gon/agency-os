@@ -68,6 +68,15 @@ function services() {
   return { communication, worker, bot };
 }
 
+function stableBotAuditMetadata(rows: Array<{ metadata: unknown }>): Array<Record<string, unknown>> {
+  return rows.map((row) => {
+    const metadata = row.metadata as Record<string, unknown>;
+    expect(metadata.latencyMs).toEqual(expect.any(Number));
+    const { latencyMs: _latencyMs, ...stable } = metadata;
+    return stable;
+  }).sort((left, right) => String(left.outcome).localeCompare(String(right.outcome)));
+}
+
 describe('Rocket.Chat durable delivery', () => {
   it('rejects recurring schedules instead of accepting an unsupported contract', () => {
     const parsed = scheduledMessageSchema.safeParse({
@@ -163,14 +172,24 @@ describe('informational Rocket.Chat bot', () => {
 
     expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'bot-room', body: 'Tu turno aparece en el panel.' }]);
     const botAudits = await ctx.db.select({ metadata: auditLog.metadata }).from(auditLog).where(eq(auditLog.action, 'rocketchat.bot.query'));
-    expect(botAudits.some((row) => (row.metadata as { outcome?: string }).outcome === 'DUPLICATE')).toBe(true);
-    expect(JSON.stringify(botAudits)).not.toContain('horario');
+    expect(stableBotAuditMetadata(botAudits)).toEqual([
+      { article: 'horarios', outcome: 'ANSWERED', source: 'ROCKETCHAT', version: 1 },
+      { outcome: 'DUPLICATE', source: 'ROCKETCHAT' },
+      { outcome: 'ROOM_OUTSIDE_CREW_SCOPE', source: 'ROCKETCHAT' },
+    ]);
 
     await bot.handle({ ...event, message_id: 'rc-message-2', text: 'ayuda desactiva mi usuario y cambia el vault' });
     await worker.tick();
     const [stillActive] = await ctx.db.select({ status: users.status }).from(users).where(eq(users.id, operator.id));
     expect(stillActive.status).toBe('ACTIVE');
     expect(requests.at(-1)?.body).toContain('no ejecuta cambios operativos');
+    const allBotAudits = await ctx.db.select({ metadata: auditLog.metadata }).from(auditLog).where(eq(auditLog.action, 'rocketchat.bot.query'));
+    expect(stableBotAuditMetadata(allBotAudits)).toEqual([
+      { article: 'horarios', outcome: 'ANSWERED', source: 'ROCKETCHAT', version: 1 },
+      { outcome: 'DUPLICATE', source: 'ROCKETCHAT' },
+      { outcome: 'NO_MATCH', source: 'ROCKETCHAT' },
+      { outcome: 'ROOM_OUTSIDE_CREW_SCOPE', source: 'ROCKETCHAT' },
+    ]);
   });
 
   it('answers an unlinked Rocket.Chat user only with the generic message', async () => {

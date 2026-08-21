@@ -2,16 +2,58 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
 
 jobs:
-  check:
+  quality:
+    name: Build, lint, typecheck and unit tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frozen workspace
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace
+        run: pnpm build
+      - name: Lint workspace
+        run: pnpm lint
+      - name: Typecheck workspace
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
+  postgres-redis:
+    name: Migrations, seed and PostgreSQL/Redis integration
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://agency:agency@localhost:5432/agency_os
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-jwt-secret-with-at-least-32-characters
+      VAULT_KEK: ci-only-vault-kek-with-at-least-32-characters
+      PASSWORD_SCRYPT_LOG2N: '14'
+      TEST_DB_RECREATE: '1'
     services:
       postgres:
         image: postgres:16-alpine
@@ -19,36 +61,41 @@ jobs:
           POSTGRES_USER: agency
           POSTGRES_PASSWORD: agency
           POSTGRES_DB: agency_os
-        ports: ['5432:5432']
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U agency -d agency_os"
-          --health-interval 5s --health-timeout 3s --health-retries 10
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: backend/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm test:integration
-        env:
-          DATABASE_URL: postgresql://agency:agency@localhost:5432/agency_os
-          REDIS_URL: redis://localhost:6379
-      - run: pnpm exec drizzle-kit check
-        env:
-          DATABASE_URL: postgresql://agency:agency@localhost:5432/agency_os
-      - run: pnpm audit --prod --audit-level high
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frozen workspace
+        run: pnpm install --frozen-lockfile
+      - name: Build backend for database commands
+        run: pnpm --filter @agency-os/api build
+      - name: Apply migrations
+        run: pnpm db:migrate
+      - name: Run minimum seed
+        run: pnpm --filter @agency-os/api db:seed:run
+      - name: Verify minimum seed is idempotent
+        run: pnpm --filter @agency-os/api db:seed:run
+      - name: Check migration consistency
+        run: pnpm db:check
+      - name: PostgreSQL and Redis integration tests
+        run: pnpm test:integration

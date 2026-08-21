@@ -14,10 +14,11 @@
     "test:watch": "vitest",
     "test:integration": "pnpm build && vitest run --config vitest.integration.config.ts",
     "test:all": "pnpm test && pnpm test:integration",
-    "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",
+    "db:migrate": "node --env-file-if-exists=.env scripts/db-migrate.mjs",
     "db:bootstrap-runtime": "node --env-file=.env scripts/db-bootstrap-runtime.mjs",
     "db:bootstrap-ip": "node --env-file=.env scripts/db-bootstrap-ip.mjs",
-    "db:seed": "tsc -p tsconfig.build.json && node --env-file=.env dist/database/seeds/seed.js",
+    "db:seed": "pnpm build && pnpm db:seed:run",
+    "db:seed:run": "node --env-file-if-exists=.env dist/database/seeds/seed.js",
     "db:seed:demo": "pnpm db:seed && node --env-file=.env dist/database/seeds/demo-seed.js",
     "bot:knowledge:import": "pnpm build && node --env-file=.env dist/scripts/bot-knowledge-import.js"
   },

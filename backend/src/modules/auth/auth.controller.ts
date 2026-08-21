@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Post, Req, Res, UsePipes } from '@nestj
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service.js';
-import { CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import { Authenticated, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthService } from './auth.service.js';
@@ -17,6 +17,7 @@ function setRefreshCookie(reply: FastifyReply, token: string, maxAgeSeconds: num
 }
 
 @Controller('auth')
+@Authenticated()
 export class AuthController {
   constructor(private readonly auth: AuthService, private readonly config: ConfigService) {}
 
