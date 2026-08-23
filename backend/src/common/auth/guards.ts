@@ -126,6 +126,10 @@ export class DeviceTokenGuard implements CanActivate {
       await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'MISSING_USER' });
       throw new ForbiddenException('Authenticated operator required');
     }
+    if (token.length > 128) {
+      await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'INVALID_OR_EXPIRED' });
+      throw new ForbiddenException('Device token is invalid or expired');
+    }
     const device = await this.db.db.query.devices.findFirst({
       where: and(
         eq(devices.tokenHash, hashToken(token)),

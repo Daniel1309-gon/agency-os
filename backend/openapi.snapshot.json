@@ -2730,6 +2730,58 @@
         }
       }
     },
+    "/api/v1/devices/{id}/rotate": {
+      "post": {
+        "operationId": "DevicesController.rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices/{id}/rotate",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/devices/enroll": {
       "post": {
         "operationId": "DevicesController.enroll",

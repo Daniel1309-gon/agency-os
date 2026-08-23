@@ -39,7 +39,8 @@ describe('LoggerService redaction', () => {
   it('redacts secrets nested inside objects and arrays', () => {
     const output = captureOutput((logger) => {
       logger.info('vault', {
-        request: { headers: { authorization: `Bearer ${SECRET}`, 'x-device-token': SECRET } },
+        request: { headers: { authorization: `Bearer ${SECRET}`, 'x-device-token': SECRET }, deviceToken: SECRET },
+        enrollment_code: SECRET,
         grants: [{ credential: SECRET }, { plaintext: SECRET }],
       });
     });

@@ -9,6 +9,10 @@ const REDACT_PATHS = [
   'secret_nonce',
   'secret_tag',
   'token',
+  'deviceToken',
+  'device_token',
+  'enrollmentCode',
+  'enrollment_code',
   'authorization',
   'x-device-token',
   'credential',
@@ -21,6 +25,10 @@ const REDACT_PATHS = [
   '*.secret',
   '*.secret_ciphertext',
   '*.token',
+  '*.deviceToken',
+  '*.device_token',
+  '*.enrollmentCode',
+  '*.enrollment_code',
   '*.authorization',
   '*.credential',
   '*.credentialValue',
@@ -32,11 +40,15 @@ const REDACT_PATHS = [
   '**.secret_nonce',
   '**.secret_tag',
   '**.token',
+  '**.deviceToken',
+  '**.device_token',
+  '**.enrollmentCode',
+  '**.enrollment_code',
   '**.authorization',
   '**.credential',
 ];
 
-const SECRET_KEY = /^(password|password_hash|secret|secret_ciphertext|secret_nonce|secret_tag|token|authorization|x-device-token|credential|credentialvalue|plaintext|vault_kek|jwt_secret)$/i;
+const SECRET_KEY = /^(password|password_hash|secret|secret_ciphertext|secret_nonce|secret_tag|token|deviceToken|device_token|enrollmentCode|enrollment_code|authorization|x-device-token|credential|credentialvalue|plaintext|vault_kek|jwt_secret)$/i;
 
 @Injectable()
 export class LoggerService implements NestLoggerService {

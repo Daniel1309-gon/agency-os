@@ -143,6 +143,10 @@ describe('DeviceTokenGuard', () => {
     const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit);
     await expect(guard.canActivate(contextFor({ headers: {} }))).rejects.toThrow(ForbiddenException);
     await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).rejects.toThrow(ForbiddenException);
+    await expect(guard.canActivate(contextFor({
+      user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
+      headers: { 'x-device-token': 'x'.repeat(129) },
+    }))).rejects.toThrow('Device token is invalid or expired');
   });
 
   it('accepts an approved office station regardless of which operator is using it', async () => {

@@ -48,6 +48,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/devices` | ADMIN, COORDINADOR | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/devices/{id}` | ADMIN, COORDINADOR | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/devices/{id}/revoke` | ADMIN, COORDINADOR | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/devices/{id}/rotate` | ADMIN, COORDINADOR | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/devices/enroll` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/feature-flags` | ADMIN | authenticated; permissions: settings.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `PATCH /api/v1/feature-flags/{key}` | ADMIN | authenticated; permissions: settings.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |

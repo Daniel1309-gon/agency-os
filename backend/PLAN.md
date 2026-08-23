@@ -315,6 +315,7 @@ No identifica al operador ni limita qué persona puede sentarse en cada PC; ese 
 | `assigned_operator_id` | uuid NULL FK users | Campo legado; no participa en autorización ni se expone en el contrato nuevo |
 | `status` | enum | `PENDING`, `APPROVED`, `REVOKED` |
 | `enrollment_code_hash` | text NULL | Código de un solo uso que el admin entrega al instalar |
+| `enrollment_code_expires_at` | timestamptz NULL | TTL de 15 minutos; código pendiente fuera de ventana se rechaza |
 | `token_hash` | text NULL | SHA-256 del token de dispositivo |
 | `token_issued_at` / `token_expires_at` | timestamptz | Rotación periódica |
 | `extension_version` / `helper_version` | text NULL | Para detectar PCs desactualizadas |

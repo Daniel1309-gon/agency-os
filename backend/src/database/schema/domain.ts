@@ -76,6 +76,7 @@ export const devices = pgTable('devices', {
   assignedOperatorId: uuid('assigned_operator_id').references(() => users.id),
   status: varchar('status', { length: 16 }).notNull().default('PENDING'),
   enrollmentCodeHash: text('enrollment_code_hash'),
+  enrollmentCodeExpiresAt: ts('enrollment_code_expires_at'),
   tokenHash: text('token_hash'),
   tokenIssuedAt: ts('token_issued_at'),
   tokenExpiresAt: ts('token_expires_at'),

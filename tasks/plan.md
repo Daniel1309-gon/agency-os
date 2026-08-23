@@ -360,11 +360,11 @@ No iniciar cambios funcionales hasta que build/lint/typecheck/unit/integration s
 
 - **Tamaño/prioridad:** M / P0.
 - **Cubre:** FR-07, FR-11, FR-14.
-- **Trabajo:** reemplazar guard header-only; hash y lookup constant-time práctico; estado APPROVED, expiración, operador asignado y binding JWT; adjuntar `devicePrincipal`; rotación/revocación/heartbeat; nunca registrar token.
+- **Trabajo:** validar hash y lookup del token; estado APPROVED y expiración; adjuntar `devicePrincipal`; rotación/revocación/heartbeat; nunca registrar token. Las estaciones son compartidas: `assigned_operator_id` es legado y no hay binding operador→PC; JWT, rol, turno y sesión siguen siendo los límites humanos/operativos.
 - **Archivos probables:** `common/auth/guards.ts`, `modules/devices/`, auth types/decorators, integration tests.
 - **Dependencias:** SEC-01, FND-04.
-- **Aceptación:** faltante, aleatorio, expirado, revocado, de otro operador y con JWT admin no autorizado fallan con códigos estables; token válido expone solo ID interno al caso de uso.
-- **Verificación/caso de abuso:** robar token de PC A y usarlo con JWT de B; enroll code replay; expiración exacta; rotación invalida el token anterior.
+- **Aceptación:** faltante, aleatorio, demasiado largo, expirado y revocado fallan con códigos estables; una estación aprobada puede ser usada por distintos operadores, pero nunca sin JWT/rol del endpoint; token válido expone solo el principal interno al caso de uso.
+- **Verificación/caso de abuso:** token robado no obtiene autorización sin JWT y política de la ruta; enroll code replay; expiración exacta; rotación invalida el token anterior.
 
 #### SEC-06 — Política de turno/override
 

@@ -5,7 +5,7 @@ import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { DevicesService } from './devices.service.js';
-import { deviceCreateSchema, deviceEnrollSchema, deviceHeartbeatSchema, type DeviceCreateInput, type DeviceEnrollInput, type DeviceHeartbeatInput } from './devices.schemas.js';
+import { deviceCreateSchema, deviceEnrollSchema, deviceHeartbeatSchema, deviceRevokeSchema, type DeviceCreateInput, type DeviceEnrollInput, type DeviceHeartbeatInput, type DeviceRevokeInput } from './devices.schemas.js';
 
 @Controller('devices')
 export class DevicesController {
@@ -31,7 +31,12 @@ export class DevicesController {
 
   @Post(':id/revoke')
   @RequirePermissions('devices.manage')
-  revoke(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.devices.revoke(id, user, body.reason); }
+  @UsePipes(new ZodValidationPipe(deviceRevokeSchema))
+  revoke(@Param('id') id: string, @Body() body: DeviceRevokeInput, @CurrentUser() user: AccessTokenClaims) { return this.devices.revoke(id, user, body.reason); }
+
+  @Post(':id/rotate')
+  @RequirePermissions('devices.manage')
+  rotate(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.devices.rotate(id, user); }
 }
 
 @Controller('agent/devices')
