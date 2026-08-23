@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -30,6 +31,11 @@ import {
 } from '../../common/auth/crypto.js';
 import type { LoginInput, PasswordChangeInput, PasswordResetInput } from './auth.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { normalizeIp } from '../../common/auth/ip.js';
+
+const LOGIN_RATE_LIMIT = 5;
+const REFRESH_RATE_LIMIT = 30;
+const AUTH_RATE_WINDOW_SECONDS = 900;
 
 export interface AuthUser {
   id: string;
@@ -59,23 +65,27 @@ export class AuthService {
 
   async login(input: LoginInput, ip?: string, userAgent?: string): Promise<AuthTokens> {
     const email = input.email.trim().toLowerCase();
-    const attempts = await this.redis.incrWithExpiry(`auth:login:${ip ?? 'unknown'}:${email}`, 900).catch(() => 0);
-    if (attempts > 5) {
-      await this.recordAttempt(email, undefined, ip, 'RATE_LIMITED');
+    const clientIp = normalizeIp(ip);
+    const attempts = await this.rateLimitCounts([
+      `auth:login:ip:${clientIp ?? 'unknown'}`,
+      `auth:login:account:${email}`,
+    ], AUTH_RATE_WINDOW_SECONDS);
+    if (attempts.some((count) => count > LOGIN_RATE_LIMIT)) {
+      await this.recordAttempt(email, undefined, clientIp, 'RATE_LIMITED');
       throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
     }
     const identity = await this.findIdentity(email);
     if (!identity) {
-      await this.recordAttempt(email, undefined, ip, 'BAD_CREDENTIALS');
+      await this.recordAttempt(email, undefined, clientIp, 'BAD_CREDENTIALS');
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (identity.status === 'DISABLED' || identity.deletedAt) {
-      await this.recordAttempt(email, identity.id, ip, 'DISABLED');
+      await this.recordAttempt(email, identity.id, clientIp, 'DISABLED');
       throw new UnauthorizedException('Invalid credentials');
     }
     if (identity.lockedUntil && identity.lockedUntil.getTime() > Date.now()) {
-      await this.recordAttempt(email, identity.id, ip, 'LOCKED');
+      await this.recordAttempt(email, identity.id, clientIp, 'LOCKED');
       throw new HttpException('Account temporarily locked', HttpStatus.TOO_MANY_REQUESTS);
     }
 
@@ -87,12 +97,12 @@ export class AuthService {
         .update(users)
         .set({ failedLoginCount: nextFailed, lockedUntil, updatedAt: new Date() })
         .where(eq(users.id, identity.id));
-      await this.recordAttempt(email, identity.id, ip, nextFailed >= 5 ? 'LOCKED' : 'BAD_CREDENTIALS');
+      await this.recordAttempt(email, identity.id, clientIp, nextFailed >= 5 ? 'LOCKED' : 'BAD_CREDENTIALS');
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (identity.role === 'OPERADOR' && this.config.get('REQUIRE_SHIFT_FOR_AUTH') && !(await this.shiftAccess.isWithinApprovedWindow(identity.id))) {
-      await this.recordAttempt(email, identity.id, ip, 'OUTSIDE_SHIFT');
+      await this.recordAttempt(email, identity.id, clientIp, 'OUTSIDE_SHIFT');
       throw new ForbiddenException('Operator is outside an approved shift');
     }
 
@@ -111,16 +121,23 @@ export class AuthService {
         ...(rehashed ? { passwordHash: rehashed } : {}),
       })
       .where(eq(users.id, identity.id));
-    await this.recordAttempt(email, identity.id, ip, 'SUCCESS');
-    return this.issueTokens(identity, ip, userAgent);
+    await this.recordAttempt(email, identity.id, clientIp, 'SUCCESS');
+    return this.issueTokens(identity, clientIp, userAgent);
   }
 
   async refresh(rawToken: string, ip?: string, userAgent?: string): Promise<AuthTokens> {
+    const clientIp = normalizeIp(ip);
+    const ipCount = await this.rateLimitCounts([`auth:refresh:ip:${clientIp ?? 'unknown'}`], AUTH_RATE_WINDOW_SECONDS);
+    if (ipCount[0] > REFRESH_RATE_LIMIT) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
     const tokenHash = hashToken(rawToken);
     const current = await this.db.db.query.refreshTokens.findFirst({
       where: eq(refreshTokens.tokenHash, tokenHash),
     });
     if (!current) throw new UnauthorizedException('Invalid refresh token');
+    const identityKeys = [`auth:refresh:account:${current.userId}`];
+    if (current.deviceId) identityKeys.push(`auth:refresh:device:${current.deviceId}`);
+    const identityCounts = await this.rateLimitCounts(identityKeys, AUTH_RATE_WINDOW_SECONDS);
+    if (identityCounts.some((count) => count > REFRESH_RATE_LIMIT)) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
     if (current.revokedAt) {
       await this.revokeFamily(current.familyId, 'REUSE_DETECTED');
       throw new ConflictException('Refresh token reuse detected');
@@ -156,7 +173,7 @@ export class AuthService {
         tokenHash: hashToken(nextToken),
         familyId: current.familyId,
         expiresAt,
-        ip,
+        ip: clientIp,
         userAgent,
         deviceId: current.deviceId,
       });
@@ -292,6 +309,14 @@ export class AuthService {
   private async recordAttempt(email: string, userId: string | undefined, ip: string | undefined, outcome: string): Promise<void> {
     await this.db.db.insert(loginAttempts).values({ emailAttempted: email, userId, ip, outcome });
     await this.audit.record({ actorType: userId ? 'USER' : 'ANONYMOUS', actorUserId: userId, action: 'auth.login', entityType: userId ? 'user' : undefined, entityId: userId, result: outcome === 'SUCCESS' ? 'SUCCESS' : 'DENIED', ip, metadata: { outcome } });
+  }
+
+  private async rateLimitCounts(keys: string[], seconds: number): Promise<number[]> {
+    try {
+      return await Promise.all(keys.map((key) => this.redis.incrWithExpiry(key, seconds)));
+    } catch {
+      throw new ServiceUnavailableException('Authentication temporarily unavailable');
+    }
   }
 
   private async revokeFamily(familyId: string, reason: string): Promise<void> {

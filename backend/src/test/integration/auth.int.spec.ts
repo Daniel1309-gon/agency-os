@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service.js';
 import { and, eq, isNull } from 'drizzle-orm';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { AuthService } from '../../modules/auth/auth.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
 import { loginAttempts, refreshTokens, shifts, users } from '../../database/schema/index.js';
-import { verifyAccessToken } from '../../common/auth/crypto.js';
+import { hashToken, randomToken, verifyAccessToken } from '../../common/auth/crypto.js';
 import {
   TEST_JWT_SECRET,
   createTestContext,
@@ -137,15 +137,16 @@ describe('AuthService.login', () => {
     expect(after.lastLoginAt).toBeInstanceOf(Date);
   });
 
-  it('rate limits by ip and email after five attempts', async () => {
+  it('rate limits the account across distributed IPs after five attempts', async () => {
     const user = await createUser(ctx);
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await auth.login({ email: user.email, password: user.password }, fromIp(9)).catch(() => undefined);
+      await expect(auth.login({ email: user.email, password: user.password }, fromIp(9 + attempt))).resolves.toBeDefined();
     }
-    await expect(auth.login({ email: user.email, password: user.password }, fromIp(9))).rejects.toMatchObject({ status: 429 });
+    await expect(auth.login({ email: user.email, password: user.password }, fromIp(14))).rejects.toMatchObject({ status: 429 });
 
-    // Otra IP no arrastra el castigo de la primera.
-    await expect(auth.login({ email: user.email, password: user.password }, fromIp(10))).resolves.toBeDefined();
+    // Otra cuenta y otra IP no arrastran el castigo de la primera.
+    const other = await createUser(ctx);
+    await expect(auth.login({ email: other.email, password: other.password }, fromIp(15))).resolves.toBeDefined();
   });
 
   it('refuses a disabled or soft-deleted user without saying why', async () => {
@@ -250,6 +251,22 @@ describe('AuthService refresh rotation', () => {
 
     await ctx.db.update(refreshTokens).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(refreshTokens.userId, user.id));
     await expect(auth.refresh(tokens.refreshToken)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rate limits refresh attempts by account across distributed IPs through Redis', async () => {
+    const user = await createUser(ctx);
+    const rawTokens = Array.from({ length: 31 }, () => randomToken());
+    await ctx.db.insert(refreshTokens).values(rawTokens.map((rawToken) => ({
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      familyId: randomUUID(),
+      expiresAt: new Date(Date.now() + 86_400_000),
+    })));
+
+    for (const [index, rawToken] of rawTokens.slice(0, 30).entries()) {
+      await expect(auth.refresh(rawToken, fromIp(26 + index))).resolves.toBeDefined();
+    }
+    await expect(auth.refresh(rawTokens[30], fromIp(56))).rejects.toMatchObject({ status: 429 });
   });
 
   it('stops refreshing once the user is no longer active', async () => {

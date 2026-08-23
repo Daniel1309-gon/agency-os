@@ -16,6 +16,10 @@ function setRefreshCookie(reply: FastifyReply, token: string, maxAgeSeconds: num
   reply.header('set-cookie', `agency_refresh=${encodeURIComponent(token)}; Max-Age=${maxAgeSeconds}; Path=/api/v1/auth; HttpOnly${secure ? '; Secure' : ''}; SameSite=Strict`);
 }
 
+function refreshCookieMaxAge(config: ConfigService): number {
+  return config.get('JWT_REFRESH_TTL_DAYS') * 86_400;
+}
+
 @Controller('auth')
 @Authenticated()
 export class AuthController {
@@ -26,7 +30,7 @@ export class AuthController {
   @UsePipes(new ZodValidationPipe(loginSchema))
   async login(@Body() body: LoginInput, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     const result = await this.auth.login(body, req.ip, req.headers['user-agent']);
-    setRefreshCookie(reply, result.refreshToken, 7 * 86_400, this.config.get('NODE_ENV') === 'production');
+    setRefreshCookie(reply, result.refreshToken, refreshCookieMaxAge(this.config), this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }
 
@@ -37,7 +41,7 @@ export class AuthController {
     const token = body.refreshToken ?? cookieValue(cookie, 'agency_refresh');
     if (!token) throw new UnauthorizedException('Refresh token required');
     const result = await this.auth.refresh(token, req.ip, req.headers['user-agent']);
-    setRefreshCookie(reply, result.refreshToken, 7 * 86_400, this.config.get('NODE_ENV') === 'production');
+    setRefreshCookie(reply, result.refreshToken, refreshCookieMaxAge(this.config), this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }
 
