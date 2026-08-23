@@ -25,7 +25,7 @@ export class ShiftAccessService {
       .where(and(
         eq(shifts.operatorId, operatorId),
         or(eq(shifts.status, 'SCHEDULED'), eq(shifts.status, 'IN_PROGRESS')),
-        sql`${shifts.scheduledRange} @> ${at}`,
+        sql`${shifts.scheduledRange} @> ${at}::timestamptz`,
       ))
       .limit(1);
     if (shift.length) return true;
@@ -33,7 +33,7 @@ export class ShiftAccessService {
     const override = await this.db.db
       .select({ id: shiftOverrides.id })
       .from(shiftOverrides)
-      .where(and(eq(shiftOverrides.operatorId, operatorId), isNull(shiftOverrides.revokedAt), sql`${shiftOverrides.range} @> ${at}`))
+      .where(and(eq(shiftOverrides.operatorId, operatorId), isNull(shiftOverrides.revokedAt), sql`${shiftOverrides.range} @> ${at}::timestamptz`))
       .limit(1);
     return override.length > 0;
   }
