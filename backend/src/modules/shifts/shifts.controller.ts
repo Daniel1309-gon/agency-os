@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
 import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -38,6 +38,7 @@ export class ShiftTemplatesController {
 export class ShiftOverridesController {
   constructor(private readonly shifts: ShiftsService) {}
   @Post() @RequirePermissions('shifts.approve_overtime') @UsePipes(new ZodValidationPipe(shiftOverrideSchema)) create(@Body() body: ShiftOverrideInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.createOverride(body, user.sub); }
+  @Delete(':id') @RequirePermissions('shifts.approve_overtime') revoke(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.shifts.revokeOverride(id, user.sub); }
 }
 
 @Controller('reports')

@@ -108,6 +108,7 @@ export const routeContracts = [
   route('GET', '/api/v1/shift-templates', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/shift-templates', 'GLOBAL'),
   route('POST', '/api/v1/shift-overrides', 'CREW'),
+  route('DELETE', '/api/v1/shift-overrides/{id}', 'RESOURCE'),
   route('GET', '/api/v1/reports/effective-time', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
 
   route('GET', '/api/v1/payroll/me/summary', 'SELF'),

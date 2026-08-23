@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '../../config/config.module.js';
 import { IpAllowlistGuard, JwtAuthGuard, PermissionsGuard, RolesGuard } from './guards.js';
 import { ShiftWindowGuard } from './shift.guard.js';
+import { SHIFT_ACCESS_CLOCK, ShiftAccessService, systemShiftAccessClock } from './shift-access.service.js';
 
 @Global()
 @Module({
@@ -11,6 +12,8 @@ import { ShiftWindowGuard } from './shift.guard.js';
     JwtAuthGuard,
     PermissionsGuard,
     IpAllowlistGuard,
+    ShiftAccessService,
+    { provide: SHIFT_ACCESS_CLOCK, useValue: systemShiftAccessClock },
     ShiftWindowGuard,
     RolesGuard,
     { provide: APP_GUARD, useClass: IpAllowlistGuard },
@@ -19,6 +22,6 @@ import { ShiftWindowGuard } from './shift.guard.js';
     { provide: APP_GUARD, useClass: ShiftWindowGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
-  exports: [JwtAuthGuard, PermissionsGuard, ShiftWindowGuard],
+  exports: [JwtAuthGuard, PermissionsGuard, ShiftAccessService, ShiftWindowGuard],
 })
 export class AuthCommonModule {}

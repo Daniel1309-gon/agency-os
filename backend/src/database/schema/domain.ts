@@ -249,6 +249,8 @@ export const shiftOverrides = pgTable('shift_overrides', {
   type: varchar('type', { length: 32 }).notNull(),
   reason: text('reason').notNull(),
   approvedBy: uuid('approved_by').notNull().references(() => users.id),
+  revokedAt: ts('revoked_at'),
+  revokedBy: uuid('revoked_by').references(() => users.id),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
-import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { AuthCommonModule } from '../../common/auth/auth.module.js';
 
-@Module({ controllers: [AuthController], providers: [AuthService, ShiftAccessService] })
+@Module({ imports: [AuthCommonModule], controllers: [AuthController], providers: [AuthService] })
 export class AuthModule {}

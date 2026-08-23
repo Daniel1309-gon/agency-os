@@ -111,6 +111,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/settings/ip-allowlist` | ADMIN | authenticated; permissions: security.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/settings/ip-allowlist/{id}/disable` | ADMIN | authenticated; permissions: security.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/shift-overrides` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: shifts.approve_overtime | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |
+| `DELETE /api/v1/shift-overrides/{id}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: shifts.approve_overtime | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/shift-templates` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/shift-templates` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: shifts.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/shifts` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: shifts.manage | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |

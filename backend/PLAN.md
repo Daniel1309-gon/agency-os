@@ -396,6 +396,7 @@ No identifica al operador ni limita qué persona puede sentarse en cada PC; ese 
 | `reason` | text | |
 | `approved_by` | uuid FK users | Solo `COORDINADOR` o superior |
 | `created_at` | | |
+| `revoked_at` / `revoked_by` | timestamptz / uuid NULL | Revocación administrativa; un override revocado nunca autoriza una acción |
 
 **`breaks`** (FR-16)
 

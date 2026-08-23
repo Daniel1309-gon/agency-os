@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { breaks, crewMembers, crews, roles, shiftOverrides, shiftTemplates, shifts, users } from '../../database/schema/index.js';
@@ -77,6 +77,25 @@ export class ShiftsService {
     await this.assertActorCanManageOperator(actorId, input.operatorId);
     const [row] = await this.db.db.insert(shiftOverrides).values({ operatorId: input.operatorId, range: `[${input.validFrom},${input.validTo})`, type: input.type, reason: input.reason, approvedBy: actorId }).returning();
     await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'shift_override.created', entityType: 'shift_override', entityId: row.id, result: 'SUCCESS', metadata: { operatorId: input.operatorId, reason: input.reason } });
+    return row;
+  }
+
+  async revokeOverride(id: string, actorId: string) {
+    const [existing] = await this.db.db
+      .select({ id: shiftOverrides.id, operatorId: shiftOverrides.operatorId })
+      .from(shiftOverrides)
+      .where(eq(shiftOverrides.id, id))
+      .limit(1);
+    if (!existing) throw new NotFoundException('Shift override not found');
+    await this.assertActorCanManageOperator(actorId, existing.operatorId);
+
+    const [row] = await this.db.db
+      .update(shiftOverrides)
+      .set({ revokedAt: new Date(), revokedBy: actorId })
+      .where(and(eq(shiftOverrides.id, id), isNull(shiftOverrides.revokedAt)))
+      .returning({ id: shiftOverrides.id, operatorId: shiftOverrides.operatorId, revokedAt: shiftOverrides.revokedAt, revokedBy: shiftOverrides.revokedBy });
+    if (!row) throw new ConflictException('Shift override is already revoked');
+    await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'shift_override.revoked', entityType: 'shift_override', entityId: row.id, result: 'SUCCESS', metadata: { operatorId: row.operatorId } });
     return row;
   }
 

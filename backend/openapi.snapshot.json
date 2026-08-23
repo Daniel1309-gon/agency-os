@@ -5780,6 +5780,59 @@
         }
       }
     },
+    "/api/v1/shift-overrides/{id}": {
+      "delete": {
+        "operationId": "ShiftOverridesController.revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "ShiftOverrides"
+        ],
+        "x-agency-permissions": [
+          "shifts.approve_overtime"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "shifts.approve_overtime"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "DELETE",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/shift-overrides/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/shift-templates": {
       "get": {
         "operationId": "ShiftTemplatesController.list",
