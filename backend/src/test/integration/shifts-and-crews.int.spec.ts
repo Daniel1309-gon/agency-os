@@ -244,6 +244,42 @@ describe('BreaksService', () => {
   });
 });
 
+describe('JobsService', () => {
+  it('closes a shift exactly at its upper boundary and finalizes its breaks', async () => {
+    const operator = await createUser(ctx);
+    const start = new Date('2026-08-23T06:05:00.000Z');
+    const end = new Date('2026-08-23T14:05:00.000Z');
+    const [missedShift] = await ctx.db.insert(shifts).values({
+      operatorId: operator.id,
+      businessDate: '2026-08-22',
+      scheduledRange: halfOpen(new Date('2026-08-22T22:05:00.000Z'), start),
+      status: 'SCHEDULED',
+    }).returning({ id: shifts.id });
+    const [shift] = await ctx.db.insert(shifts).values({
+      operatorId: operator.id,
+      businessDate: '2026-08-23',
+      scheduledRange: halfOpen(start, end),
+      status: 'IN_PROGRESS',
+      actualStartAt: start,
+    }).returning({ id: shifts.id });
+    const [breakRow] = await ctx.db.insert(breaks).values({
+      shiftId: shift.id,
+      type: 'REST',
+      status: 'IN_PROGRESS',
+      startedAt: new Date('2026-08-23T13:00:00.000Z'),
+    }).returning({ id: breaks.id });
+
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(end);
+
+    const [closedShift] = await ctx.db.select({ status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(eq(shifts.id, shift.id));
+    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 480 });
+    const [missed] = await ctx.db.select({ status: shifts.status }).from(shifts).where(eq(shifts.id, missedShift.id));
+    expect(missed.status).toBe('MISSED');
+    const [closedBreak] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, breakRow.id));
+    expect(closedBreak).toMatchObject({ status: 'COMPLETED', endedAt: end, durationMinutes: 65 });
+  });
+});
+
 describe('CrewsService', () => {
   it('turns an overlapping crew membership into a 409', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });

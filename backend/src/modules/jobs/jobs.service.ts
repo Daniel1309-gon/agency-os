@@ -67,11 +67,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     await this.db.db.update(cafeteriaOrders).set({ status: 'EXPIRED' }).where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())));
   }
 
-  private async closeExpiredShifts(): Promise<void> {
-    const endedAt = new Date();
+  private async closeExpiredShifts(at = new Date()): Promise<void> {
+    const endedAt = at;
+    const atIso = at.toISOString();
     const operatorIds = await this.db.transaction(async () => {
-      const missed = await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
-      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt, effectiveMinutes: sql`greatest(0, extract(epoch from (now() - coalesce(${shifts.actualStartAt}, now()))) / 60)::int` }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) < now()`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
+      const atSql = sql`${atIso}::timestamptz`;
+      const missed = await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
+      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt, effectiveMinutes: sql`greatest(0, extract(epoch from (${atSql} - coalesce(${shifts.actualStartAt}, ${atSql}))) / 60)::int` }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
       const ids = [...missed, ...completed].map((row) => row.id);
       if (!ids.length) return [];
       await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
