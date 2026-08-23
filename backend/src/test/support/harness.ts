@@ -54,6 +54,9 @@ export async function createTestContext(logLevel = 'silent'): Promise<TestContex
   const database = new DatabaseService(config, logger);
   await database.onModuleInit();
   const redis = new RedisService(config);
+  if (!(await redis.ping())) {
+    throw new Error('Redis de pruebas no responde durante la inicialización del contexto');
+  }
   const pool = new Pool({ connectionString: testDatabaseUrl() });
   const rawRedis = new Redis(testRedisUrl(), { lazyConnect: true, maxRetriesPerRequest: 1 });
   await rawRedis.connect();
