@@ -11,9 +11,11 @@ import { DatabaseService } from '../../database/database.service.js';
 import { devices, ipAllowlist, roles, users } from '../../database/schema/index.js';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { hashToken, verifyAccessToken } from './crypto.js';
-import { IP_ALLOWLIST_BYPASS_KEY, IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, REQUIRED_ROLES_KEY, setAuthenticatedUser } from './decorators.js';
+import { IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, REQUIRED_ROLES_KEY, setAuthenticatedUser, SKIP_IP_ALLOWLIST_KEY } from './decorators.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
+import { normalizeIp, resolveClientIp } from './ip.js';
+import { recordSecurityDenial } from './denial-audit.js';
 
 async function recordDenied(
   audit: AuditService,
@@ -21,16 +23,14 @@ async function recordDenied(
   action: string,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
-  await audit.record({
+  await recordSecurityDenial(audit, {
     actorType: request.user ? 'USER' : 'ANONYMOUS',
     actorUserId: request.user?.sub,
     actorDeviceId: request.device?.id,
-    action,
-    result: 'DENIED',
     ip: request.ip,
     requestId: request.id,
-    metadata: { ...metadata, route: request.raw?.url },
-  }).catch(() => undefined);
+    route: request.raw?.url,
+  }, action, metadata);
 }
 
 function isSwaggerRequest(context: ExecutionContext): boolean {
@@ -152,7 +152,7 @@ export class IpAllowlistGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (this.reflector.getAllAndOverride<boolean>(IP_ALLOWLIST_BYPASS_KEY, [context.getHandler(), context.getClass()])) return true;
+    if (this.reflector.getAllAndOverride<boolean>(SKIP_IP_ALLOWLIST_KEY, [context.getHandler(), context.getClass()])) return true;
     const active = await this.db.db.select({ id: ipAllowlist.id }).from(ipAllowlist).where(and(eq(ipAllowlist.isActive, true), or(isNull(ipAllowlist.expiresAt), sql`${ipAllowlist.expiresAt} > now()`))).limit(1);
     if (!active.length) {
       await recordDenied(this.audit, request, 'ip_allowlist.denied', { denyReason: 'NOT_CONFIGURED' });
@@ -167,7 +167,9 @@ export class IpAllowlistGuard implements CanActivate {
       }
     }
     const role = identity?.role ? await this.db.db.query.roles.findFirst({ where: eq(roles.code, identity.role) }) : undefined;
-    const clientIp = request.ip ?? '';
+    const clientIp = request.raw?.socket?.remoteAddress
+      ? resolveClientIp(request.raw.socket.remoteAddress, request.headers['x-forwarded-for'], this.config.get('TRUSTED_PROXY_CIDRS'))
+      : normalizeIp(request.ip);
     if (!clientIp) {
       await recordDenied(this.audit, request, 'ip_allowlist.denied', { denyReason: 'IP_UNAVAILABLE' });
       throw new ForbiddenException('Client IP unavailable');

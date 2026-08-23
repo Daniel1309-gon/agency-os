@@ -5,7 +5,7 @@ export interface AuthenticatedRequest {
   device?: DevicePrincipal;
   ip?: string;
   id?: string;
-  raw?: { url?: string };
+  raw?: { url?: string; socket?: { remoteAddress?: string } };
   headers: Record<string, string | string[] | undefined>;
 }
 

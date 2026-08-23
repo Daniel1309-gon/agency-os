@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, UsePipes } from '@nestjs/common';
-import { Authenticated, BypassIpAllowlist, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import { Authenticated, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { botKnowledgeSchema, channelSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type ChannelInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
@@ -19,7 +19,6 @@ export class RocketChatBotController {
   constructor(private readonly bot: BotService) {}
 
   @Public()
-  @BypassIpAllowlist()
   @Post('events')
   @HttpCode(HttpStatus.OK)
   event(@Body() body: unknown) { return this.bot.handle(body); }

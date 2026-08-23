@@ -6,6 +6,8 @@ import { DatabaseService } from '../../database/database.service.js';
 import { crewMembers, crews, ipAllowlist, roles, users } from '../../database/schema/index.js';
 import { verifyAccessToken, type AccessTokenClaims } from '../../common/auth/crypto.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { recordSecurityDenial } from '../../common/auth/denial-audit.js';
+import { resolveClientIp } from '../../common/auth/ip.js';
 import { RealtimeService } from './realtime.service.js';
 
 interface AuthenticatedSocket extends Socket {
@@ -31,7 +33,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     try {
       const token = typeof client.handshake.auth?.token === 'string' ? client.handshake.auth.token : '';
       const user = verifyAccessToken(token, this.config.get('JWT_SECRET'));
-      if (!(await this.isActiveUser(user)) || !this.originAllowed(client.handshake.headers.origin) || !(await this.ipAllowed(client.handshake.address, user))) {
+      const clientIp = this.clientIp(client);
+      if (!(await this.isActiveUser(user)) || !this.originAllowed(client.handshake.headers.origin) || !(await this.ipAllowed(clientIp, user))) {
         throw new Error('Connection policy denied');
       }
       client.data.user = user;
@@ -43,7 +46,11 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
         client.emit('cafeteria.orders.snapshot', await this.realtime.snapshotCafeteriaFor(user));
       }
     } catch {
-      await this.audit.record({ actorType: 'ANONYMOUS', action: 'realtime.connection.denied', result: 'DENIED', ip: client.handshake.address }).catch(() => undefined);
+      await recordSecurityDenial(this.audit, {
+        actorType: 'ANONYMOUS',
+        ip: this.clientIp(client),
+        route: '/operations',
+      }, 'realtime.connection.denied');
       client.disconnect(true);
     }
   }
@@ -67,7 +74,15 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
     return Boolean(active);
   }
 
-  private async ipAllowed(clientIp: string, user: AccessTokenClaims): Promise<boolean> {
+  private clientIp(client: AuthenticatedSocket): string | undefined {
+    return resolveClientIp(
+      client.handshake.address,
+      client.handshake.headers['x-forwarded-for'],
+      this.config.get('TRUSTED_PROXY_CIDRS'),
+    );
+  }
+
+  private async ipAllowed(clientIp: string | undefined, user: AccessTokenClaims): Promise<boolean> {
     if (!clientIp) return false;
     const role = await this.db.db.query.roles.findFirst({ where: eq(roles.code, user.role) });
     const scopes = [and(eq(ipAllowlist.scope, 'ALL'), sql`${ipAllowlist.cidr} >>= ${clientIp}::inet`)];

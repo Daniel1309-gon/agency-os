@@ -321,4 +321,12 @@ describe('HTTP route policies', () => {
 
     expect(violations, `Invalid or missing route policies:\n${violations.join('\n')}`).toEqual([]);
   });
+
+  it('allows the IP allowlist exception only on the health controller', () => {
+    const uses = sourceFiles(sourceRoot)
+      .filter((file) => /\bSkipIpAllowlist\s*\(/.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(sourceRoot, file).replaceAll('\\', '/'));
+
+    expect(uses).toEqual(['modules/health/health.controller.ts']);
+  });
 });

@@ -64,6 +64,7 @@ function authorization(token: string, deviceToken?: string): Record<string, stri
 describe('Entrega 1 HTTP security acceptance', () => {
   it('acknowledges native Rocket.Chat webhook events and only queues valid bot messages', async () => {
     const operator = await createUser(ctx);
+    await allowLoopback(operator.id);
     await ctx.db.update(users).set({ rocketchatUserId: 'http-test-user' }).where(eq(users.id, operator.id));
     await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'http-bot-room', name: 'Ayuda bot', type: 'CHANNEL', purpose: 'BOT' });
 
@@ -91,6 +92,19 @@ describe('Entrega 1 HTTP security acceptance', () => {
     expect(duplicate.statusCode).toBe(200);
     expect(await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).toHaveLength(1);
 
+  });
+
+  it('keeps the IP exception exclusive to health endpoints', async () => {
+    const health = await app.inject({ method: 'GET', url: '/health/live' });
+    expect(health.statusCode).toBe(200);
+
+    const webhook = await app.inject({
+      method: 'POST',
+      url: '/api/v1/rocketchat/bot/events',
+      payload: { token: 'wrong-token', user_id: 'unknown', channel_id: 'unknown', message_id: 'health-boundary', timestamp: new Date().toISOString(), text: 'ayuda', trigger_word: 'ayuda' },
+    });
+    expect(webhook.statusCode).toBe(403);
+    expect(webhook.json()).toMatchObject({ message: 'IP allowlist is not configured' });
   });
 
   it('fails closed when the request IP is not allowlisted', async () => {

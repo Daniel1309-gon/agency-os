@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import { DeviceTokenGuard, IpAllowlistGuard, JwtAuthGuard, PermissionsGuard, RolesGuard } from './guards.js';
@@ -188,5 +188,34 @@ describe('IpAllowlistGuard', () => {
   it('bypasses only handlers explicitly marked for health checks', async () => {
     const guard = new IpAllowlistGuard(emptyDb as never, config, reflectorReturning(true), audit);
     await expect(guard.canActivate(contextFor({ headers: {} }))).resolves.toBe(true);
+  });
+
+  it('rejects an invalid request IP even when a forwarded header looks valid', async () => {
+    const activeDb = {
+      db: {
+        select: () => ({
+          from: () => ({
+            where: () => ({ limit: async () => [{ id: 'active-entry' }] }),
+          }),
+        }),
+        query: { roles: { findFirst: async () => undefined } },
+      },
+    };
+    const guard = new IpAllowlistGuard(activeDb as never, config, reflectorReturning(false), audit);
+    await expect(guard.canActivate(contextFor({
+      ip: 'not-an-ip',
+      headers: { 'x-forwarded-for': '10.0.0.10' },
+    }))).rejects.toThrow('Client IP unavailable');
+  });
+
+  it('rate limits repeated denial audits for the same route and IP', async () => {
+    const record = vi.fn(async (_input: unknown) => undefined);
+    const guard = new IpAllowlistGuard(emptyDb as never, config, reflectorReturning(false), { record } as never);
+    const request = contextFor({ ip: '198.51.100.254', raw: { url: '/api/v1/auth/login?password=must-not-be-audit-key' } });
+
+    await expect(guard.canActivate(request)).rejects.toThrow('IP allowlist is not configured');
+    await expect(guard.canActivate(request)).rejects.toThrow('IP allowlist is not configured');
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0]?.[0]).toMatchObject({ metadata: { route: '/api/v1/auth/login' } });
   });
 });

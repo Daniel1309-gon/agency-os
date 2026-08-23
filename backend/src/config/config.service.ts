@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { configSchema, type Config } from './config.schema.js';
+import { parseTrustedProxyCidrs } from '../common/auth/ip.js';
 
 @Injectable()
 export class ConfigService {
@@ -13,6 +14,7 @@ export class ConfigService {
         .join('\n');
       throw new Error(`Invalid environment configuration:\n${issues}`);
     }
+    const trustedProxyCidrs = parseTrustedProxyCidrs(parsed.data.TRUSTED_PROXY_CIDRS);
     const runtimeUrlByRole = {
       app: parsed.data.DATABASE_APP_URL,
       worker: parsed.data.DATABASE_WORKER_URL,
@@ -29,6 +31,7 @@ export class ConfigService {
         throw new Error('Production secrets must not use placeholder values');
       }
       if (parsed.data.CORS_ORIGINS.includes('localhost')) throw new Error('Production CORS_ORIGINS cannot contain localhost');
+      if (!trustedProxyCidrs.length) throw new Error('Production requires TRUSTED_PROXY_CIDRS');
       if (!runtimeUrl) throw new Error(`Production requires ${runtimeVariable} for the least-privileged runtime role`);
       const migrationRole = new URL(parsed.data.DATABASE_URL).username;
       const runtimeRole = new URL(runtimeUrl).username;

@@ -9,6 +9,7 @@ const VALID = {
   JWT_SECRET: 'a-production-grade-secret-of-40-characters',
   VAULT_KEK: 'a-production-grade-kek-of-40-characters!!',
   CORS_ORIGINS: 'https://app.agency.example',
+  TRUSTED_PROXY_CIDRS: '10.0.0.0/8',
   ROCKETCHAT_BASE_URL: 'https://chat.agency.example',
   ROCKETCHAT_TOKEN: 'production-rocketchat-api-token',
   ROCKETCHAT_USER_ID: 'agency-bot-user-id',
@@ -34,7 +35,7 @@ describe('ConfigService', () => {
     expect(config.get('JWT_REFRESH_TTL_DAYS')).toBe(7);
     expect(config.get('PASSWORD_SCRYPT_LOG2N')).toBe(17);
     expect(config.get('DATABASE_RUNTIME_ROLE')).toBe('app');
-    expect(config.get('TRUSTED_PROXY_CIDRS')).toBe('');
+    expect(config.get('TRUSTED_PROXY_CIDRS')).toBe('10.0.0.0/8');
     expect(config.get('LOG_LEVEL')).toBe('info');
   });
 
@@ -58,6 +59,17 @@ describe('ConfigService', () => {
   it('refuses a production CORS allowlist that still points at localhost', () => {
     process.env.CORS_ORIGINS = 'https://app.agency.example,http://localhost:5173';
     expect(() => new ConfigService()).toThrow(/CORS_ORIGINS/);
+  });
+
+  it('requires valid trusted proxy CIDRs in production', () => {
+    delete process.env.TRUSTED_PROXY_CIDRS;
+    expect(() => new ConfigService()).toThrow(/TRUSTED_PROXY_CIDRS/);
+
+    process.env.TRUSTED_PROXY_CIDRS = 'not-a-cidr';
+    expect(() => new ConfigService()).toThrow(/TRUSTED_PROXY_CIDRS/);
+
+    process.env.TRUSTED_PROXY_CIDRS = '10.0.0.0/8';
+    expect(() => new ConfigService()).not.toThrow();
   });
 
   it('requires a distinct least-privileged database connection in production', () => {

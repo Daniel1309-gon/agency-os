@@ -10,10 +10,11 @@ import { LoggerService } from './common/logger/logger.service.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter.js';
 import { buildOpenApiDocument, configureApiRouting } from './openapi.js';
+import { parseTrustedProxyCidrs } from './common/auth/ip.js';
 
 async function bootstrap() {
   const bootstrapConfig = new ConfigService();
-  const trustedProxyCidrs = bootstrapConfig.get('TRUSTED_PROXY_CIDRS').split(',').map((value) => value.trim()).filter(Boolean);
+  const trustedProxyCidrs = parseTrustedProxyCidrs(bootstrapConfig.get('TRUSTED_PROXY_CIDRS'));
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: false, bodyLimit: 256 * 1024, trustProxy: trustedProxyCidrs.length ? trustedProxyCidrs : false }),

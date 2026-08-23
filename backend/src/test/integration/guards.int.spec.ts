@@ -73,4 +73,19 @@ describe('Entrega 1 security guards against real infrastructure', () => {
     await ctx.db.update(devices).set({ tokenExpiresAt: new Date(Date.now() - 1_000) }).where(eq(devices.id, device.id));
     await expect(guard.canActivate(valid.context)).rejects.toThrow(ForbiddenException);
   });
+
+  it('authorizes the normalized request IP and ignores a conflicting forwarded header', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    await ctx.db.insert(ipAllowlist).values({ label: 'proxy office', cidr: '203.0.113.0/24', scope: 'ALL', createdBy: admin.id });
+    const guard = new IpAllowlistGuard(ctx.database, ctx.config, reflector, new AuditService(ctx.database));
+
+    await expect(guard.canActivate(contextFor({
+      ip: '::ffff:203.0.113.10',
+      headers: { 'x-forwarded-for': '10.0.0.10' },
+    }).context)).resolves.toBe(true);
+    await expect(guard.canActivate(contextFor({
+      ip: '198.51.100.10',
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+    }).context)).rejects.toThrow('IP address is not allowed');
+  });
 });

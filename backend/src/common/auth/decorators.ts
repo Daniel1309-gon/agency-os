@@ -4,7 +4,7 @@ import { AUTH_USER, type AuthenticatedRequest } from './auth.types.js';
 import type { AccessTokenClaims } from './crypto.js';
 
 export const IS_PUBLIC_KEY = 'agency-os.public';
-export const IP_ALLOWLIST_BYPASS_KEY = 'agency-os.ip-allowlist-bypass';
+export const SKIP_IP_ALLOWLIST_KEY = 'agency-os.skip-ip-allowlist';
 export const REQUIRE_SHIFT_KEY = 'agency-os.require-shift';
 export const REQUIRED_PERMISSIONS_KEY = 'agency-os.permissions';
 export const REQUIRED_ROLES_KEY = 'agency-os.roles';
@@ -21,7 +21,7 @@ export const Public = () => applyDecorators(
   SetMetadata(ROUTE_POLICY_KEY, 'public' satisfies RoutePolicy),
   ApiExtension('x-agency-public', true),
 );
-export const BypassIpAllowlist = () => SetMetadata(IP_ALLOWLIST_BYPASS_KEY, true);
+export const SkipIpAllowlist = () => SetMetadata(SKIP_IP_ALLOWLIST_KEY, true);
 export const RequireShift = () => applyDecorators(
   SetMetadata(REQUIRE_SHIFT_KEY, true),
   ApiExtension('x-agency-shift', true),
