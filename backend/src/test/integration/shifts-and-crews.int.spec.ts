@@ -10,7 +10,7 @@ import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { DevicesService } from '../../modules/devices/devices.service.js';
 import { ProfilesService } from '../../modules/profiles/profiles.service.js';
-import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, shifts } from '../../database/schema/index.js';
+import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, shiftTemplates, shifts } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 /**
@@ -245,6 +245,38 @@ describe('BreaksService', () => {
 });
 
 describe('JobsService', () => {
+  it('materializes one overnight shift from an active crew template and is idempotent', async () => {
+    const operator = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Night crew' }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({
+      crewId: crew.id,
+      userId: operator.id,
+      validRange: halfOpen(new Date('2026-08-23T00:00:00.000Z'), new Date('2026-08-25T00:00:00.000Z')),
+    });
+    const [template] = await ctx.db.insert(shiftTemplates).values({
+      name: 'Sunday night',
+      crewId: crew.id,
+      startTime: '22:05:00',
+      endTime: '06:05:00',
+      crossesMidnight: true,
+      weekdays: [0],
+      breakMinutes: 0,
+      validFrom: '2026-08-23',
+      isActive: true,
+    }).returning({ id: shiftTemplates.id });
+
+    await expect((jobs as unknown as { materializeShifts(businessDate: string): Promise<number> }).materializeShifts('2026-08-23')).resolves.toBe(1);
+    await expect((jobs as unknown as { materializeShifts(businessDate: string): Promise<number> }).materializeShifts('2026-08-23')).resolves.toBe(0);
+
+    const rows = await ctx.db.select({ operatorId: shifts.operatorId, businessDate: shifts.businessDate, scheduledRange: shifts.scheduledRange, status: shifts.status }).from(shifts).where(eq(shifts.templateId, template.id));
+    expect(rows).toEqual([{
+      operatorId: operator.id,
+      businessDate: '2026-08-23',
+      scheduledRange: '[2026-08-24T03:05:00.000Z,2026-08-24T11:05:00.000Z)',
+      status: 'SCHEDULED',
+    }]);
+  });
+
   it('closes a shift exactly at its upper boundary and finalizes its breaks', async () => {
     const operator = await createUser(ctx);
     const start = new Date('2026-08-23T06:05:00.000Z');

@@ -1,9 +1,10 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
-import { breaks, cafeteriaOrders, outboxEvents, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
+import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { buildScheduledRange, businessDateInBogota, weekdayForBusinessDate } from './shift-schedule.js';
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -15,6 +16,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (process.env.NODE_ENV === 'test') return;
     this.timers.push(setInterval(() => void this.runExclusive('sessions:reap', 55, () => this.reapSessions()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('cafeteria:expire-orders', 55, () => this.expireOrders()), 60_000));
+    this.timers.push(setInterval(() => void this.runExclusive('shifts:materialize', 55, async () => { await this.materializeShifts(); }), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('shifts:open-close', 55, () => this.closeExpiredShifts()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('breaks:notify', 55, () => this.notifyUpcomingBreaks()), 60_000));
   }
@@ -65,6 +67,42 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
   private async expireOrders(): Promise<void> {
     await this.db.db.update(cafeteriaOrders).set({ status: 'EXPIRED' }).where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())));
+  }
+
+  private async materializeShifts(businessDate = businessDateInBogota(new Date())): Promise<number> {
+    const weekday = weekdayForBusinessDate(businessDate);
+    return this.db.transaction(async () => {
+      const templates = await this.db.db
+        .select({ id: shiftTemplates.id, crewId: shiftTemplates.crewId, startTime: shiftTemplates.startTime, endTime: shiftTemplates.endTime, crossesMidnight: shiftTemplates.crossesMidnight, weekdays: shiftTemplates.weekdays })
+        .from(shiftTemplates)
+        .where(and(eq(shiftTemplates.isActive, true), lte(shiftTemplates.validFrom, businessDate), or(isNull(shiftTemplates.validTo), gte(shiftTemplates.validTo, businessDate))));
+      const applicable = templates.filter((template) => template.weekdays.includes(weekday));
+      if (!applicable.length) return 0;
+
+      const globalOperators = await this.db.db
+        .select({ operatorId: users.id })
+        .from(users)
+        .innerJoin(roles, eq(roles.id, users.roleId))
+        .where(and(eq(users.status, 'ACTIVE'), eq(roles.code, 'OPERADOR')));
+      const candidates: Array<{ operatorId: string; templateId: string; businessDate: string; scheduledRange: string; status: 'SCHEDULED' }> = [];
+
+      for (const template of applicable) {
+        const scheduledRange = buildScheduledRange(businessDate, template.startTime, template.endTime, template.crossesMidnight);
+        const startAt = scheduledRange.slice(1, scheduledRange.indexOf(','));
+        const operators = template.crewId
+          ? await this.db.db
+            .select({ operatorId: crewMembers.userId })
+            .from(crewMembers)
+            .innerJoin(users, eq(users.id, crewMembers.userId))
+            .innerJoin(roles, eq(roles.id, users.roleId))
+            .where(and(eq(crewMembers.crewId, template.crewId), eq(users.status, 'ACTIVE'), eq(roles.code, 'OPERADOR'), sql`${crewMembers.validRange} @> ${startAt}::timestamptz`))
+          : globalOperators;
+        candidates.push(...operators.map((operator) => ({ operatorId: operator.operatorId, templateId: template.id, businessDate, scheduledRange, status: 'SCHEDULED' as const })));
+      }
+      if (!candidates.length) return 0;
+      const inserted = await this.db.db.insert(shifts).values(candidates).onConflictDoNothing().returning({ id: shifts.id });
+      return inserted.length;
+    });
   }
 
   private async closeExpiredShifts(at = new Date()): Promise<void> {
