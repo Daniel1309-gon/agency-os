@@ -18,7 +18,7 @@
     "module-no-direct-schema:src/modules/crews/crews.service.ts:../../database/schema/index.js:crewMembers,crews,roles,users",
     "module-no-direct-schema:src/modules/devices/devices.service.ts:../../database/schema/index.js:devices",
     "module-no-direct-schema:src/modules/icebreakers/icebreakers.service.ts:../../database/schema/index.js:icebreakerEffectiveness,icebreakerEvaluations,icebreakerReviews,icebreakerRules,icebreakerViolations,icebreakers",
-    "module-no-direct-schema:src/modules/jobs/jobs.service.ts:../../database/schema/index.js:breaks,cafeteriaOrders,outboxEvents,profileAssignments,profileSessions,shifts",
+    "module-no-direct-schema:src/modules/jobs/jobs.service.ts:../../database/schema/index.js:breaks,cafeteriaOrders,crewMembers,outboxEvents,profileAssignments,profileSessions,roles,shiftTemplates,shifts,users",
     "module-no-private-cross-import:src/modules/jobs/jobs.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/metrics/metrics.service.ts:../../database/schema/index.js:cafeteriaOrders,crewMembers,crews,metricEvents,metricReconciliation,profileDailyMetrics,profileSessions,shifts,ttProfiles",
     "module-no-direct-schema:src/modules/operator-status/operator-status.service.ts:../../database/schema/index.js:operatorCurrentStatus,operatorStatusEvents",
