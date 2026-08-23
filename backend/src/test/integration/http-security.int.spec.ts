@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { configureApiRouting } from '../../openapi.js';
 import { eq } from 'drizzle-orm';
 import { signAccessToken } from '../../common/auth/crypto.js';
 import { devices, ipAllowlist, shifts } from '../../database/schema/index.js';
@@ -34,7 +35,7 @@ beforeAll(async () => {
   const distModuleUrl = new URL('../../../dist/app.module.js', import.meta.url).href;
   const { AppModule } = await import(/* @vite-ignore */ distModuleUrl);
   app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ logger: false }), { logger: false });
-  app.setGlobalPrefix('api/v1');
+  configureApiRouting(app);
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 });
