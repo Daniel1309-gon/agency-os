@@ -272,7 +272,7 @@ describe('JobsService', () => {
     expect(rows).toEqual([{
       operatorId: operator.id,
       businessDate: '2026-08-23',
-      scheduledRange: '[2026-08-24T03:05:00.000Z,2026-08-24T11:05:00.000Z)',
+      scheduledRange: '["2026-08-24 03:05:00+00","2026-08-24 11:05:00+00")',
       status: 'SCHEDULED',
     }]);
   });
