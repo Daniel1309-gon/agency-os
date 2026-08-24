@@ -28,12 +28,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: local-helper/go.mod
       - name: Install frozen workspace
         run: pnpm install --frozen-lockfile
       - name: Verify requirements traceability
         run: pnpm test:requirements
       - name: Check Chrome extension security contract
         run: pnpm extension:check
+      - name: Test native helper
+        run: pnpm helper:test
       - name: Build workspace
         run: pnpm build
       - name: Verify API contracts

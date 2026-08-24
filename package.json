@@ -20,7 +20,7 @@
     "db:bootstrap-worker": "pnpm --filter @agency-os/api db:bootstrap-worker",
     "db:check": "pnpm --filter @agency-os/api exec drizzle-kit check",
     "db:studio": "pnpm --filter @agency-os/api drizzle-kit studio",
-    "ci:quality": "pnpm test:requirements && pnpm extension:check && pnpm build && pnpm test:contracts:run && pnpm lint && pnpm typecheck && pnpm test && pnpm audit --prod --audit-level high",
+    "ci:quality": "pnpm test:requirements && pnpm extension:check && pnpm helper:test && pnpm build && pnpm test:contracts:run && pnpm lint && pnpm typecheck && pnpm test && pnpm audit --prod --audit-level high",
     "ci:database": "pnpm --filter @agency-os/api... build && pnpm db:migrate && pnpm db:seed:verify && pnpm db:check && pnpm test:integration",
     "ci:verify": "node --env-file-if-exists=backend/.env tools/ci-verify.mjs",
     "backend:dev": "pnpm --dir backend dev",
@@ -32,6 +32,7 @@
     "frontend:typecheck": "pnpm --dir web-app typecheck",
     "frontend:test": "pnpm --dir web-app test",
     "extension:check": "pnpm --dir extension check",
+    "helper:test": "node tools/test-native-helper.mjs",
     "tableau:discovery": "node tools/tableau-discovery.mjs"
   },
   "engines": {
