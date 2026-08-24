@@ -1547,8 +1547,10 @@ lockfile), `/health/*`, logger con redacción, filtro de excepciones, envolvente
 4. `devices` + enrolamiento + token de dispositivo.
 5. Asignaciones con el constraint de exclusión, y `profile_sessions` con el índice único parcial.
 6. **El flujo grant/redeem de §6.3 completo, con sus tests de abuso.** Es el corazón de la
-   entrega; sustituye el `credenciales.json` en texto plano que hoy usa el spike (riesgo abierto
-   de agents.md §6).
+   entrega; sustituye el flujo legacy de `credenciales.json` en texto plano que se usó durante el
+   spike. Ese archivo no forma parte del flujo actual: la extensión usa configuración administrada,
+   Native Messaging y el vault. El gate pendiente es la prueba E2E en una PC administrada (riesgo
+   abierto de agents.md §6).
 7. Turnos, `shift_overrides` y `ShiftWindowGuard` (FR-04).
 8. `operator_status_events` + WebSocket con `@socket.io/redis-adapter` (FR-38).
 9. Módulo RocketChat + outbox, para el bot de ayuda.
