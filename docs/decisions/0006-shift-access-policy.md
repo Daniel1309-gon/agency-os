@@ -31,5 +31,7 @@ explícita.
   reloj de la máquina.
 - Una revocación no borra el histórico: conserva quién aprobó, quién revocó y
   cuándo ocurrió.
-- La materialización automática de turnos, cierres de sesión y breaks sigue
-  siendo OPS-05/OPS-06; este slice solo cierra la decisión de autorización.
+- La materialización automática de turnos y el cierre base de sesiones/breaks
+  pertenecen a OPS-05/OPS-06; este ADR solo cierra la decisión de autorización.
+  La implementación posterior de OPS-02/OPS-03 añadió el cierre transaccional
+  de la sesión saliente y el relevo contiguo, sin cambiar esta política.
