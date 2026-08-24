@@ -33,5 +33,7 @@ Los grants readonly son explícitos. No se usa `GRANT SELECT ON ALL TABLES` para
 
 - El despliegue debe ejecutar `db-bootstrap-runtime` y, cuando exista un proceso separado, `db-bootstrap-worker`.
 - Las migraciones futuras se ejecutan con el rol dueño cuando `agency_owner` ya existe; el script usa una conexión única para que `SET ROLE` cubra toda la migración.
+- El script concede de forma idempotente `CREATE` sobre la base de datos y `USAGE, CREATE` sobre el esquema `drizzle` únicamente a `agency_owner` antes de `SET ROLE`, porque Drizzle ejecuta `CREATE SCHEMA IF NOT EXISTS` en cada corrida. `agency_app` y `agency_worker` no reciben esos privilegios.
+- El cambio de rol solo ocurre cuando la entrada de `0008_database_deployment_roles` ya está en el journal; una instalación interrumpida a mitad de esa migración debe reanudarla con la cuenta de migración original para que su `DO` pueda completar la creación/configuración de roles.
 - La integración debe probar los cuatro catálogos de roles y los intentos de abuso sobre auditoría, vault, payroll y perfiles.
 - El runtime actual todavía puede convivir con `DATABASE_URL` en development/test; producción exige la URL de la capacidad seleccionada.
