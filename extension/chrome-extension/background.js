@@ -51,6 +51,9 @@ function validateSessionContext(message) {
   if (![message.profileId, message.sessionId, message.accessToken].every((value) => typeof value === 'string' && value.length > 0)) {
     throw new Error('Contexto de sesión inválido');
   }
+  if (!Number.isInteger(message.version) || message.version < 1) {
+    throw new Error('Versión de sesión inválida');
+  }
   if (!isValidChromeProfileDir(message.chromeProfileDir) || !isValidLaunchUrl(message.launchUrl)) {
     throw new Error('Destino de sesión inválido');
   }
@@ -87,7 +90,7 @@ async function obtenerCredencial(profileId, sessionId) {
   } catch (error) {
     await apiRequest(`/agent/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'ERROR', errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
+      body: JSON.stringify({ status: 'ERROR', version: context.version, errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
     }, context, config).catch(() => undefined);
     await chrome.storage.session.remove(SESSION_KEY);
     throw error;
@@ -113,13 +116,13 @@ async function finishCredentialInjection(message) {
     const config = await managedConfiguration();
     await apiRequest(`/agent/sessions/${encodeURIComponent(context.sessionId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'ERROR', errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
+      body: JSON.stringify({ status: 'ERROR', version: context.version, errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
     }, context, config).catch(() => undefined);
   } else {
     const config = await managedConfiguration();
     await apiRequest(`/agent/sessions/${encodeURIComponent(context.sessionId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'ACTIVE' }),
+      body: JSON.stringify({ status: 'ACTIVE', version: context.version }),
     }, context, config);
   }
   await chrome.storage.session.remove(SESSION_KEY);
@@ -139,6 +142,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         accessToken: message.accessToken,
         chromeProfileDir: message.chromeProfileDir,
         launchUrl: message.launchUrl,
+        version: message.version,
         expiresAt: Date.now() + 60_000,
       },
     });

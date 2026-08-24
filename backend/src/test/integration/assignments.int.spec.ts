@@ -57,12 +57,13 @@ describe('AssignmentsService.create', () => {
       scheduledRange: halfOpen(validFrom, validTo),
       createdBy: admin.id,
     }).returning({ id: shifts.id });
-    await assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom, validTo }, admin.id);
+    const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom, validTo }, admin.id);
+    const session = await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id);
 
     const [assigned] = await profiles.assignedTo(operator.id);
 
     expect(assignedProfileSchema.safeParse(assigned)).toMatchObject({ success: true });
-    expect(assigned).toMatchObject({ shiftId: shift.id });
+    expect(assigned).toMatchObject({ shiftId: shift.id, session: { id: session.id, status: 'LAUNCHING', version: session.version } });
   });
 
   it('assigns an active profile to an active operator', async () => {
@@ -112,7 +113,7 @@ describe('AssignmentsService.create', () => {
     const boundary = isoOffset(60);
     const first = await assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: isoOffset(-60), validTo: boundary }, admin.id);
     const session = await assignments.openSession({ profileId: profile.id, assignmentId: first.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
-    await assignments.updateSession(session.id, { status: 'ACTIVE' }, morning.id, device.token);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.token);
 
     const second = await assignments.create({ profileId: profile.id, operatorId: afternoon.id, validFrom: boundary, validTo: isoOffset(180) }, admin.id);
 
@@ -289,7 +290,7 @@ describe('AssignmentsService sessions', () => {
     const input = { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' };
     const first = await assignments.openSession(input, s.operatorId, s.deviceToken);
 
-    await assignments.closeSession(first.id, s.operatorId, s.deviceToken);
+    await assignments.closeSession(first.id, first.version, s.operatorId, s.deviceToken);
     await expect(assignments.openSession(input, s.operatorId, s.deviceToken)).resolves.toBeDefined();
 
     const [closed] = await ctx.db
@@ -308,7 +309,7 @@ describe('AssignmentsService sessions', () => {
       s.operatorId,
       s.deviceToken,
     );
-    await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
 
     await assignments.end(s.assignmentId, admin.id);
 
@@ -348,13 +349,13 @@ describe('AssignmentsService sessions', () => {
       s.deviceToken,
     );
 
-    const beat = await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+    const beat = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
     expect(beat.status).toBe('ACTIVE');
     expect(beat.lastHeartbeatAt).toBeInstanceOf(Date);
 
     await assignments.updateSession(
       session.id,
-      { status: 'ERROR', errorCode: 'LOGIN_FAILED', errorDetail: 'TalkyTimes rechazo la credencial' },
+      { status: 'ERROR', version: beat.version, errorCode: 'LOGIN_FAILED', errorDetail: 'TalkyTimes rechazo la credencial' },
       s.operatorId,
       s.deviceToken,
     );
@@ -365,6 +366,55 @@ describe('AssignmentsService sessions', () => {
     expect(errored).toMatchObject({ status: 'ERROR', errorCode: 'LOGIN_FAILED' });
   });
 
+  it('rejects a stale session version after another heartbeat wins the CAS', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    const version = session.version;
+    const patch = (sessionVersion: number) => ({ status: 'ACTIVE' as const, version: sessionVersion });
+
+    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceToken)).resolves.toMatchObject({ status: 'ACTIVE' });
+    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceToken)).rejects.toThrow(ConflictException);
+  });
+
+  it('marks an ACTIVE session STALE after its heartbeat deadline and keeps it terminal', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    await ctx.db.update(profileSessions).set({ lastHeartbeatAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
+
+    await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
+
+    const [stale] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(stale).toEqual({ status: 'STALE', endReason: 'HEARTBEAT_TIMEOUT' });
+    await expect(
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('allows an explicit CAS close to retire a STALE session', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    const active = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    await ctx.db.update(profileSessions).set({ lastHeartbeatAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
+    await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
+
+    const [stale] = await ctx.db.select({ version: profileSessions.version }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(stale.version).toBe(active.version + 1);
+    await expect(assignments.closeSession(session.id, stale.version, s.operatorId, s.deviceToken)).resolves.toMatchObject({ status: 'CLOSED', version: stale.version + 1 });
+  });
+
   it('does not reopen a closed session through PATCH', async () => {
     const s = await ready();
     const session = await assignments.openSession(
@@ -372,10 +422,10 @@ describe('AssignmentsService sessions', () => {
       s.operatorId,
       s.deviceToken,
     );
-    await assignments.closeSession(session.id, s.operatorId, s.deviceToken);
+    await assignments.closeSession(session.id, session.version, s.operatorId, s.deviceToken);
 
     await expect(
-      assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken),
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
     ).rejects.toThrow(ConflictException);
   });
 
@@ -392,7 +442,7 @@ describe('AssignmentsService sessions', () => {
       .where(eq(profileAssignments.id, s.assignmentId));
 
     await expect(
-      assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken),
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -406,7 +456,7 @@ describe('AssignmentsService sessions', () => {
     const other = await createUser(ctx);
     const otherDevice = await createDevice(ctx, { operatorId: other.id });
 
-    await expect(assignments.updateSession(session.id, { status: 'CLOSED' }, other.id, otherDevice.token)).rejects.toThrow(
+    await expect(assignments.updateSession(session.id, { status: 'CLOSED', version: session.version }, other.id, otherDevice.token)).rejects.toThrow(
       NotFoundException,
     );
   });
@@ -433,7 +483,7 @@ describe('AssignmentsService sessions', () => {
       s.operatorId,
       s.deviceToken,
     );
-    await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
     await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
@@ -449,7 +499,7 @@ describe('AssignmentsService sessions', () => {
       s.operatorId,
       s.deviceToken,
     );
-    await assignments.updateSession(session.id, { status: 'ERROR', errorCode: 'LOGIN_FAILED' }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ERROR', version: session.version, errorCode: 'LOGIN_FAILED' }, s.operatorId, s.deviceToken);
     await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();

@@ -6,7 +6,7 @@ export type RoleCode = z.infer<typeof roleCodeSchema>;
 export const operatorStatusSchema = z.enum(['ONLINE', 'BREAK', 'ALERT', 'OFFLINE']);
 export type OperatorStatus = z.infer<typeof operatorStatusSchema>;
 
-export const profileSessionStatusSchema = z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'CLOSED']);
+export const profileSessionStatusSchema = z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'STALE', 'CLOSED']);
 export type ProfileSessionStatus = z.infer<typeof profileSessionStatusSchema>;
 
 export const profileStatusSchema = z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']);
@@ -28,6 +28,7 @@ export const prepareSessionMessageSchema = z.object({
   sessionId: z.string().uuid(),
   chromeProfileDir: chromeProfileDirSchema,
   launchUrl: talkyTimesLaunchUrlSchema,
+  version: z.number().int().positive(),
 });
 export type PrepareSessionMessage = z.infer<typeof prepareSessionMessageSchema>;
 
@@ -73,6 +74,7 @@ export const assignedProfileSchema = z.object({
   session: z.object({
     id: z.string().uuid(),
     status: profileSessionStatusSchema,
+    version: z.number().int().positive(),
     startedAt: z.string().nullable(),
     errorCode: z.string().nullable(),
   }).nullable(),

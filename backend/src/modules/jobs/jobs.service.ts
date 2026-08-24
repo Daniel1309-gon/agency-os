@@ -44,7 +44,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     // the boundary must never revive it.
     const assignmentClosed = await this.db.db
       .update(profileSessions)
-      .set({ status: 'CLOSED', endedAt: now, endReason: 'ASSIGNMENT_ENDED' })
+      .set({ status: 'CLOSED', version: sql<number>`${profileSessions.version} + 1`, endedAt: now, endReason: 'ASSIGNMENT_ENDED' })
       .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE'), eq(profileSessions.status, 'ERROR')), assignmentEnded))
       .returning({ operatorId: profileSessions.operatorId });
 
@@ -52,16 +52,16 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     // occupies the partial unique index forever and blocks the next operator.
     const launchClosed = await this.db.db
       .update(profileSessions)
-      .set({ status: 'CLOSED', endedAt: now, endReason: 'LAUNCH_TIMEOUT' })
+      .set({ status: 'CLOSED', version: sql<number>`${profileSessions.version} + 1`, endedAt: now, endReason: 'LAUNCH_TIMEOUT' })
       .where(and(eq(profileSessions.status, 'LAUNCHING'), lt(profileSessions.startedAt, new Date(now.getTime() - 120_000))))
       .returning({ operatorId: profileSessions.operatorId });
 
-    const heartbeatClosed = await this.db.db
+    const heartbeatStale = await this.db.db
       .update(profileSessions)
-      .set({ status: 'CLOSED', endedAt: now, endReason: 'HEARTBEAT_TIMEOUT' })
+      .set({ status: 'STALE', version: sql<number>`${profileSessions.version} + 1`, endedAt: now, endReason: 'HEARTBEAT_TIMEOUT' })
       .where(and(eq(profileSessions.status, 'ACTIVE'), lt(profileSessions.lastHeartbeatAt, new Date(now.getTime() - 120_000))))
       .returning({ operatorId: profileSessions.operatorId });
-    const changed = new Set([...assignmentClosed, ...launchClosed, ...heartbeatClosed].map((row) => row.operatorId));
+    const changed = new Set([...assignmentClosed, ...launchClosed, ...heartbeatStale].map((row) => row.operatorId));
     await Promise.all([...changed].map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));
   }
 

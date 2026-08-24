@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { profileSessionStatusSchema } from './agency.js';
+
+const mutableSessionStatusSchema = z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'CLOSED']);
 
 export const sessionCreateSchema = z.object({
   profileId: z.string().uuid(),
@@ -8,9 +9,14 @@ export const sessionCreateSchema = z.object({
 }).strict();
 
 export const sessionPatchSchema = z.object({
-  status: profileSessionStatusSchema,
+  status: mutableSessionStatusSchema,
+  version: z.number().int().positive(),
   errorCode: z.string().max(80).optional(),
   errorDetail: z.string().max(500).optional(),
+}).strict();
+
+export const sessionCloseSchema = z.object({
+  version: z.number().int().positive(),
 }).strict();
 
 export const metricEventSchema = z.object({
@@ -28,5 +34,6 @@ export const metricBatchSchema = z.object({
 
 export type SessionCreateInput = z.infer<typeof sessionCreateSchema>;
 export type SessionPatchInput = z.infer<typeof sessionPatchSchema>;
+export type SessionCloseInput = z.infer<typeof sessionCloseSchema>;
 export type MetricEventInput = z.infer<typeof metricEventSchema>;
 export type MetricBatchInput = z.infer<typeof metricBatchSchema>;

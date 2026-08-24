@@ -3,11 +3,13 @@ export { configSchema, type Config } from './schemas/config.js';
 export {
   metricBatchSchema,
   metricEventSchema,
+  sessionCloseSchema,
   sessionCreateSchema,
   sessionPatchSchema,
   type MetricBatchInput,
   type MetricEventInput,
   type SessionCreateInput,
+  type SessionCloseInput,
   type SessionPatchInput,
 } from './contracts/operator.js';
 export {

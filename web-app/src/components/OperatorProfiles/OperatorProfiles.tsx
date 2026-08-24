@@ -41,6 +41,7 @@ function statusFor(profile: AssignedProfile): { tone: 'active' | 'available' | '
   if (profile.session?.status === 'ACTIVE') return { tone: 'active', label: 'Sesión activa' };
   if (profile.session?.status === 'LAUNCHING') return { tone: 'handoff', label: 'Abriendo perfil' };
   if (profile.session?.status === 'ERROR') return { tone: 'handoff', label: 'Reintento disponible' };
+  if (profile.session?.status === 'STALE') return { tone: 'handoff', label: 'Sesión vencida; reabrir' };
   return { tone: 'available', label: 'Disponible' };
 }
 
@@ -74,8 +75,9 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
     setNotice(null);
     try {
       let sessionId = profile.session?.id;
-      if (!sessionId || profile.session?.status === 'ERROR') {
-        const session = await apiClient.request<{ id: string }>('/agent/sessions/prepare', {
+      let sessionVersion = profile.session?.version;
+      if (!sessionId || profile.session?.status === 'ERROR' || profile.session?.status === 'STALE') {
+        const session = await apiClient.request<{ id: string; version: number }>('/agent/sessions/prepare', {
           method: 'POST',
           body: JSON.stringify({
             profileId: profile.profileId,
@@ -84,9 +86,10 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
           }),
         });
         sessionId = session.id;
+        sessionVersion = session.version;
       }
       const token = apiClient.getAccessToken();
-      if (!token || !sessionId) throw new Error('La sesión segura expiró. Vuelve a iniciar sesión.');
+      if (!token || !sessionId || !sessionVersion) throw new Error('La sesión segura expiró. Vuelve a iniciar sesión.');
       const launchUrl = `https://talkytimes.com/auth/login?agencyProfile=${encodeURIComponent(profile.profileId)}&agencySession=${encodeURIComponent(sessionId)}`;
       const message = prepareSessionMessageSchema.parse({
         action: 'prepareSession',
@@ -95,6 +98,7 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
         sessionId,
         chromeProfileDir: profile.chromeProfileDir,
         launchUrl,
+        version: sessionVersion,
       });
       await sendToExtension(message);
       setNotice(`Perfil ${profile.profileName} preparado. Completa el clic de ingreso en TalkyTimes.`);
@@ -136,7 +140,7 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
               <StatusPill status={profileStatus.tone} label={profileStatus.label} />
               <span>{profile.session?.startedAt ? `Iniciada ${new Date(profile.session.startedAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}` : 'Lista para abrir'}</span>
             </div>
-            <button className="row-action" type="button" onClick={() => void prepareProfile(profile)} disabled={isBusy || profileStatus.tone === 'handoff' && profile.session?.status === 'LAUNCHING'}>{isBusy ? 'Preparando…' : profile.session?.status === 'ACTIVE' ? 'Continuar' : 'Abrir perfil'} <span aria-hidden="true">↗</span></button>
+              <button className="row-action" type="button" onClick={() => void prepareProfile(profile)} disabled={isBusy || profileStatus.tone === 'handoff' && profile.session?.status === 'LAUNCHING'}>{isBusy ? 'Preparando…' : profile.session?.status === 'ACTIVE' ? 'Continuar' : 'Abrir perfil'} <span aria-hidden="true">↗</span></button>
           </article>
           );
         })}

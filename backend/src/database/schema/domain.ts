@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   char,
+  check,
   customType,
   date,
   index,
@@ -281,6 +282,7 @@ export const profileSessions = pgTable(
     assignmentId: uuid('assignment_id').notNull().references(() => profileAssignments.id),
     chromeProfileDir: text('chrome_profile_dir').notNull(),
     status: varchar('status', { length: 16 }).notNull().default('LAUNCHING'),
+    version: integer('version').notNull().default(1),
     startedAt: ts('started_at').notNull().defaultNow(),
     lastHeartbeatAt: ts('last_heartbeat_at').notNull().defaultNow(),
     endedAt: ts('ended_at'),
@@ -288,7 +290,10 @@ export const profileSessions = pgTable(
     errorCode: text('error_code'),
     errorDetail: text('error_detail'),
   },
-  (t) => ({ liveSession: uniqueIndex('profile_single_live_session').on(t.profileId).where(sql`${t.status} IN ('LAUNCHING', 'ACTIVE')`) }),
+  (t) => ({
+    liveSession: uniqueIndex('profile_single_live_session').on(t.profileId).where(sql`${t.status} IN ('LAUNCHING', 'ACTIVE')`),
+    versionPositive: check('profile_sessions_version_positive', sql`${t.version} > 0`),
+  }),
 );
 
 export const breaks = pgTable('breaks', {

@@ -68,7 +68,7 @@ describe('operator status projection', () => {
       validTo: scheduledTo,
     }, admin.id);
     const session = await assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.token);
-    await assignments.updateSession(session.id, { status: 'ACTIVE' }, operator.id, device.token);
+    const active = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.token);
     expect(emitted.at(-1)).toMatchObject({ event: 'operator.status.changed', payload: { operatorId: operator.id, status: 'ONLINE' } });
 
     let [row] = await status.list();
@@ -84,7 +84,7 @@ describe('operator status projection', () => {
 
     await ctx.db.delete(operatorCurrentStatus).where(eq(operatorCurrentStatus.operatorId, operator.id));
     await ctx.db.update(breaks).set({ status: 'COMPLETED', endedAt: new Date() }).where(and(eq(breaks.shiftId, shift.id), eq(breaks.status, 'IN_PROGRESS')));
-    await assignments.closeSession(session.id, operator.id, device.token);
+    await assignments.closeSession(session.id, active.version, operator.id, device.token);
     [row] = await status.list();
     expect(row.status).toBe('OFFLINE');
   });

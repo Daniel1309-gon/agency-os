@@ -1,8 +1,10 @@
 import { z } from 'zod';
 export {
   sessionCreateSchema,
+  sessionCloseSchema,
   sessionPatchSchema,
   type SessionCreateInput,
+  type SessionCloseInput,
   type SessionPatchInput,
 } from '@agency-os/shared';
 

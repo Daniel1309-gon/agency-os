@@ -41,14 +41,21 @@
                   "LAUNCHING",
                   "ACTIVE",
                   "ERROR",
+                  "STALE",
                   "CLOSED"
                 ],
                 "type": "string"
+              },
+              "version": {
+                "exclusiveMinimum": true,
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
               "id",
               "status",
+              "version",
               "startedAt",
               "errorCode"
             ],
@@ -465,6 +472,11 @@
           "sessionId": {
             "format": "uuid",
             "type": "string"
+          },
+          "version": {
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -473,7 +485,22 @@
           "profileId",
           "sessionId",
           "chromeProfileDir",
-          "launchUrl"
+          "launchUrl",
+          "version"
+        ],
+        "type": "object"
+      },
+      "SessionCloseInput": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -520,10 +547,16 @@
               "CLOSED"
             ],
             "type": "string"
+          },
+          "version": {
+            "exclusiveMinimum": true,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
-          "status"
+          "status",
+          "version"
         ],
         "type": "object"
       },
@@ -1028,6 +1061,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCloseInput"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "description": ""

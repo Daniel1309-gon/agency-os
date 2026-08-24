@@ -17,6 +17,7 @@ describe('assigned profile response contract', () => {
       validTo: '2026-08-21T14:05:00-05:00',
       sessionId: null,
       sessionStatus: null,
+      sessionVersion: null,
       sessionStartedAt: null,
       sessionErrorCode: null,
     });

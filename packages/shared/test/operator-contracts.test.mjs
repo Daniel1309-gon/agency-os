@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   assignedProfileSchema,
   metricBatchSchema,
+  prepareSessionMessageSchema,
+  sessionCloseSchema,
   sessionCreateSchema,
   sessionPatchSchema,
 } from '../dist/index.js';
@@ -20,6 +22,23 @@ test('operator session contracts accept the supported payloads', () => {
   assert.equal(sessionPatchSchema.safeParse({
     status: 'ERROR',
     errorCode: 'LOGIN_REJECTED',
+    version: 1,
+  }).success, true);
+  assert.equal(sessionPatchSchema.safeParse({
+    status: 'ERROR',
+    errorCode: 'LOGIN_REJECTED',
+  }).success, false);
+  assert.equal(sessionCloseSchema.safeParse({ version: 1 }).success, true);
+  assert.equal(sessionCloseSchema.safeParse({}).success, false);
+
+  assert.equal(prepareSessionMessageSchema.safeParse({
+    action: 'prepareSession',
+    accessToken: 'access-token',
+    profileId,
+    sessionId,
+    chromeProfileDir: 'Profile 7',
+    launchUrl: 'https://talkytimes.com/auth/login',
+    version: 1,
   }).success, true);
 });
 
@@ -53,7 +72,8 @@ test('operator response contracts reject secrets and administrative compensation
     validTo: '2026-08-21T14:05:00-05:00',
     session: {
       id: sessionId,
-      status: 'ACTIVE',
+      status: 'STALE',
+      version: 2,
       startedAt: '2026-08-21T06:06:00-05:00',
       errorCode: null,
     },

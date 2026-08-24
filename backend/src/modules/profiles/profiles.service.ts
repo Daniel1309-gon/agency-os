@@ -15,6 +15,7 @@ interface AssignedProfileRow {
   profileUsername: string;
   sessionErrorCode: string | null;
   sessionId: string | null;
+  sessionVersion: number | null;
   sessionStartedAt: Date | string | null;
   sessionStatus: string | null;
   shiftId: string | null;
@@ -41,6 +42,7 @@ export function mapAssignedProfile(row: AssignedProfileRow): AssignedProfile {
     session: row.sessionId ? {
       id: row.sessionId,
       status: row.sessionStatus,
+      version: row.sessionVersion,
       startedAt: row.sessionStartedAt ? isoTimestamp(row.sessionStartedAt) : null,
       errorCode: row.sessionErrorCode,
     } : null,
@@ -126,6 +128,23 @@ export class ProfilesService {
   }
 
   async assignedTo(operatorId: string) {
+    const latestSession = this.db.db
+      .selectDistinctOn([profileSessions.assignmentId], {
+        assignmentId: profileSessions.assignmentId,
+        sessionId: profileSessions.id,
+        sessionStatus: profileSessions.status,
+        sessionVersion: profileSessions.version,
+        sessionStartedAt: profileSessions.startedAt,
+        sessionErrorCode: profileSessions.errorCode,
+      })
+      .from(profileSessions)
+      .where(and(
+        eq(profileSessions.operatorId, operatorId),
+        sql`${profileSessions.status} IN ('LAUNCHING', 'ACTIVE', 'ERROR', 'STALE')`,
+      ))
+      .orderBy(asc(profileSessions.assignmentId), desc(profileSessions.startedAt), desc(profileSessions.id))
+      .as('latest_session');
+
     const rows = await this.db.db
       .select({
         assignmentId: profileAssignments.id,
@@ -137,18 +156,15 @@ export class ProfilesService {
         shiftId: profileAssignments.shiftId,
         validFrom: sql<string>`lower(${profileAssignments.validRange})`,
         validTo: sql<string>`upper(${profileAssignments.validRange})`,
-        sessionId: profileSessions.id,
-        sessionStatus: profileSessions.status,
-        sessionStartedAt: profileSessions.startedAt,
-        sessionErrorCode: profileSessions.errorCode,
+        sessionId: latestSession.sessionId,
+        sessionStatus: latestSession.sessionStatus,
+        sessionVersion: latestSession.sessionVersion,
+        sessionStartedAt: latestSession.sessionStartedAt,
+        sessionErrorCode: latestSession.sessionErrorCode,
       })
       .from(profileAssignments)
       .innerJoin(ttProfiles, eq(ttProfiles.id, profileAssignments.profileId))
-      .leftJoin(profileSessions, and(
-        eq(profileSessions.profileId, profileAssignments.profileId),
-        eq(profileSessions.operatorId, operatorId),
-        sql`${profileSessions.status} IN ('LAUNCHING', 'ACTIVE', 'ERROR')`,
-      ))
+      .leftJoin(latestSession, eq(latestSession.assignmentId, profileAssignments.id))
       .where(and(
         eq(profileAssignments.operatorId, operatorId),
         eq(profileAssignments.status, 'ACTIVE'),

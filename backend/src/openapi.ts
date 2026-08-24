@@ -13,6 +13,7 @@ import {
   operationalMetricsSchema,
   paginationSchema,
   prepareSessionMessageSchema,
+  sessionCloseSchema,
   sessionCreateSchema,
   sessionPatchSchema,
   userSummarySchema,
@@ -91,6 +92,7 @@ function attachSharedSchemas(document: OpenAPIObject): void {
   registry.register('Pagination', paginationSchema);
   registry.register('PrepareSessionMessage', prepareSessionMessageSchema);
   registry.register('SessionCreateInput', sessionCreateSchema);
+  registry.register('SessionCloseInput', sessionCloseSchema);
   registry.register('SessionPatchInput', sessionPatchSchema);
   registry.register('UserSummary', userSummarySchema);
 
@@ -109,6 +111,7 @@ function attachSharedSchemas(document: OpenAPIObject): void {
   setRequestSchema(document, '/api/v1/agent/sessions/prepare', 'post', 'SessionCreateInput');
   setRequestSchema(document, '/api/v1/agent/sessions', 'post', 'SessionCreateInput');
   setRequestSchema(document, '/api/v1/agent/sessions/{id}', 'patch', 'SessionPatchInput');
+  setRequestSchema(document, '/api/v1/agent/sessions/{id}/close', 'post', 'SessionCloseInput');
   setResponseSchema(document, '/api/v1/agent/profiles/assigned', 'get', 'AssignedProfileList');
   setResponseSchema(document, '/api/v1/metrics/operations', 'get', 'OperationalMetrics');
   setResponseSchema(document, '/api/v1/cafeteria/menu', 'get', 'CafeteriaProductList');

@@ -347,7 +347,8 @@ No identifica al operador ni limita qué persona puede sentarse en cada PC; ese 
 | `profile_id` / `operator_id` / `assignment_id` | uuid FK | |
 | `device_id` | uuid NULL FK devices | Nace NULL desde web; la primera estación aprobada que solicita el grant la reclama atómicamente |
 | `chrome_profile_dir` | text | Con qué `--profile-directory` se lanzó |
-| `status` | enum | `LAUNCHING`, `ACTIVE`, `ERROR`, `CLOSED` |
+| `status` | enum | `LAUNCHING`, `ACTIVE`, `ERROR`, `STALE`, `CLOSED`; `STALE` es terminal para PATCH y representa heartbeat vencido |
+| `version` | int | Empieza en 1, `CHECK > 0`; CAS obligatorio en PATCH/cierre y se incrementa en cada mutación |
 | `started_at` / `last_heartbeat_at` / `ended_at` | timestamptz | |
 | `end_reason` | enum NULL | `OPERATOR_CLOSED`, `SHIFT_ENDED`, `HEARTBEAT_TIMEOUT`, `ERROR` |
 | `error_code` / `error_detail` | text NULL | Mensajes accionables (NFR de usabilidad) |
@@ -878,6 +879,14 @@ alguien no cerró una ventana.
 > mirarlo antes de implementar el job — sin portar código, solo la regla operativa que allá
 > funcionó.
 
+**Implementación de sesiones: CAS explícito y `STALE`.** Cada PATCH/heartbeat lleva el
+`version` que observó el cliente; PostgreSQL exige que coincidan sesión, operador, dispositivo,
+estado y versión en el mismo `UPDATE`, que incrementa la versión mediante `RETURNING`. El reaper
+marca `ACTIVE` como `STALE` al vencer el heartbeat y también incrementa versión; `STALE` no se
+puede reabrir por PATCH. El cierre es una ruta separada con body `{ version }`, porque debe poder
+retirar una sesión stale sin aceptar una reapertura disfrazada. Handoff, fin de assignment y
+reaper incrementan la misma versión dentro de sus mutaciones transaccionales.
+
 **3. La atribución usa `occurred_at`, nunca `received_at`.** Un evento capturado a las 14:05 pero
 cuya marca en la página es 13:58 pertenece al operador saliente. La consulta que convierte
 `metric_events` en filas de `points_ledger` resuelve el operador buscando la asignación cuyo
@@ -1127,7 +1136,7 @@ El detalle del flujo y sus controles está en §6.3.
 | POST | `/agent/sessions/prepare` | Web crea una sesión `LAUNCHING` sin elegir PC; requiere JWT, turno, asignación e IP permitida |
 | POST | `/agent/sessions` | Abre `profile_sessions`. 409 si el perfil ya tiene sesión viva |
 | PATCH | `/agent/sessions/:id` | Cambio de estado / heartbeat |
-| POST | `/agent/sessions/:id/close` | Cierre limpio (FR-15) |
+| POST | `/agent/sessions/:id/close` | Cierre limpio con `{ version }`; también retira una sesión `STALE` mediante CAS (FR-15) |
 | GET / POST / DELETE | `/devices`, `/devices/:id/revoke` | `devices.manage` |
 
 ### 5.7 Turnos (FR-15 a FR-17)

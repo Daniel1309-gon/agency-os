@@ -5,7 +5,7 @@ import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { ProfilesService } from '../profiles/profiles.service.js';
 import { AssignmentsService } from './assignments.service.js';
-import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCreateSchema, sessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCreateInput, type SessionPatchInput } from './assignments.schemas.js';
+import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCloseSchema, sessionCreateSchema, sessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCloseInput, type SessionCreateInput, type SessionPatchInput } from './assignments.schemas.js';
 
 @Controller('assignments')
 export class AssignmentsController {
@@ -54,5 +54,6 @@ export class AgentSessionsController {
 
   @Post('sessions/:id/close')
   @RequireDevice()
-  close(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, user.sub, token); }
+  @UsePipes(new ZodValidationPipe(sessionCloseSchema))
+  close(@Param('id') id: string, @Body() body: SessionCloseInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, body.version, user.sub, token); }
 }
