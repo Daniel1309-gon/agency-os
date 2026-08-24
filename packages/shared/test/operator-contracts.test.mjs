@@ -19,6 +19,11 @@ test('operator session contracts accept the supported payloads', () => {
     assignmentId,
     chromeProfileDir: 'Profile 7',
   }).success, true);
+  assert.equal(sessionCreateSchema.safeParse({
+    profileId,
+    assignmentId,
+    chromeProfileDir: 'Profile 1000',
+  }).success, false);
   assert.equal(sessionPatchSchema.safeParse({
     status: 'ERROR',
     errorCode: 'LOGIN_REJECTED',

@@ -11,6 +11,7 @@ const SESSION = '55555555-5555-5555-5555-555555555555';
 
 function harness() {
   const db = createFakeDatabase();
+  db.stub('tt_profiles').select([{ id: PROFILE, chromeProfileDir: 'Profile 1' }]);
   db.stub('profile_assignments').findFirst({ id: ASSIGNMENT, profileId: PROFILE, operatorId: OPERATOR, status: 'ACTIVE' });
   db.stub('profile_sessions').returning([{ id: SESSION, status: 'LAUNCHING', startedAt: null }]);
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;

@@ -75,6 +75,44 @@ describe('AssignmentsService.create', () => {
     expect(row).toMatchObject({ profileId: profile.id, operatorId: operator.id });
   });
 
+  it('rejects a session whose Chrome directory does not match the configured TalkyTimes profile binding', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx, { chromeProfileDir: 'Profile 7' });
+    const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
+
+    await expect(
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id),
+    ).rejects.toThrow(ConflictException);
+
+    await expect(
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id),
+    ).resolves.toMatchObject({ status: 'LAUNCHING' });
+  });
+
+  it('fails closed when a profile has no Chrome directory binding', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx, { chromeProfileDir: null });
+    const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
+
+    await expect(
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('does not allow changing a Chrome binding while the profile has a live session', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx, { chromeProfileDir: 'Profile 7' });
+    const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
+    await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id);
+
+    await expect(
+      profiles.update(profile.id, { chromeProfileDir: 'Profile 8', version: 0 }, { sub: admin.id, role: 'ADMIN' }),
+    ).rejects.toThrow(ConflictException);
+  });
+
   it('turns the exclusion constraint into a 409, not a 500', async () => {
     // Criterio de entrega de PLAN.md §9: dos operadores sobre el mismo perfil.
     const admin = await createUser(ctx, { role: 'ADMIN' });
@@ -327,7 +365,7 @@ describe('AssignmentsService sessions', () => {
     const sharedStation = await createDevice(ctx, { operatorId: previousUser.id });
 
     await expect(
-      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 2' }, s.operatorId, sharedStation.token),
+      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, s.operatorId, sharedStation.token),
     ).resolves.toMatchObject({ status: 'LAUNCHING' });
   });
 
@@ -337,7 +375,7 @@ describe('AssignmentsService sessions', () => {
     const otherDevice = await createDevice(ctx, { operatorId: other.id });
 
     await expect(
-      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'P' }, other.id, otherDevice.token),
+      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, other.id, otherDevice.token),
     ).rejects.toThrow(ForbiddenException);
   });
 

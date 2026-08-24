@@ -55,6 +55,11 @@ export interface VaultRepository {
   currentCredentialMetadata(profileId: string): Promise<VaultCredentialMetadata | undefined>;
   findApprovedDevice(tokenHash: string, deviceId?: string): Promise<VaultDevice | undefined>;
   activeProfileExists(profileId: string): Promise<boolean>;
+  sessionChromeBindingMatches(input: {
+    sessionId: string;
+    profileId: string;
+    operatorId: string;
+  }): Promise<boolean>;
   findLaunchingSession(input: {
     sessionId: string;
     profileId: string;

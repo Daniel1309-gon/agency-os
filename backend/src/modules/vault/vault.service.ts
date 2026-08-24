@@ -80,6 +80,10 @@ export class VaultService {
       await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
       throw new ForbiddenException('No active assignment for this profile');
     }
+    if (!(await this.repository.sessionChromeBindingMatches({ sessionId: input.sessionId, profileId: input.profileId, operatorId: context.userId }))) {
+      await this.deny(input.profileId, context, 'CHROME_PROFILE_MISMATCH');
+      throw new ForbiddenException('Session Chrome profile does not match the profile binding');
+    }
     if (session.deviceId && session.deviceId !== device.id) {
       await this.deny(input.profileId, context, 'SESSION_DEVICE_MISMATCH');
       throw new ForbiddenException('Session was claimed by another station');

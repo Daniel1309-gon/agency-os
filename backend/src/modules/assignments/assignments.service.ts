@@ -181,6 +181,14 @@ export class AssignmentsService {
   private async createSession(input: SessionCreateInput, userId: string, deviceId?: string) {
     const assignment = await this.db.db.query.profileAssignments.findFirst({ where: and(eq(profileAssignments.id, input.assignmentId), eq(profileAssignments.profileId, input.profileId), eq(profileAssignments.operatorId, userId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`) });
     if (!assignment) throw new ForbiddenException('No active assignment for this profile');
+
+    const [profile] = await this.db.db
+      .select({ id: ttProfiles.id, chromeProfileDir: ttProfiles.chromeProfileDir })
+      .from(ttProfiles)
+      .where(and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)))
+      .limit(1);
+    if (!profile?.chromeProfileDir) throw new ConflictException('Profile has no Chrome profile binding');
+    if (profile.chromeProfileDir !== input.chromeProfileDir) throw new ConflictException('Chrome profile binding does not match profile configuration');
     try {
       const [row] = await this.db.db.insert(profileSessions).values({ profileId: input.profileId, operatorId: userId, ...(deviceId ? { deviceId } : {}), assignmentId: input.assignmentId, chromeProfileDir: input.chromeProfileDir, status: 'LAUNCHING' }).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, startedAt: profileSessions.startedAt });
       await this.audit.record({ actorType: deviceId ? 'DEVICE' : 'USER', actorUserId: userId, actorDeviceId: deviceId, action: 'session.opened', entityType: 'session', entityId: row.id, result: 'SUCCESS', metadata: { profileId: input.profileId, assignmentId: input.assignmentId, ...(deviceId ? { deviceId } : {}) } });

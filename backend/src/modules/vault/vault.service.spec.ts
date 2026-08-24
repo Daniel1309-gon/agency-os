@@ -75,8 +75,8 @@ function harness(): Harness {
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */
 function happyPath(db: FakeDatabase): void {
   db.stub('devices').findFirst({ id: DEVICE, tokenHash: hashToken(DEVICE_TOKEN), status: 'APPROVED', assignedOperatorId: OPERATOR });
-  db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null });
-  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT });
+  db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null, chromeProfileDir: 'Profile 3' });
+  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT, chromeProfileDir: 'Profile 3' });
   db.stub('profile_assignments').select([{ id: ASSIGNMENT }]);
 }
 
@@ -136,7 +136,7 @@ describe('VaultService.grant', () => {
   it('claims an unbound web-prepared session for the station requesting the grant', async () => {
     happyPath(h.db);
     h.db.stub('profile_sessions')
-      .findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: null, status: 'LAUNCHING', assignmentId: ASSIGNMENT })
+      .findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: null, status: 'LAUNCHING', assignmentId: ASSIGNMENT, chromeProfileDir: 'Profile 3' })
       .returning([{ id: SESSION, deviceId: DEVICE }]);
 
     await h.service.grant(grantInput, context);

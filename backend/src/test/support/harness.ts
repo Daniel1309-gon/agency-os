@@ -178,7 +178,7 @@ export async function createUser(
 
 export async function createProfile(
   context: TestContext,
-  options: { status?: string; displayName?: string } = {},
+  options: { status?: string; displayName?: string; chromeProfileDir?: string | null } = {},
 ): Promise<{ id: string }> {
   const suffix = randomToken(6);
   const [row] = await context.db
@@ -187,6 +187,7 @@ export async function createProfile(
       displayName: options.displayName ?? `Profile ${suffix}`,
       loginEmail: `profile-${suffix}@talky.test`,
       status: options.status ?? 'ACTIVE',
+      chromeProfileDir: options.chromeProfileDir === undefined ? 'Profile 1' : options.chromeProfileDir,
     })
     .returning({ id: ttProfiles.id });
   return row;

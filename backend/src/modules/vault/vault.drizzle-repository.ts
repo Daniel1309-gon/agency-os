@@ -99,6 +99,28 @@ export class DrizzleVaultRepository implements VaultRepository {
     return Boolean(profile);
   }
 
+  async sessionChromeBindingMatches(input: {
+    sessionId: string;
+    profileId: string;
+    operatorId: string;
+  }): Promise<boolean> {
+    const [session, profile] = await Promise.all([
+      this.database.db.query.profileSessions.findFirst({
+        where: and(
+          eq(profileSessions.id, input.sessionId),
+          eq(profileSessions.profileId, input.profileId),
+          eq(profileSessions.operatorId, input.operatorId),
+        ),
+        columns: { chromeProfileDir: true },
+      }),
+      this.database.db.query.ttProfiles.findFirst({
+        where: and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)),
+        columns: { chromeProfileDir: true },
+      }),
+    ]);
+    return Boolean(profile?.chromeProfileDir && session?.chromeProfileDir === profile.chromeProfileDir);
+  }
+
   async findLaunchingSession(input: {
     sessionId: string;
     profileId: string;
@@ -152,6 +174,13 @@ export class DrizzleVaultRepository implements VaultRepository {
         eq(profileSessions.operatorId, input.operatorId),
         eq(profileSessions.status, 'LAUNCHING'),
         isNull(profileSessions.deviceId),
+        sql`exists (
+          select 1 from tt_profiles profile
+          where profile.id = ${profileSessions.profileId}
+            and profile.status = 'ACTIVE'
+            and profile.deleted_at is null
+            and profile.chrome_profile_dir = ${profileSessions.chromeProfileDir}
+        )`,
       ))
       .returning({ id: profileSessions.id });
     return Boolean(claimed);

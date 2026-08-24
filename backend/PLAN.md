@@ -248,7 +248,7 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_no_secret_keys CHECK (
 | `external_ref` | text NULL | Id de TalkyTimes si se llega a conocer |
 | `country` | char(2) NULL | ISO-3166 |
 | `status` | enum | `ACTIVE`, `PAUSED`, `BANNED`, `RETIRED` |
-| `chrome_profile_dir` | text NULL | Mapeo perfil → carpeta de Chrome (agents.md §5.1) |
+| `chrome_profile_dir` | text NULL | Binding autoritativo perfil → carpeta lógica de Chrome; `Default` o `Profile N` |
 | `notes` | text NULL | |
 | `version` | int | Optimistic locking |
 | `created_at` / `updated_at` / `created_by` / `updated_by` / `deleted_at` | | |
@@ -352,6 +352,12 @@ No identifica al operador ni limita qué persona puede sentarse en cada PC; ese 
 | `started_at` / `last_heartbeat_at` / `ended_at` | timestamptz | |
 | `end_reason` | enum NULL | `OPERATOR_CLOSED`, `SHIFT_ENDED`, `HEARTBEAT_TIMEOUT`, `ERROR` |
 | `error_code` / `error_detail` | text NULL | Mensajes accionables (NFR de usabilidad) |
+
+El binding de `chrome_profile_dir` se valida antes de crear la sesión contra `tt_profiles`; no se
+acepta una sesión para un perfil sin binding ni para una carpeta distinta. El vault repite la
+comprobación antes de emitir el grant y la reclamación atómica de `device_id` incluye la misma
+condición. El CRUD de perfil no permite cambiar la carpeta mientras exista una sesión viva. La
+asociación física por estación y la prueba de cookies aisladas siguen siendo un gate E2E de FR-12.
 
 > FR-10 expone `inactivo | conectando | activo | error`. Se mapea desde `status` + ausencia de
 > sesión, no se guarda un cuarto estado redundante.

@@ -61,7 +61,7 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
   const admin = await createUser(ctx, { role: 'ADMIN' });
   const operator = await createUser(ctx);
   const other = await createUser(ctx);
-  const profile = await createProfile(ctx, { status: options.profileStatus });
+  const profile = await createProfile(ctx, { status: options.profileStatus, chromeProfileDir: 'Profile 3' });
   const device = await createDevice(ctx, { operatorId: operator.id });
 
   const [assignment] = await ctx.db
@@ -268,6 +268,15 @@ describe('grant denials are recorded with their reason', () => {
       .from(profileSessions)
       .where(eq(profileSessions.id, s.sessionId));
     expect(claimed.deviceId).toBe(sharedStation.id);
+  });
+
+  it('rejects a session whose stored Chrome directory no longer matches the profile binding', async () => {
+    const s = await scenario();
+    await ctx.db.update(profileSessions).set({ chromeProfileDir: 'Profile 4' }).where(eq(profileSessions.id, s.sessionId));
+
+    await expect(vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s))).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 
   it('rejects a second station after the prepared session has been claimed', async () => {

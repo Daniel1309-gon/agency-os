@@ -5,7 +5,7 @@ const mutableSessionStatusSchema = z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'CLOS
 export const sessionCreateSchema = z.object({
   profileId: z.string().uuid(),
   assignmentId: z.string().uuid(),
-  chromeProfileDir: z.string().trim().min(1).max(160),
+  chromeProfileDir: z.string().trim().regex(/^(Default|Profile \d{1,3})$/, 'Invalid Chrome profile directory'),
 }).strict();
 
 export const sessionPatchSchema = z.object({

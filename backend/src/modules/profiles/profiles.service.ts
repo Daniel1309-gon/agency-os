@@ -114,6 +114,17 @@ export class ProfilesService {
 
   async update(id: string, input: ProfileUpdateInput, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
     const { version, ...changes } = input;
+    if (Object.prototype.hasOwnProperty.call(changes, 'chromeProfileDir')) {
+      const [liveSession] = await this.db.db
+        .select({ id: profileSessions.id })
+        .from(profileSessions)
+        .where(and(
+          eq(profileSessions.profileId, id),
+          sql`${profileSessions.status} IN ('LAUNCHING', 'ACTIVE', 'ERROR', 'STALE')`,
+        ))
+        .limit(1);
+      if (liveSession) throw new ConflictException('Cannot change Chrome profile binding while a session is live');
+    }
     const [row] = await this.db.db.update(ttProfiles).set({ ...changes, updatedBy: actor.sub, updatedAt: new Date(), version: version + 1 }).where(and(eq(ttProfiles.id, id), eq(ttProfiles.version, version), this.profileScope(actor))).returning({ id: ttProfiles.id, version: ttProfiles.version });
     if (!row) throw new ConflictException('Profile was modified by another request');
     await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'profile.updated', entityType: 'profile', entityId: row.id, result: 'SUCCESS', metadata: { profileId: row.id, version: row.version } });
