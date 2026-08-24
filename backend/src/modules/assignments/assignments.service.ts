@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { hashToken } from '../../common/auth/crypto.js';
@@ -57,13 +57,31 @@ export class AssignmentsService {
   }
 
   async end(id: string, actorId: string) {
-    const [assignment] = await this.db.db.select({ operatorId: profileAssignments.operatorId }).from(profileAssignments).where(and(eq(profileAssignments.id, id), eq(profileAssignments.status, 'ACTIVE'))).limit(1);
-    if (!assignment) throw new NotFoundException('Assignment not found');
-    await this.assertActorCanManageOperator(actorId, assignment.operatorId);
-    const [row] = await this.db.db.update(profileAssignments).set({ status: 'ENDED', endedAt: new Date(), endReason: 'NORMAL' }).where(and(eq(profileAssignments.id, id), eq(profileAssignments.status, 'ACTIVE'))).returning({ id: profileAssignments.id });
-    if (!row) throw new NotFoundException('Assignment not found');
-    await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'assignment.ended', entityType: 'assignment', entityId: row.id, result: 'SUCCESS' });
-    return row;
+    const endedAt = new Date();
+    const result = await this.db.transaction(async () => {
+      const [assignment] = await this.db.db.select({ operatorId: profileAssignments.operatorId }).from(profileAssignments).where(and(eq(profileAssignments.id, id), eq(profileAssignments.status, 'ACTIVE'))).limit(1);
+      if (!assignment) throw new NotFoundException('Assignment not found');
+      await this.assertActorCanManageOperator(actorId, assignment.operatorId);
+      const [row] = await this.db.db.update(profileAssignments).set({ status: 'ENDED', endedAt, endReason: 'NORMAL' }).where(and(eq(profileAssignments.id, id), eq(profileAssignments.status, 'ACTIVE'))).returning({ id: profileAssignments.id });
+      if (!row) throw new NotFoundException('Assignment not found');
+
+      const closedSessions = await this.db.db
+        .update(profileSessions)
+        .set({ status: 'CLOSED', endedAt, endReason: 'ASSIGNMENT_ENDED' })
+        .where(and(
+          eq(profileSessions.assignmentId, id),
+          inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE', 'ERROR']),
+        ))
+        .returning({ id: profileSessions.id });
+
+      await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'assignment.ended', entityType: 'assignment', entityId: row.id, result: 'SUCCESS' });
+      for (const session of closedSessions) {
+        await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'session.closed', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { assignmentId: id, reason: 'ASSIGNMENT_ENDED' } });
+      }
+      return { row, operatorId: assignment.operatorId };
+    });
+    await this.realtime.publishOperatorChanged(result.operatorId);
+    return result.row;
   }
 
   async history(query: AssignmentHistoryQuery, actorId: string) {

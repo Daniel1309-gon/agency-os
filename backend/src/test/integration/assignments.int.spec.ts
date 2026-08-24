@@ -261,6 +261,26 @@ describe('AssignmentsService sessions', () => {
     expect(closed.endedAt).toBeInstanceOf(Date);
   });
 
+  it('closes the live session immediately when its assignment ends', async () => {
+    const s = await ready();
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+
+    await assignments.end(s.assignmentId, admin.id);
+
+    const [closed] = await ctx.db
+      .select({ status: profileSessions.status, endReason: profileSessions.endReason, endedAt: profileSessions.endedAt })
+      .from(profileSessions)
+      .where(eq(profileSessions.id, session.id));
+    expect(closed).toMatchObject({ status: 'CLOSED', endReason: 'ASSIGNMENT_ENDED' });
+    expect(closed.endedAt).toBeInstanceOf(Date);
+  });
+
   it('allows the operator to open a session from any approved office station', async () => {
     const s = await ready();
     const previousUser = await createUser(ctx);
