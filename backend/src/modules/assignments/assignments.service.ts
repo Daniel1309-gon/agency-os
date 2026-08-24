@@ -32,7 +32,6 @@ export class AssignmentsService {
     if (!profile) throw new NotFoundException('Profile not found');
     if (!operator || operator.status !== 'ACTIVE') throw new NotFoundException('Operator not found');
     if (operator.roleCode !== 'OPERADOR') throw new ConflictException('Assignments can only target an OPERADOR');
-    await this.assertActorCanManageOperator(assignedBy, input.operatorId);
     const validRange = range(input.validFrom, input.validTo);
     if (input.shiftId) {
       const [matchingShift] = await this.db.db
@@ -47,9 +46,51 @@ export class AssignmentsService {
       if (!matchingShift) throw new ConflictException('Assignment must be contained in a shift for the same operator');
     }
     try {
-      const [row] = await this.db.db.insert(profileAssignments).values({ profileId: input.profileId, operatorId: input.operatorId, shiftId: input.shiftId, validRange, status: 'ACTIVE', assignedBy }).returning({ id: profileAssignments.id, profileId: profileAssignments.profileId, operatorId: profileAssignments.operatorId, validRange: profileAssignments.validRange });
-      await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'assignment.created', entityType: 'assignment', entityId: row.id, result: 'SUCCESS', metadata: { profileId: input.profileId, operatorId: input.operatorId, shiftId: input.shiftId } });
-      return row;
+      const result = await this.db.transaction(async () => {
+        await this.assertActorCanManageOperator(assignedBy, input.operatorId);
+        const [row] = await this.db.db.insert(profileAssignments).values({ profileId: input.profileId, operatorId: input.operatorId, shiftId: input.shiftId, validRange, status: 'ACTIVE', assignedBy }).returning({ id: profileAssignments.id, profileId: profileAssignments.profileId, operatorId: profileAssignments.operatorId, validRange: profileAssignments.validRange });
+        const [previous] = await this.db.db
+          .select({ id: profileAssignments.id, operatorId: profileAssignments.operatorId })
+          .from(profileAssignments)
+          .where(and(
+            eq(profileAssignments.profileId, input.profileId),
+            eq(profileAssignments.status, 'ACTIVE'),
+            sql`${profileAssignments.operatorId} <> ${input.operatorId}`,
+            sql`upper(${profileAssignments.validRange}) = lower(${validRange}::tstzrange)`,
+          ))
+          .limit(1);
+
+        let previousOperatorId: string | undefined;
+        if (previous) {
+          await this.assertActorCanManageOperator(assignedBy, previous.operatorId);
+          const handoffAt = new Date(input.validFrom);
+          const [ended] = await this.db.db
+            .update(profileAssignments)
+            .set({ status: 'ENDED', endedAt: handoffAt, endReason: 'HANDOFF' })
+            .where(and(eq(profileAssignments.id, previous.id), eq(profileAssignments.status, 'ACTIVE')))
+            .returning({ id: profileAssignments.id });
+          if (!ended) throw new ConflictException('Previous assignment changed during handoff');
+
+          const closedSessions = await this.db.db
+            .update(profileSessions)
+            .set({ status: 'CLOSED', endedAt: handoffAt, endReason: 'SHIFT_ENDED' })
+            .where(and(
+              eq(profileSessions.assignmentId, previous.id),
+              inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE', 'ERROR']),
+            ))
+            .returning({ id: profileSessions.id });
+          await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'assignment.ended', entityType: 'assignment', entityId: previous.id, result: 'SUCCESS', metadata: { reason: 'HANDOFF', operatorId: previous.operatorId } });
+          for (const session of closedSessions) {
+            await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'session.closed', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { assignmentId: previous.id, reason: 'SHIFT_ENDED' } });
+          }
+          previousOperatorId = previous.operatorId;
+        }
+
+        await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'assignment.created', entityType: 'assignment', entityId: row.id, result: 'SUCCESS', metadata: { profileId: input.profileId, operatorId: input.operatorId, shiftId: input.shiftId } });
+        return { row, previousOperatorId };
+      });
+      if (result.previousOperatorId) await this.realtime.publishOperatorChanged(result.previousOperatorId);
+      return result.row;
     } catch (error) {
       if (isPgError(error, PG_EXCLUSION_VIOLATION)) throw new ConflictException('Profile is already assigned in this window');
       throw error;

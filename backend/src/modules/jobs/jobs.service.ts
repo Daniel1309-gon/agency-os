@@ -45,7 +45,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const assignmentClosed = await this.db.db
       .update(profileSessions)
       .set({ status: 'CLOSED', endedAt: now, endReason: 'ASSIGNMENT_ENDED' })
-      .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE')), assignmentEnded))
+      .where(and(or(eq(profileSessions.status, 'LAUNCHING'), eq(profileSessions.status, 'ACTIVE'), eq(profileSessions.status, 'ERROR')), assignmentEnded))
       .returning({ operatorId: profileSessions.operatorId });
 
     // LAUNCHING has its own deadline. Otherwise a failed extension handshake

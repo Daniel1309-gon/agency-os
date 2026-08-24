@@ -103,6 +103,45 @@ describe('AssignmentsService.create', () => {
     ).resolves.toBeDefined();
   });
 
+  it('closes the previous assignment and session at an exact contiguous handoff', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const morning = await createUser(ctx);
+    const afternoon = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const device = await createDevice(ctx, { operatorId: morning.id });
+    const boundary = isoOffset(60);
+    const first = await assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: isoOffset(-60), validTo: boundary }, admin.id);
+    const session = await assignments.openSession({ profileId: profile.id, assignmentId: first.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
+    await assignments.updateSession(session.id, { status: 'ACTIVE' }, morning.id, device.token);
+
+    const second = await assignments.create({ profileId: profile.id, operatorId: afternoon.id, validFrom: boundary, validTo: isoOffset(180) }, admin.id);
+
+    const [previous] = await ctx.db.select({ status: profileAssignments.status, endReason: profileAssignments.endReason, endedAt: profileAssignments.endedAt }).from(profileAssignments).where(eq(profileAssignments.id, first.id));
+    const [closedSession] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason, endedAt: profileSessions.endedAt }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(second).toMatchObject({ operatorId: afternoon.id });
+    expect(previous).toMatchObject({ status: 'ENDED', endReason: 'HANDOFF', endedAt: new Date(boundary) });
+    expect(closedSession).toMatchObject({ status: 'CLOSED', endReason: 'SHIFT_ENDED', endedAt: new Date(boundary) });
+  });
+
+  it('does not let a coordinator hand off an operator outside their crew scope', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const incoming = await createUser(ctx);
+    const outgoing = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Incoming crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: incoming.id, validRange: halfOpen(isoOffset(-60), isoOffset(180)) });
+    const boundary = isoOffset(60);
+    const first = await assignments.create({ profileId: profile.id, operatorId: outgoing.id, validFrom: isoOffset(-60), validTo: boundary }, admin.id);
+
+    await expect(
+      assignments.create({ profileId: profile.id, operatorId: incoming.id, validFrom: boundary, validTo: isoOffset(180) }, coordinator.id),
+    ).rejects.toThrow(ForbiddenException);
+
+    const [previous] = await ctx.db.select({ status: profileAssignments.status }).from(profileAssignments).where(eq(profileAssignments.id, first.id));
+    expect(previous).toEqual({ status: 'ACTIVE' });
+  });
+
   it('rejects a window that ends before it starts', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
@@ -395,6 +434,22 @@ describe('AssignmentsService sessions', () => {
       s.deviceToken,
     );
     await assignments.updateSession(session.id, { status: 'ACTIVE' }, s.operatorId, s.deviceToken);
+    await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
+
+    await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
+
+    const [closed] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(closed).toEqual({ status: 'CLOSED', endReason: 'ASSIGNMENT_ENDED' });
+  });
+
+  it('closes an ERROR session when its assignment window expires', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    await assignments.updateSession(session.id, { status: 'ERROR', errorCode: 'LOGIN_FAILED' }, s.operatorId, s.deviceToken);
     await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
