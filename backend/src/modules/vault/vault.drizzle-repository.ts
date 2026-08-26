@@ -18,6 +18,7 @@ import type {
   VaultDevice,
   VaultEncryptedCredential,
   VaultLaunchingSession,
+  VaultPreparedHandoffSession,
   VaultRepository,
 } from './vault.repository.port.js';
 
@@ -136,6 +137,22 @@ export class DrizzleVaultRepository implements VaultRepository {
         eq(profileSessions.status, 'LAUNCHING'),
       ),
       columns: { assignmentId: true, deviceId: true },
+    });
+  }
+
+  async findPreparedHandoffSession(input: {
+    sessionId: string;
+    profileId: string;
+    notBefore: Date;
+  }): Promise<VaultPreparedHandoffSession | undefined> {
+    return this.database.db.query.profileSessions.findFirst({
+      where: and(
+        eq(profileSessions.id, input.sessionId),
+        eq(profileSessions.profileId, input.profileId),
+        eq(profileSessions.status, 'LAUNCHING'),
+        sql`${profileSessions.startedAt} >= ${input.notBefore}`,
+      ),
+      columns: { operatorId: true, version: true },
     });
   }
 

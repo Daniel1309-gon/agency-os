@@ -243,6 +243,24 @@ export class AssignmentsService {
     return row;
   }
 
+  async updateStationSession(id: string, input: SessionPatchInput, deviceToken: string) {
+    const device = await this.db.db.query.devices.findFirst({
+      where: and(
+        eq(devices.tokenHash, hashToken(deviceToken)),
+        eq(devices.status, 'APPROVED'),
+        sql`${devices.tokenExpiresAt} > now()`,
+      ),
+    });
+    if (!device) throw new ForbiddenException('Device is not approved');
+    const [session] = await this.db.db
+      .select({ operatorId: profileSessions.operatorId })
+      .from(profileSessions)
+      .where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, device.id)))
+      .limit(1);
+    if (!session) throw new NotFoundException('Session not found');
+    return this.updateSession(id, input, session.operatorId, deviceToken);
+  }
+
   async closeSession(id: string, version: number, userId: string, deviceToken: string) {
     const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.tokenHash, hashToken(deviceToken)), eq(devices.status, 'APPROVED'), sql`${devices.tokenExpiresAt} > now()`) });
     if (!device) throw new ForbiddenException('Device is not approved');

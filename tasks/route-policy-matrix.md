@@ -118,6 +118,8 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/shifts/{id}/end` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/shifts/{id}/start` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/shifts/me/current` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/station/credential-claims` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
+| `PATCH /api/v1/station/sessions/{id}` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/tableau/runs/{id}/execute` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |

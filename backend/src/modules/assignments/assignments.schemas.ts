@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sessionPatchSchema as sharedSessionPatchSchema } from '@agency-os/shared';
 export {
   sessionCreateSchema,
   sessionCloseSchema,
@@ -23,5 +24,11 @@ export const assignmentHistoryQuerySchema = z.object({
   profileId: z.string().uuid().optional(),
 });
 
+export const stationSessionPatchSchema = sharedSessionPatchSchema.refine(
+  (input) => input.status === 'ACTIVE' || input.status === 'ERROR',
+  { message: 'Station sessions can only become ACTIVE or ERROR', path: ['status'] },
+);
+
 export type AssignmentCreateInput = z.infer<typeof assignmentCreateSchema>;
 export type AssignmentHistoryQuery = z.infer<typeof assignmentHistoryQuerySchema>;
+export type StationSessionPatchInput = z.infer<typeof stationSessionPatchSchema>;

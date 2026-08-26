@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireRoles, RequireShift, StationAuthenticated } from '../../common/auth/decorators.js';
 import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { ProfilesService } from '../profiles/profiles.service.js';
 import { AssignmentsService } from './assignments.service.js';
-import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCloseSchema, sessionCreateSchema, sessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCloseInput, type SessionCreateInput, type SessionPatchInput } from './assignments.schemas.js';
+import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCloseSchema, sessionCreateSchema, sessionPatchSchema, stationSessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCloseInput, type SessionCreateInput, type SessionPatchInput, type StationSessionPatchInput } from './assignments.schemas.js';
 
 @Controller('assignments')
 export class AssignmentsController {
@@ -56,4 +56,21 @@ export class AgentSessionsController {
   @RequireDevice()
   @UsePipes(new ZodValidationPipe(sessionCloseSchema))
   close(@Param('id') id: string, @Body() body: SessionCloseInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, body.version, user.sub, token); }
+}
+
+@Controller('station/sessions')
+@RequireDevice()
+export class StationSessionsController {
+  constructor(private readonly assignments: AssignmentsService) {}
+
+  @Patch(':id')
+  @StationAuthenticated()
+  @UsePipes(new ZodValidationPipe(stationSessionPatchSchema))
+  update(
+    @Param('id') id: string,
+    @Body() body: StationSessionPatchInput,
+    @Headers('x-device-token') token: string,
+  ) {
+    return this.assignments.updateStationSession(id, body, token);
+  }
 }

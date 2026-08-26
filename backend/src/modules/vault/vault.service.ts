@@ -21,6 +21,11 @@ interface RequestContext {
   ip?: string;
 }
 
+interface StationContext {
+  deviceToken: string;
+  ip?: string;
+}
+
 @Injectable()
 export class VaultService {
   constructor(
@@ -150,6 +155,60 @@ export class VaultService {
     await this.repository.markGrantConsumed(input.grantId, new Date());
     await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: device.id, action: 'vault.credential.redeemed', entityType: 'profile', entityId: grant.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: grant.profileId, sessionId: grant.sessionId, deviceId: device.id, grantId: input.grantId } });
     return { username: credential.username, secret };
+  }
+
+  async handoff(
+    input: CredentialGrantInput,
+    context: StationContext,
+  ): Promise<{ username: string; secret: string; sessionVersion: number }> {
+    const device = await this.repository.findApprovedDevice(hashToken(context.deviceToken));
+    if (!device) throw new ForbiddenException('Device is not approved');
+
+    const prepared = await this.repository.findPreparedHandoffSession({
+      sessionId: input.sessionId,
+      profileId: input.profileId,
+      notBefore: new Date(Date.now() - 60_000),
+    });
+    if (!prepared) {
+      await this.audit.record({
+        actorType: 'DEVICE',
+        actorDeviceId: device.id,
+        action: 'vault.credential.handoff',
+        entityType: 'profile',
+        entityId: input.profileId,
+        result: 'DENIED',
+        ip: context.ip,
+        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: 'HANDOFF_EXPIRED' },
+      });
+      throw new ForbiddenException('Credential handoff is unavailable');
+    }
+
+    const lockKey = `vault:handoff:${input.sessionId}`;
+    const lockToken = await this.redis.acquireLock(lockKey, 60);
+    if (!lockToken) {
+      await this.audit.record({
+        actorType: 'DEVICE',
+        actorUserId: prepared.operatorId,
+        actorDeviceId: device.id,
+        action: 'vault.credential.handoff',
+        entityType: 'profile',
+        entityId: input.profileId,
+        result: 'DENIED',
+        ip: context.ip,
+        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: 'HANDOFF_REUSED' },
+      });
+      throw new ConflictException('Credential handoff expired or already consumed');
+    }
+
+    try {
+      const operatorContext = { ...context, userId: prepared.operatorId };
+      const grant = await this.grant(input, operatorContext);
+      const credential = await this.redeem({ grantId: grant.grantId }, operatorContext);
+      return { ...credential, sessionVersion: prepared.version };
+    } catch (error) {
+      await this.redis.releaseLock(lockKey, lockToken);
+      throw error;
+    }
   }
 
   private async deny(profileId: string, context: RequestContext, reason: string): Promise<void> {

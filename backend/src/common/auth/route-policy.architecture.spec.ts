@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { RequirePermissions, RequireRoles } from './decorators.js';
 
 const HTTP_DECORATORS = new Set(['All', 'Delete', 'Get', 'Head', 'Options', 'Patch', 'Post', 'Put', 'Sse']);
-const POLICY_DECORATORS = new Set(['Authenticated', 'Public', 'RequirePermissions', 'RequireRoles']);
+const POLICY_DECORATORS = new Set(['Authenticated', 'Public', 'RequirePermissions', 'RequireRoles', 'StationAuthenticated']);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const authDecoratorsPath = resolve(sourceRoot, 'common/auth/decorators.ts');
 const canaryPath = resolve(sourceRoot, 'modules/canary/canary.controller.ts');
@@ -305,6 +305,19 @@ describe('HTTP route policies', () => {
     `);
 
     expect(routePolicyViolations(source, 'canary.controller.ts')).toEqual([]);
+  });
+
+  it('accepts an explicit station policy', () => {
+    const source = canarySource(`
+      import { Controller, Post } from '@nestjs/common';
+      import { StationAuthenticated } from '../../common/auth/decorators.js';
+      @Controller('station')
+      class StationController {
+        @Post() @StationAuthenticated() claim() {}
+      }
+    `);
+
+    expect(routePolicyViolations(source, 'station.controller.ts')).toEqual([]);
   });
 
   it('requires every controller route to declare one valid explicit access policy', () => {

@@ -13,6 +13,7 @@ interface RouteAccess {
   permissions: string[];
   public: boolean;
   roles: string[];
+  station?: true;
 }
 
 export interface RouteContract {
@@ -25,7 +26,7 @@ export interface RouteContract {
 
 export interface EffectiveRoutePolicy extends RouteContract {
   access: RouteAccess;
-  actors: Array<SeedRoleCode | 'ANONYMOUS'>;
+  actors: Array<SeedRoleCode | 'ANONYMOUS' | 'STATION'>;
   device: boolean;
   shift: boolean;
 }
@@ -39,6 +40,7 @@ type ExtendedOperation = Record<string, unknown> & {
   'x-agency-public'?: boolean;
   'x-agency-roles'?: string[];
   'x-agency-shift'?: boolean;
+  'x-agency-station'?: boolean;
 };
 
 function route(
@@ -69,6 +71,8 @@ export const routeContracts = [
   route('GET', '/api/v1/profiles/{profileId}/credential/meta', 'RESOURCE'),
   route('POST', '/api/v1/agent/session/credential-grant', 'SELF'),
   route('POST', '/api/v1/agent/session/credential-redeem', 'SELF'),
+  route('POST', '/api/v1/station/credential-claims', 'SELF'),
+  route('PATCH', '/api/v1/station/sessions/{id}', 'SELF'),
 
   route('GET', '/api/v1/profiles', 'CREW', 'NOT_APPLICABLE', 'OFFSET'),
   route('POST', '/api/v1/profiles', 'CREW'),
@@ -211,8 +215,9 @@ function operations(document: OpenAPIObject): Array<{ key: string; operation: Ex
   return result;
 }
 
-function actorsFor(access: RouteAccess): Array<SeedRoleCode | 'ANONYMOUS'> {
+function actorsFor(access: RouteAccess): Array<SeedRoleCode | 'ANONYMOUS' | 'STATION'> {
   if (access.public) return ['ANONYMOUS'];
+  if (access.station) return ['STATION'];
   const allowedRoles = new Set(access.roles);
   return ROLE_ORDER.filter((role) => {
     if (allowedRoles.size && !allowedRoles.has(role)) return false;
@@ -225,9 +230,16 @@ function accessFor(operation: ExtendedOperation): RouteAccess | undefined {
   const isPublic = operation['x-agency-public'] === true;
   const roles = operation['x-agency-roles'] ?? [];
   const permissions = operation['x-agency-permissions'] ?? [];
+  const isStation = operation['x-agency-station'] === true;
   const isAuthenticated = operation['x-agency-authenticated'] === true || roles.length > 0 || permissions.length > 0;
-  if (!isPublic && !isAuthenticated) return undefined;
-  return { authenticated: !isPublic, public: isPublic, roles, permissions };
+  if (!isPublic && !isAuthenticated && !isStation) return undefined;
+  return {
+    authenticated: !isPublic && !isStation,
+    public: isPublic,
+    roles,
+    permissions,
+    ...(isStation ? { station: true as const } : {}),
+  };
 }
 
 function validateContract(contract: RouteContract): void {
@@ -257,6 +269,9 @@ export function assertRouteContractCoverage(
   for (const contract of contracts) validateContract(contract);
   for (const { key, operation } of documented) {
     if (!accessFor(operation)) problems.push(`missing access metadata: ${key}`);
+    if (operation['x-agency-station'] === true && operation['x-agency-device'] !== true) {
+      problems.push(`station route without device guard: ${key}`);
+    }
     if (operation['x-agency-policy'] && operation['x-agency-policy'].actors.length === 0) {
       problems.push(`no effective actors: ${key}`);
     }
@@ -278,6 +293,6 @@ export function applyRouteContracts(document: OpenAPIObject, contracts: readonly
       device: operation['x-agency-device'] === true,
       shift: operation['x-agency-shift'] === true,
     };
-    operation.security = access.public ? [] : [{ accessToken: [] }];
+    operation.security = access.public ? [] : access.station ? [{ deviceToken: [] }] : [{ accessToken: [] }];
   }
 }

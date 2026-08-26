@@ -9,8 +9,9 @@ export const REQUIRE_SHIFT_KEY = 'agency-os.require-shift';
 export const REQUIRED_PERMISSIONS_KEY = 'agency-os.permissions';
 export const REQUIRED_ROLES_KEY = 'agency-os.roles';
 export const ROUTE_POLICY_KEY = 'agency-os.route-policy';
+export const STATION_AUTH_KEY = 'agency-os.station-auth';
 
-export type RoutePolicy = 'authenticated' | 'permissions' | 'public' | 'roles';
+export type RoutePolicy = 'authenticated' | 'permissions' | 'public' | 'roles' | 'station';
 
 export const Authenticated = () => applyDecorators(
   SetMetadata(ROUTE_POLICY_KEY, 'authenticated' satisfies RoutePolicy),
@@ -20,6 +21,11 @@ export const Public = () => applyDecorators(
   SetMetadata(IS_PUBLIC_KEY, true),
   SetMetadata(ROUTE_POLICY_KEY, 'public' satisfies RoutePolicy),
   ApiExtension('x-agency-public', true),
+);
+export const StationAuthenticated = () => applyDecorators(
+  SetMetadata(STATION_AUTH_KEY, true),
+  SetMetadata(ROUTE_POLICY_KEY, 'station' satisfies RoutePolicy),
+  ApiExtension('x-agency-station', true),
 );
 export const SkipIpAllowlist = () => SetMetadata(SKIP_IP_ALLOWLIST_KEY, true);
 export const RequireShift = () => applyDecorators(

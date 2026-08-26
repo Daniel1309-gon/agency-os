@@ -9,6 +9,11 @@ export interface VaultLaunchingSession {
   deviceId: string | null;
 }
 
+export interface VaultPreparedHandoffSession {
+  operatorId: string;
+  version: number;
+}
+
 export interface VaultAssignment {
   id: string;
 }
@@ -66,6 +71,11 @@ export interface VaultRepository {
     operatorId: string;
     deviceId?: string;
   }): Promise<VaultLaunchingSession | undefined>;
+  findPreparedHandoffSession(input: {
+    sessionId: string;
+    profileId: string;
+    notBefore: Date;
+  }): Promise<VaultPreparedHandoffSession | undefined>;
   findActiveAssignment(input: {
     assignmentId: string;
     profileId: string;

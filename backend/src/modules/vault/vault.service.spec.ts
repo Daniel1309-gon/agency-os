@@ -54,6 +54,16 @@ function harness(): Harness {
       counters.set(key, next);
       return next;
     },
+    async acquireLock(key: string, seconds: number) {
+      if (store.has(key)) return null;
+      const token = `lock-${key}`;
+      store.set(key, token);
+      ttls.set(key, seconds);
+      return token;
+    },
+    async releaseLock(key: string, token: string) {
+      if (store.get(key) === token) store.delete(key);
+    },
   } as unknown as RedisService;
 
   const decrypt = vi.fn(async () => 'la-contrasena-del-perfil');
@@ -76,7 +86,7 @@ function harness(): Harness {
 function happyPath(db: FakeDatabase): void {
   db.stub('devices').findFirst({ id: DEVICE, tokenHash: hashToken(DEVICE_TOKEN), status: 'APPROVED', assignedOperatorId: OPERATOR });
   db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null, chromeProfileDir: 'Profile 3' });
-  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT, chromeProfileDir: 'Profile 3' });
+  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT, chromeProfileDir: 'Profile 3', version: 1, startedAt: new Date() });
   db.stub('profile_assignments').select([{ id: ASSIGNMENT }]);
 }
 
@@ -257,5 +267,53 @@ describe('VaultService.redeem', () => {
       username: 'perfil@talky.test',
       secret: 'la-contrasena-del-perfil',
     });
+  });
+});
+
+describe('VaultService.handoff', () => {
+  let h: Harness;
+
+  beforeEach(() => {
+    h = harness();
+    happyPath(h.db);
+    h.db.stub('tt_profile_credentials').findFirst({
+      profileId: PROFILE,
+      username: 'perfil@talky.test',
+      secretCiphertext: Buffer.from('c'),
+      secretNonce: Buffer.from('n'),
+      secretTag: Buffer.from('t'),
+      keyVersion: 1,
+      aadContext: `${PROFILE}:1`,
+      isCurrent: true,
+    });
+  });
+
+  it('derives the operator from a recent prepared session and returns the credential to the station', async () => {
+    const result = await h.service.handoff(grantInput, { deviceToken: DEVICE_TOKEN, ip: '10.0.0.5' });
+
+    expect(result).toEqual({
+      username: 'perfil@talky.test',
+      secret: 'la-contrasena-del-perfil',
+      sessionVersion: 1,
+    });
+    expect(h.ttls.get(`vault:handoff:${SESSION}`)).toBeLessThanOrEqual(60);
+  });
+
+  it('rejects replay of the station handoff without decrypting the secret twice', async () => {
+    await h.service.handoff(grantInput, { deviceToken: DEVICE_TOKEN, ip: '10.0.0.5' });
+
+    await expect(
+      h.service.handoff(grantInput, { deviceToken: DEVICE_TOKEN, ip: '10.0.0.5' }),
+    ).rejects.toThrow(ConflictException);
+    expect(h.decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a session that is no longer inside the short handoff window', async () => {
+    h.db.stub('profile_sessions').findFirst(undefined);
+
+    await expect(
+      h.service.handoff(grantInput, { deviceToken: DEVICE_TOKEN, ip: '10.0.0.5' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(h.decrypt).not.toHaveBeenCalled();
   });
 });

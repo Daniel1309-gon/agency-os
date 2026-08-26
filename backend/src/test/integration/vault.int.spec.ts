@@ -213,6 +213,41 @@ describe('grant and redeem, end to end', () => {
   });
 });
 
+describe('station credential handoff, end to end', () => {
+  it('claims a web-prepared session and delivers the credential once without an operator JWT', async () => {
+    const s = await scenario({ sessionDeviceId: null });
+
+    await expect(vault.handoff(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+    )).resolves.toEqual({ username: 'perfil@talky.test', secret: SECRET, sessionVersion: 1 });
+
+    const [claimed] = await ctx.db
+      .select({ deviceId: profileSessions.deviceId })
+      .from(profileSessions)
+      .where(eq(profileSessions.id, s.sessionId));
+    expect(claimed.deviceId).toBe(s.deviceId);
+
+    await expect(vault.handoff(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+    )).rejects.toThrow(ConflictException);
+  });
+
+  it('rejects a prepared session after the 60-second station handoff window', async () => {
+    const s = await scenario({ sessionDeviceId: null });
+    await ctx.db
+      .update(profileSessions)
+      .set({ startedAt: new Date(Date.now() - 61_000) })
+      .where(eq(profileSessions.id, s.sessionId));
+
+    await expect(vault.handoff(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+    )).rejects.toThrow(ForbiddenException);
+  });
+});
+
 describe('grant denials are recorded with their reason', () => {
   it('denies an operator whose assignment is not current', async () => {
     const s = await scenario();

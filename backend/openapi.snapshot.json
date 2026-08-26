@@ -608,6 +608,11 @@
         "bearerFormat": "JWT",
         "scheme": "bearer",
         "type": "http"
+      },
+      "deviceToken": {
+        "in": "header",
+        "name": "x-device-token",
+        "type": "apiKey"
       }
     }
   },
@@ -6157,6 +6162,112 @@
           "scope": "SELF",
           "shift": false
         }
+      }
+    },
+    "/api/v1/station/credential-claims": {
+      "post": {
+        "operationId": "StationVaultController.handoff",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "deviceToken": []
+          }
+        ],
+        "tags": [
+          "StationVault"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": false,
+            "roles": [],
+            "station": true
+          },
+          "actors": [
+            "STATION"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/station/credential-claims",
+          "scope": "SELF",
+          "shift": false
+        },
+        "x-agency-station": true
+      }
+    },
+    "/api/v1/station/sessions/{id}": {
+      "patch": {
+        "operationId": "StationSessionsController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-device-token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "deviceToken": []
+          }
+        ],
+        "tags": [
+          "StationSessions"
+        ],
+        "x-agency-device": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": false,
+            "permissions": [],
+            "public": false,
+            "roles": [],
+            "station": true
+          },
+          "actors": [
+            "STATION"
+          ],
+          "device": true,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/station/sessions/{id}",
+          "scope": "SELF",
+          "shift": false
+        },
+        "x-agency-station": true
       }
     },
     "/api/v1/tableau/runs": {

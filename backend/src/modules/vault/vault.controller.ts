@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Post, Put, Req, Res, UsePipes } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireRoles, RequireShift, StationAuthenticated } from '../../common/auth/decorators.js';
 import { RequireDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -46,5 +46,25 @@ export class AgentVaultController {
     reply.header('cache-control', 'no-store');
     reply.header('pragma', 'no-cache');
     return this.vault.redeem(body, { userId: user.sub, deviceToken, ip: req.ip });
+  }
+}
+
+@Controller('station')
+@RequireDevice()
+export class StationVaultController {
+  constructor(private readonly vault: VaultService) {}
+
+  @Post('credential-claims')
+  @StationAuthenticated()
+  @UsePipes(new ZodValidationPipe(credentialGrantSchema))
+  async handoff(
+    @Body() body: CredentialGrantInput,
+    @Headers('x-device-token') deviceToken: string,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('cache-control', 'no-store');
+    reply.header('pragma', 'no-cache');
+    return this.vault.handoff(body, { deviceToken, ip: req.ip });
   }
 }

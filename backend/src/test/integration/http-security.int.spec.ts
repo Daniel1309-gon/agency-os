@@ -63,6 +63,36 @@ function authorization(token: string, deviceToken?: string): Record<string, stri
 }
 
 describe('Entrega 1 HTTP security acceptance', () => {
+  it('authenticates station credential claims with the device token and no operator JWT', async () => {
+    const operator = await createUser(ctx);
+    await allowLoopback(operator.id);
+    const device = await createDevice(ctx, { operatorId: operator.id });
+
+    const acceptedByStationBoundary = await app.inject({
+      method: 'POST',
+      url: '/api/v1/station/credential-claims',
+      headers: { 'x-device-token': device.token },
+      payload: { profileId: 'not-a-uuid', sessionId: 'not-a-uuid' },
+    });
+    expect(acceptedByStationBoundary.statusCode).toBe(400);
+
+    const missingDevice = await app.inject({
+      method: 'POST',
+      url: '/api/v1/station/credential-claims',
+      payload: { profileId: 'not-a-uuid', sessionId: 'not-a-uuid' },
+    });
+    expect(missingDevice.statusCode).toBe(403);
+    expect(missingDevice.json()).toMatchObject({ message: 'Device token required' });
+
+    const forbiddenTransition = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/station/sessions/33333333-3333-3333-3333-333333333333',
+      headers: { 'x-device-token': device.token },
+      payload: { status: 'CLOSED', version: 1 },
+    });
+    expect(forbiddenTransition.statusCode).toBe(400);
+  });
+
   it('acknowledges native Rocket.Chat webhook events and only queues valid bot messages', async () => {
     const operator = await createUser(ctx);
     await allowLoopback(operator.id);

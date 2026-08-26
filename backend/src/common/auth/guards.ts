@@ -11,7 +11,7 @@ import { DatabaseService } from '../../database/database.service.js';
 import { devices, ipAllowlist, roles, users } from '../../database/schema/index.js';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { hashToken, verifyAccessToken } from './crypto.js';
-import { IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, REQUIRED_ROLES_KEY, setAuthenticatedUser, SKIP_IP_ALLOWLIST_KEY } from './decorators.js';
+import { IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, REQUIRED_ROLES_KEY, setAuthenticatedUser, SKIP_IP_ALLOWLIST_KEY, STATION_AUTH_KEY } from './decorators.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
 import { normalizeIp, resolveClientIp } from './ip.js';
@@ -50,6 +50,11 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
+    const isStation = this.reflector.getAllAndOverride<boolean>(STATION_AUTH_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isStation) return true;
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const header = request.headers.authorization;
@@ -112,7 +117,7 @@ export class RolesGuard implements CanActivate {
 
 @Injectable()
 export class DeviceTokenGuard implements CanActivate {
-  constructor(private readonly db: DatabaseService, private readonly audit: AuditService) {}
+  constructor(private readonly db: DatabaseService, private readonly audit: AuditService, private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -122,7 +127,11 @@ export class DeviceTokenGuard implements CanActivate {
       await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'MISSING_TOKEN' });
       throw new ForbiddenException('Device token required');
     }
-    if (!request.user) {
+    const isStation = this.reflector.getAllAndOverride<boolean>(STATION_AUTH_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!request.user && !isStation) {
       await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'MISSING_USER' });
       throw new ForbiddenException('Authenticated operator required');
     }

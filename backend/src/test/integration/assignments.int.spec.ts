@@ -404,6 +404,33 @@ describe('AssignmentsService sessions', () => {
     expect(errored).toMatchObject({ status: 'ERROR', errorCode: 'LOGIN_FAILED' });
   });
 
+  it('lets the claimed station activate its session without an operator JWT', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+
+    await expect(
+      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken),
+    ).resolves.toMatchObject({ status: 'ACTIVE', version: session.version + 1 });
+  });
+
+  it('does not let another station transition a claimed session', async () => {
+    const s = await ready();
+    const otherStation = await createDevice(ctx);
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+
+    await expect(
+      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, otherStation.token),
+    ).rejects.toThrow(NotFoundException);
+  });
+
   it('rejects a stale session version after another heartbeat wins the CAS', async () => {
     const s = await ready();
     const session = await assignments.openSession(

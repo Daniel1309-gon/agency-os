@@ -46,6 +46,10 @@ export function buildOpenApiDocument(app: NestFastifyApplication): OpenAPIObject
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'accessToken',
     )
+    .addApiKey(
+      { type: 'apiKey', in: 'header', name: 'x-device-token' },
+      'deviceToken',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, config, {
     operationIdFactory: (controllerKey, methodKey) => `${controllerKey}.${methodKey}`,
@@ -160,6 +164,8 @@ export function routePolicyMatrixMarkdown(document: OpenAPIObject): string {
   for (const policy of policies) {
     const access = policy.access.public
       ? 'public'
+      : policy.access.station
+        ? 'station'
       : [
         'authenticated',
         policy.access.roles.length ? `roles: ${policy.access.roles.join(', ')}` : '',

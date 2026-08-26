@@ -7,6 +7,7 @@ import type { ConfigService } from '../../config/config.service.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 import type { AuditService } from '../audit/audit.service.js';
 import type { DatabaseService } from '../../database/database.service.js';
+import { STATION_AUTH_KEY } from './decorators.js';
 
 const SECRET = 'a'.repeat(32);
 const config = { get: () => SECRET } as unknown as ConfigService;
@@ -28,6 +29,10 @@ function jwtDatabase(active = true): DatabaseService {
 
 function reflectorReturning(value: unknown): Reflector {
   return { getAllAndOverride: () => value } as unknown as Reflector;
+}
+
+function reflectorByKey(values: Record<string, unknown>): Reflector {
+  return { getAllAndOverride: (key: string) => values[key] } as unknown as Reflector;
 }
 
 /** El contexto devuelve siempre el mismo objeto request, para poder observar lo que el guard le escribe. */
@@ -82,6 +87,17 @@ describe('JwtAuthGuard', () => {
   it('skips authentication only where @Public is declared', async () => {
     const guard = new JwtAuthGuard(config, reflectorReturning(true), audit, jwtDatabase());
     await expect(guard.canActivate(contextFor({ headers: {} }))).resolves.toBe(true);
+  });
+
+  it('delegates authentication to the device guard on station routes', async () => {
+    const guard = new JwtAuthGuard(
+      config,
+      reflectorByKey({ [STATION_AUTH_KEY]: true }),
+      audit,
+      jwtDatabase(),
+    );
+
+    await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'station-token' } }))).resolves.toBe(true);
   });
 
   it('rejects a valid token after the user is disabled or its role changes', async () => {
@@ -140,7 +156,7 @@ describe('DeviceTokenGuard', () => {
   const dbFor = (device: typeof approvedDevice | undefined) => ({ db: { query: { devices: { findFirst: async () => device } } } });
 
   it('requires the x-device-token header and an authenticated operator', async () => {
-    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit);
+    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit, reflectorByKey({}));
     await expect(guard.canActivate(contextFor({ headers: {} }))).rejects.toThrow(ForbiddenException);
     await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).rejects.toThrow(ForbiddenException);
     await expect(guard.canActivate(contextFor({
@@ -150,7 +166,7 @@ describe('DeviceTokenGuard', () => {
   });
 
   it('accepts an approved office station regardless of which operator is using it', async () => {
-    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit);
+    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit, reflectorByKey({}));
     const { context, request } = requestContext({
       user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
       headers: { 'x-device-token': 'abc' },
@@ -164,9 +180,22 @@ describe('DeviceTokenGuard', () => {
   });
 
   it('rejects an invalid or expired device token', async () => {
-    const guard = new DeviceTokenGuard(dbFor(undefined) as never, audit);
+    const guard = new DeviceTokenGuard(dbFor(undefined) as never, audit, reflectorByKey({}));
     const request = { user: { sub: 'user-2', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' }, headers: { 'x-device-token': 'abc' } };
     await expect(guard.canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);
+  });
+
+  it('authenticates an approved station without requiring an operator JWT', async () => {
+    const guard = new DeviceTokenGuard(
+      dbFor(approvedDevice) as never,
+      audit,
+      reflectorByKey({ [STATION_AUTH_KEY]: true }),
+    );
+    const { context, request } = requestContext({ headers: { 'x-device-token': 'abc' } });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toBeUndefined();
+    expect(request.device?.id).toBe(approvedDevice.id);
   });
 });
 

@@ -60,7 +60,7 @@ describe('Entrega 1 security guards against real infrastructure', () => {
     const operator = await createUser(ctx);
     const other = await createUser(ctx);
     const device = await createDevice(ctx, { operatorId: operator.id });
-    const guard = new DeviceTokenGuard(ctx.database, new AuditService(ctx.database));
+    const guard = new DeviceTokenGuard(ctx.database, new AuditService(ctx.database), new Reflector());
 
     const valid = contextFor({ user: claims(operator.id), headers: { 'x-device-token': device.token } });
     await expect(guard.canActivate(valid.context)).resolves.toBe(true);

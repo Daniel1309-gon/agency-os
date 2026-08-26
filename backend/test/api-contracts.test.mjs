@@ -67,6 +67,37 @@ test('intersects class roles with method permissions when deriving effective act
   assert.deepEqual(preparePolicy.actors, ['OPERADOR']);
 });
 
+test('models station-only routes without pretending they use an operator JWT', () => {
+  const stationOperations = [
+    document.paths['/api/v1/station/credential-claims'].post,
+    document.paths['/api/v1/station/sessions/{id}'].patch,
+  ];
+  for (const stationOperation of stationOperations) {
+    const stationPolicy = stationOperation['x-agency-policy'];
+    assert.deepEqual(stationPolicy.actors, ['STATION']);
+    assert.equal(stationPolicy.access.authenticated, false);
+    assert.equal(stationPolicy.access.station, true);
+    assert.deepEqual(stationOperation.security, [{ deviceToken: [] }]);
+  }
+});
+
+test('rejects a station route that forgets the device guard', () => {
+  const canaryDocument = structuredClone(document);
+  delete canaryDocument.paths['/api/v1/station/credential-claims'].post['x-agency-device'];
+
+  assert.throws(
+    () => assertRouteContractCoverage(canaryDocument, routeContracts),
+    /station route without device guard: POST \/api\/v1\/station\/credential-claims/,
+  );
+});
+
+test('keeps public routes unauthenticated when controller metadata is inherited', () => {
+  const loginPolicy = document.paths['/api/v1/auth/login'].post['x-agency-policy'];
+  assert.equal(loginPolicy.access.public, true);
+  assert.equal(loginPolicy.access.authenticated, false);
+  assert.deepEqual(loginPolicy.actors, ['ANONYMOUS']);
+});
+
 test('publishes shared operator schemas and binds them to their HTTP operations', () => {
   const schemas = document.components.schemas;
   for (const name of [
