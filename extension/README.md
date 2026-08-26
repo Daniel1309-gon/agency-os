@@ -14,6 +14,10 @@ npm run spike:launch -- "Profile 1"
 El empaquetado de la extensión y la prueba de `ExtensionInstallForcelist` requieren Chrome y permisos
 de Windows; se ejecutan explícitamente con `npm run package:crx`.
 
+El manifest incluye únicamente la clave pública de distribución para conservar el mismo ID al cargar
+la extensión manualmente en cada PC. La clave privada `.pem` no se versiona y debe permanecer en el
+entorno de empaquetado autorizado.
+
 La versión productiva no lee archivos locales ni usa credenciales de prueba. El acceso al API se
 limita primero por la IP pública permitida de la oficina. `apiBaseUrl`, `webAppOrigin`, el nombre del
 host Native Messaging y el token revocable de la estación se provisionan con
