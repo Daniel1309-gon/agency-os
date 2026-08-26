@@ -128,6 +128,19 @@ describe('PostgreSQL deployment roles', () => {
     });
   });
 
+  it('allows authorized roles to compare citext identity columns', async () => {
+    const result = await ctx.pool.query<{ ownerExecute: boolean; appExecute: boolean; readonlyExecute: boolean }>(`
+      SELECT
+        has_function_privilege('agency_owner', 'public.citext_eq(citext,citext)', 'EXECUTE') AS "ownerExecute",
+        has_function_privilege('agency_app', 'public.citext_eq(citext,citext)', 'EXECUTE') AS "appExecute",
+        has_function_privilege('agency_readonly', 'public.citext_eq(citext,citext)', 'EXECUTE') AS "readonlyExecute"
+    `);
+
+    expect(result.rows[0]).toEqual({ ownerExecute: true, appExecute: true, readonlyExecute: true });
+    await expect(asRole('agency_owner', (client) => client.query('SELECT id FROM users WHERE email = $1 LIMIT 1', ['missing@agency.test']))).resolves.toBeDefined();
+    await expect(asRole('agency_app', (client) => client.query('SELECT id FROM users WHERE email = $1 LIMIT 1', ['missing@agency.test']))).resolves.toBeDefined();
+  });
+
   it('allows readonly reporting columns but rejects secret columns and tables', async () => {
     const privileges = await ctx.pool.query<{
       roleRead: boolean;

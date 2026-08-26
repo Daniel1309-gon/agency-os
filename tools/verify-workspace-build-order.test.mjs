@@ -20,3 +20,10 @@ test('isolated API gates build the complete workspace dependency closure', async
   assert.match(rootPackage.scripts['ci:database'], /--filter @agency-os\/api\.\.\. build/);
   assert.match(workflow, /Build backend for database commands\s+run: pnpm --filter @agency-os\/api\.\.\. build/);
 });
+
+test('the repository has one pnpm workspace root', async () => {
+  await assert.rejects(
+    readFile(new URL('../backend/pnpm-workspace.yaml', import.meta.url)),
+    (error) => error?.code === 'ENOENT',
+  );
+});

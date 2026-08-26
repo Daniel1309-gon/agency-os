@@ -1,5 +1,0 @@
-allowBuilds:
-  '@scarf/scarf': false
-  esbuild: true
-overrides:
-  js-yaml: ^5.2.2
