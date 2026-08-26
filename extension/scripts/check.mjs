@@ -23,8 +23,11 @@ if (manifest.externally_connectable?.matches?.some((match) => match.includes('*/
 if (manifest.host_permissions?.some((permission) => permission === 'https://*/*')) failures.push('broad HTTPS host permission is forbidden');
 if (!manifest.storage?.managed_schema) failures.push('managed storage schema is required');
 if (/credenciales\.json|file:\/\//i.test(`${background}\n${content}`)) failures.push('local credential files are forbidden');
-for (const endpoint of ['/agent/sessions/', '/agent/session/credential-grant', '/agent/session/credential-redeem']) {
+for (const endpoint of ['/agent/sessions/', '/station/credential-claims', '/station/sessions/']) {
   if (!background.includes(endpoint)) failures.push(`background.js must call ${endpoint}`);
+}
+if (background.includes('/agent/session/credential-grant') || background.includes('/agent/session/credential-redeem')) {
+  failures.push('target profiles must use the station credential handoff');
 }
 if (!background.includes('sendNativeMessage')) failures.push('background.js must use Native Messaging');
 const nativeMessageSection = background.slice(background.indexOf('sendNativeMessage'), background.indexOf('async function obtenerCredencial'));

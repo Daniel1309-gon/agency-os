@@ -17,15 +17,15 @@ async function managedConfiguration() {
   };
 }
 
-async function apiRequest(path, options, context, config) {
+async function apiRequest(path, options, config, accessToken) {
   const response = await fetch(`${config.apiBaseUrl}${path}`, {
     ...options,
     cache: 'no-store',
     credentials: 'omit',
     headers: {
-      authorization: `Bearer ${context.accessToken}`,
       'content-type': 'application/json',
       'x-device-token': config.deviceToken,
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...(options.headers || {}),
     },
   });
@@ -71,27 +71,38 @@ async function launchNativeProfile(message, config) {
 }
 
 async function obtenerCredencial(profileId, sessionId) {
-  const stored = await chrome.storage.session.get(SESSION_KEY);
-  const context = stored[SESSION_KEY];
-  if (!context || context.profileId !== profileId || context.sessionId !== sessionId || context.expiresAt <= Date.now()) {
-    throw new Error('La sesión preparada no existe o expiró');
-  }
   const config = await managedConfiguration();
+  let sessionVersion;
   try {
-    const grant = await apiRequest('/agent/session/credential-grant', {
+    const credential = await apiRequest('/station/credential-claims', {
       method: 'POST',
       body: JSON.stringify({ profileId, sessionId }),
-    }, context, config);
-    const credential = await apiRequest('/agent/session/credential-redeem', {
-      method: 'POST',
-      body: JSON.stringify({ grantId: grant.grantId }),
-    }, context, config);
+    }, config);
+    if (
+      typeof credential.username !== 'string'
+      || typeof credential.secret !== 'string'
+      || !Number.isInteger(credential.sessionVersion)
+      || credential.sessionVersion < 1
+    ) {
+      throw new Error('Agency OS entregó una credencial inválida');
+    }
+    sessionVersion = credential.sessionVersion;
+    await chrome.storage.session.set({
+      [SESSION_KEY]: {
+        profileId,
+        sessionId,
+        version: sessionVersion,
+        expiresAt: Date.now() + 60_000,
+      },
+    });
     return { username: credential.username, secret: credential.secret };
   } catch (error) {
-    await apiRequest(`/agent/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'ERROR', version: context.version, errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
-    }, context, config).catch(() => undefined);
+    if (sessionVersion) {
+      await apiRequest(`/station/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'ERROR', version: sessionVersion, errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
+      }, config).catch(() => undefined);
+    }
     await chrome.storage.session.remove(SESSION_KEY);
     throw error;
   }
@@ -114,16 +125,16 @@ async function finishCredentialInjection(message) {
   }
   if (message.type === 'credentialInjectionFailed') {
     const config = await managedConfiguration();
-    await apiRequest(`/agent/sessions/${encodeURIComponent(context.sessionId)}`, {
+    await apiRequest(`/station/sessions/${encodeURIComponent(context.sessionId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'ERROR', version: context.version, errorCode: 'CREDENTIAL_INJECTION_FAILED' }),
-    }, context, config).catch(() => undefined);
+    }, config).catch(() => undefined);
   } else {
     const config = await managedConfiguration();
-    await apiRequest(`/agent/sessions/${encodeURIComponent(context.sessionId)}`, {
+    await apiRequest(`/station/sessions/${encodeURIComponent(context.sessionId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'ACTIVE', version: context.version }),
-    }, context, config);
+    }, config);
   }
   await chrome.storage.session.remove(SESSION_KEY);
   return { ok: true };
@@ -135,21 +146,13 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     if (!sender.url || new URL(sender.url).origin !== config.webAppOrigin) throw new Error('Origin no autorizado');
     if (message?.action !== 'prepareSession') throw new Error('Acción no permitida');
     validateSessionContext(message);
-    await chrome.storage.session.set({
-      [SESSION_KEY]: {
-        profileId: message.profileId,
-        sessionId: message.sessionId,
-        accessToken: message.accessToken,
-        chromeProfileDir: message.chromeProfileDir,
-        launchUrl: message.launchUrl,
-        version: message.version,
-        expiresAt: Date.now() + 60_000,
-      },
-    });
     try {
       await launchNativeProfile(message, config);
     } catch (error) {
-      await chrome.storage.session.remove(SESSION_KEY);
+      await apiRequest(`/agent/sessions/${encodeURIComponent(message.sessionId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'ERROR', version: message.version, errorCode: 'PROFILE_LAUNCH_FAILED' }),
+      }, config, message.accessToken).catch(() => undefined);
       throw error;
     }
     return { ok: true };
