@@ -119,8 +119,10 @@ def aplicar_forcelist(extension_id: str) -> None:
         winreg.HKEY_CURRENT_USER,
         r"SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist",
     )
-    subclave = winreg.CreateKey(clave, "1")
-    winreg.SetValueEx(subclave, None, 0, winreg.REG_SZ, valor)
+    # Chrome reads numbered values directly from this policy key. A numbered
+    # subkey is ignored and makes chrome://policy display an empty list.
+    winreg.SetValueEx(clave, "1", 0, winreg.REG_SZ, valor)
+    winreg.CloseKey(clave)
     print(f"  ExtensionInstallForcelist aplicada: {valor}")
 
 
