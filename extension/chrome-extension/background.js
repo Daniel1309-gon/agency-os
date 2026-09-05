@@ -147,6 +147,10 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     if (message?.action !== 'prepareSession') throw new Error('Acción no permitida');
     validateSessionContext(message);
     try {
+      await apiRequest('/agent/devices/heartbeat', {
+        method: 'POST',
+        body: JSON.stringify({ extensionVersion: chrome.runtime.getManifest().version }),
+      }, config, message.accessToken);
       await launchNativeProfile(message, config);
     } catch (error) {
       await apiRequest(`/agent/sessions/${encodeURIComponent(message.sessionId)}`, {

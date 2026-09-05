@@ -14,7 +14,7 @@ Pasos, todos automatizados:
      bytes, mapeados de hex a las letras a-p).
   3. Genera update.xml (el manifest de actualizacion que Chrome consulta).
   4. Sirve update.xml + el .crx por HTTP en localhost (hilo en background).
-  5. Escribe la politica ExtensionInstallForcelist en el registro (HKCU).
+  5. Escribe la politica ExtensionInstallForcelist en el registro de maquina (HKLM).
   6. Lanza un perfil TOTALMENTE NUEVO (nunca tocado) para confirmar que la
      extension llega sola, sin ningun paso manual ni Modo Desarrollador.
 
@@ -27,6 +27,7 @@ el perfil nuevo no la recibe.
 Uso:
     uv run empaquetar_y_probar_forcelist.py
 """
+import ctypes
 import hashlib
 import http.server
 import shutil
@@ -54,6 +55,11 @@ RUTAS_CHROME_WINDOWS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 ]
+
+
+def exigir_elevacion() -> None:
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        sys.exit("Esta prueba debe ejecutarse desde una consola elevada (Administrador) para escribir HKLM.")
 
 
 def encontrar_chrome() -> str:
@@ -116,7 +122,7 @@ def servir_en_background() -> None:
 def aplicar_forcelist(extension_id: str) -> None:
     valor = f"{extension_id};http://localhost:{PUERTO}/update.xml"
     clave = winreg.CreateKey(
-        winreg.HKEY_CURRENT_USER,
+        winreg.HKEY_LOCAL_MACHINE,
         r"SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist",
     )
     # Chrome reads numbered values directly from this policy key. A numbered
@@ -142,6 +148,7 @@ def lanzar_perfil_nuevo(chrome: str) -> None:
 
 
 def main() -> None:
+    exigir_elevacion()
     if not EXTENSION_DIR.exists():
         sys.exit(f"No se encontro {EXTENSION_DIR}.")
 

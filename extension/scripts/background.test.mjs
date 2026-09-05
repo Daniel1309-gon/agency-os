@@ -48,6 +48,7 @@ function harness(fetchHandler = async () => response({})) {
       },
     },
     runtime: {
+      getManifest() { return { version: '1.0.0' }; },
       onMessageExternal: { addListener(listener) { listeners.external = listener; } },
       onMessage: { addListener(listener) { listeners.internal = listener; } },
       async sendNativeMessage(host, message) {
@@ -86,6 +87,9 @@ test('the control profile launches Chrome without persisting or forwarding the o
 
   assert.deepEqual(plain(result), { ok: true });
   assert.equal(h.sessionWrites.length, 0);
+  assert.equal(h.fetches[0].url, 'http://localhost:3000/api/v1/agent/devices/heartbeat');
+  assert.equal(h.fetches[0].options.headers.authorization, `Bearer ${preparedMessage.accessToken}`);
+  assert.deepEqual(JSON.parse(h.fetches[0].options.body), { extensionVersion: '1.0.0' });
   assert.equal(JSON.stringify(h.nativeMessages).includes(preparedMessage.accessToken), false);
   assert.deepEqual(h.nativeMessages[0].message, {
     action: 'launchProfile',

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"agency-os/local-helper/internal/enrollment"
 	"agency-os/local-helper/internal/launcher"
@@ -40,6 +41,7 @@ func runEnrollment(arguments []string) error {
 	flags := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	apiBaseURL := flags.String("api-base-url", "", "Agency OS API base URL, including /api/v1")
 	code := flags.String("code", "", "One-time enrollment code")
+	codeFile := flags.String("code-file", "", "Restricted file containing the one-time enrollment code")
 	hostname := flags.String("hostname", "", "This Windows host name")
 	label := flags.String("label", "", "Human-readable device label")
 	tokenFile := flags.String("token-file", "", "Path where the managed-policy installer will read the device token")
@@ -49,7 +51,11 @@ func runEnrollment(arguments []string) error {
 	if *tokenFile == "" {
 		return fmt.Errorf("--token-file is required; the device token is never printed")
 	}
-	result, err := enrollment.Enroll(context.Background(), *apiBaseURL, *code, *hostname, *label)
+	enrollmentCodeValue, err := enrollmentCode(*code, *codeFile)
+	if err != nil {
+		return err
+	}
+	result, err := enrollment.Enroll(context.Background(), *apiBaseURL, enrollmentCodeValue, *hostname, *label)
 	if err != nil {
 		return err
 	}
@@ -58,6 +64,30 @@ func runEnrollment(arguments []string) error {
 	}
 	fmt.Printf("Device %s enrolled; token stored for managed policy until %s\n", result.DeviceID, result.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"))
 	return nil
+}
+
+func enrollmentCode(inline, path string) (string, error) {
+	if inline != "" && path != "" {
+		return "", fmt.Errorf("use exactly one of --code or --code-file")
+	}
+	if path == "" {
+		if inline == "" {
+			return "", fmt.Errorf("--code-file is required when --code is not provided")
+		}
+		return inline, nil
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("could not read enrollment code file")
+	}
+	if len(contents) > 256 {
+		return "", fmt.Errorf("enrollment code file is invalid")
+	}
+	value := strings.TrimSpace(string(contents))
+	if value == "" {
+		return "", fmt.Errorf("enrollment code file is empty")
+	}
+	return value, nil
 }
 
 func runNativeMessaging(reader io.Reader, writer io.Writer) error {
