@@ -110,3 +110,62 @@ jobs:
         run: pnpm db:check
       - name: PostgreSQL and Redis integration tests
         run: pnpm test:integration
+
+  station-e2e-images:
+    name: Station E2E images and empty-volume smoke test
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate ephemeral file-backed secrets and TLS material
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .local/station-e2e/secrets .local/station-e2e/pki .local/station-e2e/extension-public
+          owner_password="$(openssl rand -hex 32)"
+          runtime_password="$(openssl rand -hex 32)"
+          worker_password="$(openssl rand -hex 32)"
+          printf '%s' "$owner_password" > .local/station-e2e/secrets/postgres_owner_password
+          printf 'postgresql://agency:%s@postgres:5432/agency_os' "$owner_password" > .local/station-e2e/secrets/database_owner_url
+          printf 'postgresql://agency_runtime:%s@postgres:5432/agency_os' "$runtime_password" > .local/station-e2e/secrets/database_app_url
+          printf 'postgresql://agency_worker_runtime:%s@postgres:5432/agency_os' "$worker_password" > .local/station-e2e/secrets/database_worker_url
+          printf '%s' "$runtime_password" > .local/station-e2e/secrets/database_runtime_password
+          printf '%s' "$worker_password" > .local/station-e2e/secrets/database_worker_password
+          openssl rand -hex 48 > .local/station-e2e/secrets/jwt_secret
+          openssl rand -hex 48 > .local/station-e2e/secrets/vault_kek
+          openssl rand -hex 48 > .local/station-e2e/secrets/bootstrap_admin_password
+          openssl rand -hex 32 > .local/station-e2e/secrets/demo_user_password
+          printf 'NOT_CONFIGURED_WORKER_DISABLED' > .local/station-e2e/secrets/rocketchat_token
+          printf 'NOT_CONFIGURED_WORKER_DISABLED' > .local/station-e2e/secrets/rocketchat_user_id
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=Agency OS CI CA' -keyout .local/station-e2e/pki/ca.key -out .local/station-e2e/pki/ca.crt
+          openssl req -newkey rsa:2048 -nodes -subj '/CN=app.agency-os.test' -addext 'subjectAltName=DNS:app.agency-os.test,DNS:api.agency-os.test' -keyout .local/station-e2e/pki/server.key -out .local/station-e2e/pki/server.csr
+          openssl x509 -req -days 1 -sha256 -in .local/station-e2e/pki/server.csr -CA .local/station-e2e/pki/ca.crt -CAkey .local/station-e2e/pki/ca.key -CAcreateserial -copy_extensions copy -out .local/station-e2e/pki/server.crt
+          printf 'CI placeholder; production CRX is signed outside CI' > .local/station-e2e/extension-public/agency-os.crx
+          printf '<?xml version="1.0"?><gupdate xmlns="http://www.google.com/update2/response" protocol="2.0"/>' > .local/station-e2e/extension-public/update.xml
+          {
+            printf 'SERVER_IP=127.0.0.1\n'
+            printf 'STATION_IP_CIDR=127.0.0.2/32\n'
+            printf 'EXTENSION_ID=fcniigapdfcoigmnkhkcgmhlhjdledbo\n'
+            printf 'VITE_EXTENSION_ID=fcniigapdfcoigmnkhkcgmhlhjdledbo\n'
+          } > .local/station-e2e/station.env
+      - name: Validate Compose without rendering secret values
+        run: docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml config --quiet
+      - name: Build clean station images
+        run: docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml build --pull
+      - name: Start from empty volumes and wait for healthchecks
+        run: docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml up -d --wait
+      - name: Verify HTTPS routes and one-API continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --cacert .local/station-e2e/pki/ca.crt --resolve app.agency-os.test:443:127.0.0.1 https://app.agency-os.test/healthz
+          curl --fail --silent --show-error --cacert .local/station-e2e/pki/ca.crt --resolve api.agency-os.test:443:127.0.0.1 https://api.agency-os.test/health/ready
+          docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml stop api-a
+          curl --fail --silent --show-error --cacert .local/station-e2e/pki/ca.crt --resolve api.agency-os.test:443:127.0.0.1 https://api.agency-os.test/health/ready
+          docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml start api-a
+      - name: Re-run migrations and seeds idempotently
+        run: |
+          docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml run --rm --no-deps migrate
+          docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml run --rm --no-deps seed-base
+          docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml run --rm --no-deps seed-demo

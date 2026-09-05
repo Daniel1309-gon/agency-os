@@ -33,7 +33,14 @@
     "frontend:test": "pnpm --dir web-app test",
     "extension:check": "pnpm --dir extension check",
     "helper:test": "node tools/test-native-helper.mjs",
-    "tableau:discovery": "node tools/tableau-discovery.mjs"
+    "tableau:discovery": "node tools/tableau-discovery.mjs",
+    "stack:e2e:config": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml config --quiet",
+    "stack:e2e:build": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml build",
+    "stack:e2e:up": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml up -d --wait",
+    "stack:e2e:provision": "node --env-file=.local/station-e2e/station.env tools/provision-station-e2e.mjs",
+    "stack:e2e:rocketchat-check": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml --profile rocketchat-check run --rm rocketchat-check",
+    "stack:e2e:down": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml down",
+    "station:bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy/station-e2e/build-bundle.ps1"
   },
   "engines": {
     "node": ">=22",

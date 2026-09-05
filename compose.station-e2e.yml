@@ -1,0 +1,335 @@
+name: agency-os-station-e2e
+
+x-owner-environment: &owner-environment
+  DATABASE_URL_FILE: /run/secrets/database_owner_url
+  DATABASE_OWNER_ROLE: agency_owner
+  PASSWORD_SCRYPT_LOG2N: "17"
+
+x-owner-secrets: &owner-secrets
+  - database_owner_url
+
+x-api-environment: &api-environment
+  NODE_ENV: test
+  PORT: "3000"
+  DATABASE_URL_FILE: /run/secrets/database_app_url
+  DATABASE_APP_URL_FILE: /run/secrets/database_app_url
+  DATABASE_RUNTIME_ROLE: app
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET_FILE: /run/secrets/jwt_secret
+  JWT_ACCESS_TTL_SECONDS: "900"
+  JWT_REFRESH_TTL_DAYS: "7"
+  PASSWORD_SCRYPT_LOG2N: "17"
+  VAULT_KEK_FILE: /run/secrets/vault_kek
+  CORS_ORIGINS: https://app.agency-os.test
+  TRUSTED_PROXY_CIDRS: 172.30.0.10/32
+  REQUIRE_SHIFT_FOR_AUTH: "true"
+  EXTENSION_ID: ${EXTENSION_ID:?Set EXTENSION_ID in station.env}
+  ROCKETCHAT_BASE_URL: https://chat.globalcompany.company
+  LOG_LEVEL: info
+
+x-api-secrets: &api-secrets
+  - database_app_url
+  - jwt_secret
+  - vault_kek
+
+x-api-service: &api-service
+  image: agency-os-api:station-e2e
+  restart: unless-stopped
+  environment: *api-environment
+  secrets: *api-secrets
+  networks:
+    - edge
+    - data
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    bootstrap-app:
+      condition: service_completed_successfully
+    bootstrap-worker:
+      condition: service_completed_successfully
+    bootstrap-ip:
+      condition: service_completed_successfully
+    seed-demo:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(async r=>{if(!r.ok){console.error('HTTP '+r.status+' '+(await r.text()).slice(0,200));process.exit(1)}}).catch(e=>{console.error(e.message);process.exit(1)})"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 10s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agency
+      POSTGRES_DB: agency_os
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_owner_password
+    secrets:
+      - postgres_owner_password
+    volumes:
+      - station_pgdata:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agency -d agency_os"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - station_redisdata:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: agency-os-api:station-e2e
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    environment: *owner-environment
+    secrets: *owner-secrets
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "scripts/db-migrate.mjs"]
+
+  bootstrap-app:
+    image: agency-os-api:station-e2e
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      DATABASE_RUNTIME_PASSWORD_FILE: /run/secrets/database_runtime_password
+    secrets:
+      - database_owner_url
+      - database_runtime_password
+    networks:
+      - data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["node", "scripts/db-bootstrap-runtime.mjs"]
+
+  bootstrap-worker:
+    image: agency-os-api:station-e2e
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      DATABASE_WORKER_PASSWORD_FILE: /run/secrets/database_worker_password
+    secrets:
+      - database_owner_url
+      - database_worker_password
+    networks:
+      - data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["node", "scripts/db-bootstrap-worker.mjs"]
+
+  seed-base:
+    image: agency-os-api:station-e2e
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      NODE_ENV: test
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      VAULT_KEK_FILE: /run/secrets/vault_kek
+      BOOTSTRAP_ADMIN_EMAIL: admin@agency.test
+      BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+    secrets:
+      - database_owner_url
+      - jwt_secret
+      - vault_kek
+      - bootstrap_admin_password
+    networks:
+      - data
+    depends_on:
+      bootstrap-app:
+        condition: service_completed_successfully
+      bootstrap-worker:
+        condition: service_completed_successfully
+    command: ["node", "dist/database/seeds/seed.js"]
+
+  bootstrap-ip:
+    image: agency-os-api:station-e2e
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      BOOTSTRAP_ADMIN_EMAIL: admin@agency.test
+      # Docker Desktop for Windows NATs published-port clients through the
+      # fixed bridge gateway. Windows Firewall still enforces the station /32;
+      # this third entry lets the API recognize the post-firewall NAT hop.
+      BOOTSTRAP_IP_CIDRS: 172.30.0.1/32,${SERVER_IP:?Set SERVER_IP in station.env}/32,${STATION_IP_CIDR:?Set STATION_IP_CIDR in station.env}
+    secrets: *owner-secrets
+    networks:
+      - data
+    depends_on:
+      seed-base:
+        condition: service_completed_successfully
+    command: ["node", "scripts/db-bootstrap-e2e-ips.mjs"]
+
+  seed-demo:
+    image: agency-os-api:station-e2e
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      VAULT_KEK_FILE: /run/secrets/vault_kek
+      DEMO_USER_PASSWORD_FILE: /run/secrets/demo_user_password
+    secrets:
+      - database_owner_url
+      - jwt_secret
+      - vault_kek
+      - demo_user_password
+    networks:
+      - data
+    depends_on:
+      bootstrap-ip:
+        condition: service_completed_successfully
+    command: ["node", "dist/database/seeds/demo-seed.js"]
+
+  api-a:
+    <<: *api-service
+
+  api-b:
+    <<: *api-service
+
+  # Deliberately excluded from the default stack. It remains stopped until a
+  # dedicated Rocket.Chat service account has passed the read-only identity check.
+  rocketchat-worker:
+    image: agency-os-api:station-e2e
+    profiles: ["rocketchat-worker"]
+    restart: "no"
+    environment:
+      <<: *api-environment
+      DATABASE_URL_FILE: /run/secrets/database_worker_url
+      DATABASE_APP_URL_FILE: ""
+      DATABASE_WORKER_URL_FILE: /run/secrets/database_worker_url
+      DATABASE_RUNTIME_ROLE: worker
+      ROCKETCHAT_TOKEN_FILE: /run/secrets/rocketchat_token
+      ROCKETCHAT_USER_ID_FILE: /run/secrets/rocketchat_user_id
+    secrets:
+      - database_worker_url
+      - jwt_secret
+      - vault_kek
+      - rocketchat_token
+      - rocketchat_user_id
+    networks:
+      - edge
+      - data
+    depends_on:
+      bootstrap-worker:
+        condition: service_completed_successfully
+    command: ["node", "dist/worker-main.js"]
+
+  rocketchat-check:
+    image: agency-os-api:station-e2e
+    profiles: ["rocketchat-check"]
+    restart: "no"
+    environment:
+      ROCKETCHAT_BASE_URL: https://chat.globalcompany.company
+      ROCKETCHAT_TOKEN_FILE: /run/secrets/rocketchat_token
+      ROCKETCHAT_USER_ID_FILE: /run/secrets/rocketchat_user_id
+    secrets:
+      - rocketchat_token
+      - rocketchat_user_id
+    networks:
+      - edge
+    command: ["node", "scripts/rocketchat-readonly-check.mjs"]
+
+  gateway:
+    image: agency-os-gateway:station-e2e
+    build:
+      context: .
+      dockerfile: deploy/station-e2e/gateway.Dockerfile
+      args:
+        VITE_API_BASE_URL: https://api.agency-os.test/api/v1
+        VITE_EXTENSION_ID: ${EXTENSION_ID:?Set EXTENSION_ID in station.env}
+    restart: unless-stopped
+    ports:
+      - target: 443
+        published: "443"
+        protocol: tcp
+        mode: host
+    secrets:
+      - tls_certificate
+      - tls_private_key
+    volumes:
+      - type: bind
+        source: ${STATION_E2E_EXTENSION_DIR:-.local/station-e2e/extension-public}
+        target: /srv/extension
+        read_only: true
+    networks:
+      edge:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      api-a:
+        condition: service_healthy
+      api-b:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--quiet", "--output-document=-", "https://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+  data:
+    internal: true
+
+volumes:
+  station_pgdata:
+  station_redisdata:
+
+secrets:
+  postgres_owner_password:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/postgres_owner_password
+  database_owner_url:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/database_owner_url
+  database_app_url:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/database_app_url
+  database_worker_url:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/database_worker_url
+  database_runtime_password:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/database_runtime_password
+  database_worker_password:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/database_worker_password
+  jwt_secret:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/jwt_secret
+  vault_kek:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/vault_kek
+  bootstrap_admin_password:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/bootstrap_admin_password
+  demo_user_password:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/demo_user_password
+  tls_certificate:
+    file: ${STATION_E2E_PKI_DIR:-.local/station-e2e/pki}/server.crt
+  tls_private_key:
+    file: ${STATION_E2E_PKI_DIR:-.local/station-e2e/pki}/server.key
+  rocketchat_token:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/rocketchat_token
+  rocketchat_user_id:
+    file: ${STATION_E2E_SECRETS_DIR:-.local/station-e2e/secrets}/rocketchat_user_id

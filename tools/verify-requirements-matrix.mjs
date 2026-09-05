@@ -12,7 +12,7 @@ const NFR_IDS = [
 ];
 const OQ_IDS = Array.from({ length: 13 }, (_, index) => `OQ-${String(index + 1).padStart(2, '0')}`);
 const REQUIREMENT_STATES = ['COMPLIANT', 'PARTIAL', 'BLOCKED', 'N/A'];
-const QUESTION_STATES = ['OPEN', 'PARTIAL'];
+const QUESTION_STATES = ['OPEN', 'PARTIAL', 'RESOLVED'];
 
 function countById(items) {
   const counts = new Map();
@@ -75,7 +75,12 @@ export function validateRequirementsCatalog(catalog) {
     if (typeof question?.question !== 'string' || !question.question.trim()) missing.push('question');
     if (typeof question?.owner !== 'string' || !question.owner.trim()) missing.push('owner');
     if (!isIsoDate(question?.dueDate)) missing.push('dueDate');
-    if (!nonEmptyStrings(question?.blocks)) missing.push('blocks');
+    if (question?.status === 'RESOLVED') {
+      if (!Array.isArray(question?.blocks) || question.blocks.length) missing.push('blocks must be empty when resolved');
+      if (typeof question?.resolution !== 'string' || !question.resolution.trim()) missing.push('resolution');
+    } else if (!nonEmptyStrings(question?.blocks)) {
+      missing.push('blocks');
+    }
     if (missing.length) issues.push(`${String(question?.id)} requires valid ${missing.join(', ')}`);
   }
 

@@ -8,3 +8,8 @@ test('ExtensionInstallForcelist writes numbered values directly on the policy ke
   assert.match(packager, /winreg\.SetValueEx\(\s*clave,\s*['"]1['"],\s*0,\s*winreg\.REG_SZ,\s*valor\s*\)/s);
   assert.doesNotMatch(packager, /winreg\.CreateKey\(\s*clave,\s*['"]1['"]\s*\)/s);
 });
+
+test('the real-machine policy spike targets HKLM for an elevated office-PC install', () => {
+  assert.match(packager, /winreg\.HKEY_LOCAL_MACHINE/);
+  assert.doesNotMatch(packager, /winreg\.HKEY_CURRENT_USER/);
+});
