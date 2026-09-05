@@ -23,5 +23,5 @@ export class AdminController {
   @Get('settings/ip-allowlist') @RequirePermissions('security.manage') allowlist() { return this.admin.listAllowlist(); }
   @Post('settings/ip-allowlist') @RequirePermissions('security.manage') @UsePipes(new ZodValidationPipe(ipAllowlistSchema)) addAllowlist(@Body() body: IpAllowlistInput, @CurrentUser() user: AccessTokenClaims) { return this.admin.addAllowlist(body, user.sub); }
   @Post('settings/ip-allowlist/:id/disable') @RequirePermissions('security.manage') disableAllowlist(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.admin.removeAllowlist(id, user.sub); }
-  @Get('audit-log') @RequirePermissions('audit.read') audit(@CurrentUser() user: AccessTokenClaims, @Query('from') from?: string, @Query('to') to?: string, @Query('action') action?: string, @Query('actorId') actorId?: string) { return this.admin.audit({ from, to, action, actorId }, user); }
+  @Get('audit-log') @RequirePermissions('audit.read') audit(@CurrentUser() user: AccessTokenClaims, @Query('from') from?: string, @Query('to') to?: string, @Query('action') action?: string, @Query('actorId') actorId?: string, @Query('cursor') cursor?: string, @Query('limit') limit?: string) { return this.admin.audit({ from, to, action, actorId, cursor, limit }, user); }
 }

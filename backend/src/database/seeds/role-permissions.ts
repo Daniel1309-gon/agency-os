@@ -28,9 +28,6 @@ export const rolePermissionCodes: Record<SeedRoleCode, readonly string[]> = {
     'profiles.read',
     'profiles.create',
     'profiles.update',
-    'vault.credential.issue',
-    'vault.read_meta',
-    'devices.manage',
     'shifts.read',
     'shifts.manage',
     'shifts.approve_overtime',
@@ -41,6 +38,6 @@ export const rolePermissionCodes: Record<SeedRoleCode, readonly string[]> = {
     'chat.manage',
     'audit.read',
   ],
-  OPERADOR: ['profiles.read', 'vault.credential.issue', 'vault.read_meta', 'shifts.read', 'payroll.read'],
+  OPERADOR: ['profiles.read', 'vault.credential.issue', 'shifts.read', 'payroll.read'],
   CAFETERIA: ['cafeteria.manage', 'chat.manage'],
 } as const;

@@ -12,7 +12,18 @@ export class BreaksService {
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
   ) {}
-  async list(shiftId: string, operatorId: string) { return this.db.db.select().from(breaks).innerJoin(shifts, eq(shifts.id, breaks.shiftId)).where(and(eq(breaks.shiftId, shiftId), eq(shifts.operatorId, operatorId))); }
+  async list(shiftId: string, operatorId: string) {
+    return this.db.db.select({
+      id: breaks.id,
+      shiftId: breaks.shiftId,
+      type: breaks.type,
+      scheduledAt: breaks.scheduledAt,
+      startedAt: breaks.startedAt,
+      endedAt: breaks.endedAt,
+      durationMinutes: breaks.durationMinutes,
+      status: breaks.status,
+    }).from(breaks).innerJoin(shifts, eq(shifts.id, breaks.shiftId)).where(and(eq(breaks.shiftId, shiftId), eq(shifts.operatorId, operatorId)));
+  }
   async start(id: string, operatorId: string) {
     return this.db.transaction(async () => {
       await this.db.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${operatorId}, 0))`);

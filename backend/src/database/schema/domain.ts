@@ -700,6 +700,9 @@ export const outboxEvents = pgTable('outbox_events', {
   attempts: integer('attempts').notNull().default(0),
   nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
   lastError: text('last_error'),
+  claimedBy: text('claimed_by'),
+  leaseToken: uuid('lease_token'),
+  leaseExpiresAt: ts('lease_expires_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
   processedAt: ts('processed_at'),
 });

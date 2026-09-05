@@ -79,7 +79,7 @@ function harness(): Harness {
   } as unknown as VaultCryptoService;
 
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
-  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit), db, store, ttls, counters, decrypt };
+  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit, db.service), db, store, ttls, counters, decrypt };
 }
 
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */

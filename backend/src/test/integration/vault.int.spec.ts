@@ -40,7 +40,7 @@ interface Scenario {
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  vault = new VaultService(new DrizzleVaultRepository(ctx.database), ctx.redis, new VaultCryptoService(ctx.config, ctx.database), new AuditService(ctx.database));
+  vault = new VaultService(new DrizzleVaultRepository(ctx.database), ctx.redis, new VaultCryptoService(ctx.config, ctx.database), new AuditService(ctx.database), ctx.database);
 });
 
 afterAll(async () => {
@@ -357,6 +357,7 @@ describe('the secret never reaches the logs', () => {
         debugCtx.redis,
         new VaultCryptoService(debugCtx.config, debugCtx.database),
         new AuditService(debugCtx.database),
+        debugCtx.database,
       );
       const s = await scenario();
 

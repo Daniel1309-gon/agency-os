@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import Fastify from 'fastify';
 import { normalizeIp, parseCidr, parseTrustedProxyCidrs, resolveClientIp } from './ip.js';
 
 describe('IP security helpers', () => {
@@ -28,25 +27,8 @@ describe('IP security helpers', () => {
   });
 
   it('only uses forwarded IPs when the immediate socket is trusted', async () => {
-    const direct = Fastify({ trustProxy: false });
-    direct.get('/', (request) => request.ip);
-    const directResponse = await direct.inject({
-      method: 'GET',
-      url: '/',
-      headers: { 'x-forwarded-for': '203.0.113.10' },
-    });
-    expect(directResponse.body).toBe('127.0.0.1');
-    await direct.close();
-
-    const trusted = Fastify({ trustProxy: ['127.0.0.1/32'] });
-    trusted.get('/', (request) => request.ip);
-    const trustedResponse = await trusted.inject({
-      method: 'GET',
-      url: '/',
-      headers: { 'x-forwarded-for': '203.0.113.10' },
-    });
-    expect(trustedResponse.body).toBe('203.0.113.10');
-    await trusted.close();
+    expect(resolveClientIp('127.0.0.1', '203.0.113.10', '10.0.0.0/8')).toBe('127.0.0.1');
+    expect(resolveClientIp('10.0.0.5', '203.0.113.10', '10.0.0.0/8')).toBe('203.0.113.10');
   });
 
   it('resolves a forwarded chain from the nearest trusted proxy outward', () => {

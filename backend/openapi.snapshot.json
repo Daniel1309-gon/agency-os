@@ -1348,6 +1348,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2619,8 +2635,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -2660,8 +2675,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -2712,8 +2726,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -2764,8 +2777,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -2816,8 +2828,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3112,14 +3123,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3128,7 +3137,10 @@
           "path": "/api/v1/icebreakers",
           "scope": "SELF",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       },
       "post": {
         "operationId": "IcebreakersController.create",
@@ -3152,14 +3164,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3168,7 +3178,10 @@
           "path": "/api/v1/icebreakers",
           "scope": "SELF",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}": {
@@ -3203,14 +3216,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3219,7 +3230,10 @@
           "path": "/api/v1/icebreakers/{id}",
           "scope": "SELF",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}/effectiveness": {
@@ -3254,14 +3268,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3270,7 +3282,10 @@
           "path": "/api/v1/icebreakers/{id}/effectiveness",
           "scope": "RESOURCE",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}/evaluate": {
@@ -3305,14 +3320,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3321,7 +3334,10 @@
           "path": "/api/v1/icebreakers/{id}/evaluate",
           "scope": "SELF",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}/evaluations": {
@@ -3356,14 +3372,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3372,7 +3386,10 @@
           "path": "/api/v1/icebreakers/{id}/evaluations",
           "scope": "RESOURCE",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}/publish": {
@@ -3407,14 +3424,12 @@
             "authenticated": true,
             "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "OPERADOR"
+            ]
           },
           "actors": [
-            "ADMIN",
-            "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR",
-            "CAFETERIA"
+            "OPERADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -3423,7 +3438,10 @@
           "path": "/api/v1/icebreakers/{id}/publish",
           "scope": "SELF",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
       }
     },
     "/api/v1/icebreakers/{id}/reviews": {
@@ -5050,9 +5068,7 @@
             "roles": []
           },
           "actors": [
-            "ADMIN",
-            "COORDINADOR",
-            "OPERADOR"
+            "ADMIN"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -6776,6 +6792,48 @@
           "pagination": "NOT_APPLICABLE",
           "path": "/api/v1/users/{id}/disable",
           "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/vault/keys/rotate": {
+      "post": {
+        "operationId": "VaultKeyController.rotateKey",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "VaultKey"
+        ],
+        "x-agency-permissions": [
+          "vault.rotate"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.rotate"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/vault/keys/rotate",
+          "scope": "GLOBAL",
           "shift": false
         }
       }

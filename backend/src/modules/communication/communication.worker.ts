@@ -6,6 +6,7 @@ import { outboxEvents, rocketchatChannels, scheduledMessages, users } from '../.
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { OutboxService } from '../outbox/outbox.service.js';
 import { RocketChatClient } from './rocketchat.client.js';
+import { ConfigService } from '../../config/config.service.js';
 
 const messagePayload = z.object({ channelId: z.string().uuid().optional(), targetUserId: z.string().uuid().optional(), roomId: z.string().min(1).optional(), body: z.string().min(1).max(4000), scheduledMessageId: z.string().uuid().optional() }).refine((value) => [value.channelId, value.targetUserId, value.roomId].filter(Boolean).length === 1);
 const breakPayload = z.object({ breakId: z.string().uuid(), operatorId: z.string().uuid(), scheduledAt: z.string().optional() });
@@ -16,22 +17,32 @@ class PermanentDeliveryError extends Error {}
 export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
+  private tickPromise?: Promise<void>;
 
   constructor(
     private readonly db: DatabaseService,
     private readonly outbox: OutboxService,
     private readonly rocketchat: RocketChatClient,
     private readonly logger: LoggerService,
+    private readonly config: ConfigService,
   ) {}
 
   onModuleInit(): void {
-    if (process.env.NODE_ENV === 'test') return;
-    this.timer = setInterval(() => void this.tick(), 1_000);
-    void this.tick();
+    if (this.config.get('NODE_ENV') === 'test' || this.config.get('DATABASE_RUNTIME_ROLE') !== 'worker') return;
+    this.timer = setInterval(() => this.startTick(), 1_000);
+    this.startTick();
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    await this.tickPromise;
+  }
+
+  private startTick(): void {
+    if (this.tickPromise) return;
+    this.tickPromise = this.tick()
+      .catch((error) => this.logger.error('Outbox worker tick failed', { error: error instanceof Error ? error.message : String(error) }))
+      .finally(() => { this.tickPromise = undefined; });
   }
 
   async tick(): Promise<void> {
@@ -69,7 +80,6 @@ export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
         const payload = messagePayload.parse(event.payload);
         const roomId = await this.resolveRoom(payload);
         await this.rocketchat.sendMessage(roomId, payload.body, `agency-outbox-${event.id}`);
-        if (payload.scheduledMessageId) await this.db.db.update(scheduledMessages).set({ status: 'SENT', sentAt: new Date(), lastError: null }).where(eq(scheduledMessages.id, payload.scheduledMessageId));
       } else if (event.eventType === 'break.reminder') {
         const payload = breakPayload.parse(event.payload);
         const [user] = await this.db.db.select({ roomId: users.rocketchatDirectRoomId }).from(users).where(eq(users.id, payload.operatorId)).limit(1);
@@ -78,17 +88,21 @@ export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
       } else {
         throw new PermanentDeliveryError(`Unsupported outbox event ${event.eventType}`);
       }
-      await this.outbox.markSent(event.id);
+      const markedSent = await this.outbox.markSent(event.id, event.leaseToken);
+      if (markedSent && event.eventType === 'rocketchat.message.send') {
+        const payload = messagePayload.parse(event.payload);
+        if (payload.scheduledMessageId) await this.db.db.update(scheduledMessages).set({ status: 'SENT', sentAt: new Date(), lastError: null }).where(eq(scheduledMessages.id, payload.scheduledMessageId));
+      }
     } catch (error) {
       const permanent = error instanceof PermanentDeliveryError || event.attempts >= 8;
       const message = error instanceof Error ? error.message : 'Unknown delivery error';
       const scheduledMessageId = typeof event.payload === 'object' && event.payload !== null && typeof event.payload.scheduledMessageId === 'string'
         ? event.payload.scheduledMessageId
         : undefined;
-      if (scheduledMessageId) {
+      const markedFailed = await this.outbox.markFailed(event.id, message, event.attempts, permanent, event.leaseToken);
+      if (markedFailed && scheduledMessageId) {
         await this.db.db.update(scheduledMessages).set({ status: permanent ? 'FAILED' : 'QUEUED', attempts: event.attempts, lastError: message.slice(0, 1000) }).where(eq(scheduledMessages.id, scheduledMessageId));
       }
-      await this.outbox.markFailed(event.id, message, event.attempts, permanent);
       this.logger.warn('Outbox delivery failed', { eventId: event.id, eventType: event.eventType, attempts: event.attempts, permanent, error: message });
     }
   }

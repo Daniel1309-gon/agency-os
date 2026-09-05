@@ -26,20 +26,48 @@ export const demoAccounts = [
   { email: 'cafeteria@agency.test', fullName: 'Camila Cafetería', role: 'CAFETERIA' },
 ] as const satisfies ReadonlyArray<{ email: string; fullName: string; role: DemoRole }>;
 
-const demoProfiles = [
+export const demoProfiles = [
   {
     displayName: 'Luna Demo',
     loginEmail: 'luna.demo@talkytimes.test',
     externalRef: 'DEMO-LUNA-01',
     country: 'CO',
-    chromeProfileDir: 'Profile 10',
+    chromeProfileDir: 'Profile 1',
   },
   {
     displayName: 'Mar Demo',
     loginEmail: 'mar.demo@talkytimes.test',
     externalRef: 'DEMO-MAR-02',
     country: 'US',
-    chromeProfileDir: 'Profile 11',
+    chromeProfileDir: 'Profile 2',
+  },
+  {
+    displayName: 'Sol Demo',
+    loginEmail: 'sol.demo@talkytimes.test',
+    externalRef: 'DEMO-SOL-03',
+    country: 'CO',
+    chromeProfileDir: 'Profile 3',
+  },
+  {
+    displayName: 'Nube Demo',
+    loginEmail: 'nube.demo@talkytimes.test',
+    externalRef: 'DEMO-NUBE-04',
+    country: 'US',
+    chromeProfileDir: 'Profile 4',
+  },
+  {
+    displayName: 'Alma Demo',
+    loginEmail: 'alma.demo@talkytimes.test',
+    externalRef: 'DEMO-ALMA-05',
+    country: 'CO',
+    chromeProfileDir: 'Profile 5',
+  },
+  {
+    displayName: 'Vera Demo',
+    loginEmail: 'vera.demo@talkytimes.test',
+    externalRef: 'DEMO-VERA-06',
+    country: 'US',
+    chromeProfileDir: 'Profile 6',
   },
 ] as const;
 

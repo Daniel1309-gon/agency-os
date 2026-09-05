@@ -8,6 +8,6 @@ import { operatorStatusSchema, type OperatorStatusInput } from './operator-statu
 @Controller('operators')
 export class OperatorStatusController {
   constructor(private readonly status: OperatorStatusService) {}
-  @Get('status') @RequirePermissions('operators.monitor') list() { return this.status.list(); }
+  @Get('status') @RequirePermissions('operators.monitor') list(@CurrentUser() user: AccessTokenClaims) { return this.status.list(user); }
   @Post('me/status') @RequireRoles('OPERADOR') @RequireShift() @UsePipes(new ZodValidationPipe(operatorStatusSchema)) set(@Body() body: OperatorStatusInput, @CurrentUser() user: AccessTokenClaims) { return this.status.set(user.sub, body); }
 }

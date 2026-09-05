@@ -103,4 +103,13 @@ describe('VaultCryptoService', () => {
 
     expect(db.inserted('encryption_keys')).toHaveLength(1);
   });
+
+  it('rotates the active key version instead of keeping encryption pinned to version one', async () => {
+    const { service, db } = crypto();
+
+    await service.rotateKey();
+
+    expect(db.inserted('encryption_keys')).toHaveLength(1);
+    expect(db.inserted('encryption_keys')[0]).toMatchObject({ version: 2 });
+  });
 });

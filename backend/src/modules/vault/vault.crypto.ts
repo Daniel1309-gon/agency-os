@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { encryptionKeys } from '../../database/schema/index.js';
@@ -26,14 +26,30 @@ export class VaultCryptoService {
     return dek;
   }
 
-  async encrypt(secret: string, profileId: string, version = 1): Promise<EncryptedSecret> {
-    const dek = await this.ensureKey(version);
+  async currentKeyVersion(): Promise<number> {
+    const [latest] = await this.db.db
+      .select({ version: encryptionKeys.version })
+      .from(encryptionKeys)
+      .orderBy(desc(encryptionKeys.version))
+      .limit(1);
+    return latest?.version ?? 1;
+  }
+
+  async rotateKey(): Promise<number> {
+    const version = (await this.currentKeyVersion()) + 1;
+    await this.ensureKey(version);
+    return version;
+  }
+
+  async encrypt(secret: string, profileId: string, version?: number): Promise<EncryptedSecret> {
+    const keyVersion = version ?? await this.currentKeyVersion();
+    const dek = await this.ensureKey(keyVersion);
     const nonce = randomBytes(12);
-    const aadContext = `${profileId}:${version}`;
+    const aadContext = `${profileId}:${keyVersion}`;
     const cipher = createCipheriv('aes-256-gcm', dek, nonce);
     cipher.setAAD(Buffer.from(aadContext));
     const ciphertext = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
-    return { ciphertext, nonce, tag: cipher.getAuthTag(), keyVersion: version, aadContext };
+    return { ciphertext, nonce, tag: cipher.getAuthTag(), keyVersion, aadContext };
   }
 
   async decrypt(value: { ciphertext: Buffer; nonce: Buffer; tag: Buffer; keyVersion: number; aadContext: string }): Promise<string> {

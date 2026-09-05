@@ -63,7 +63,7 @@ function services() {
   const audit = new AuditService(ctx.database);
   const config = new ConfigService();
   const communication = new CommunicationService(ctx.database, outbox, audit);
-  const worker = new CommunicationWorker(ctx.database, outbox, new RocketChatClient(config), new LoggerService('fatal'));
+  const worker = new CommunicationWorker(ctx.database, outbox, new RocketChatClient(config), new LoggerService('fatal'), config);
   const bot = new BotService(ctx.database, config, audit, ctx.redis, new FaqBotAnswerProvider());
   return { communication, worker, bot };
 }

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { hashToken } from '../../common/auth/crypto.js';
+import { DatabaseService } from '../../database/database.service.js';
 import { VaultCryptoService } from './vault.crypto.js';
 import { VAULT_REPOSITORY, type VaultRepository } from './vault.repository.port.js';
 import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInput } from './vault.schemas.js';
@@ -33,12 +34,13 @@ export class VaultService {
     private readonly redis: RedisService,
     private readonly crypto: VaultCryptoService,
     private readonly audit: AuditService,
+    private readonly database: DatabaseService,
   ) {}
 
   async rotate(profileId: string, input: CredentialRotationInput, actorId: string): Promise<{ version: number; rotatedAt: Date }> {
     if (!(await this.repository.profileExistsForRotation(profileId))) throw new NotFoundException('Profile not found');
     const version = (await this.repository.currentCredentialVersion(profileId) ?? 0) + 1;
-    const encrypted = await this.crypto.encrypt(input.secret, profileId, 1);
+    const encrypted = await this.crypto.encrypt(input.secret, profileId);
     const now = new Date();
     await this.repository.rotateCredential({
       profileId,
@@ -54,6 +56,12 @@ export class VaultService {
     });
     await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.credential.rotated', entityType: 'profile', entityId: profileId, result: 'SUCCESS', metadata: { profileId, version } });
     return { version, rotatedAt: now };
+  }
+
+  async rotateEncryptionKey(actorId: string): Promise<{ keyVersion: number }> {
+    const keyVersion = await this.crypto.rotateKey();
+    await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.key.rotated', result: 'SUCCESS', metadata: { version: keyVersion } });
+    return { keyVersion };
   }
 
   async meta(profileId: string): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
@@ -201,10 +209,12 @@ export class VaultService {
     }
 
     try {
-      const operatorContext = { ...context, userId: prepared.operatorId };
-      const grant = await this.grant(input, operatorContext);
-      const credential = await this.redeem({ grantId: grant.grantId }, operatorContext);
-      return { ...credential, sessionVersion: prepared.version };
+      return await this.database.withRequestContext(prepared.operatorId, 'OPERADOR', async () => {
+        const operatorContext = { ...context, userId: prepared.operatorId };
+        const grant = await this.grant(input, operatorContext);
+        const credential = await this.redeem({ grantId: grant.grantId }, operatorContext);
+        return { ...credential, sessionVersion: prepared.version };
+      });
     } catch (error) {
       await this.redis.releaseLock(lockKey, lockToken);
       throw error;

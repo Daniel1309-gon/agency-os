@@ -3,6 +3,8 @@ import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
   auditLog,
+  crewMembers,
+  crews,
   icebreakers,
   operatorAccountEntries,
   pointsLedger,
@@ -176,6 +178,23 @@ describe('points_ledger row level security', () => {
     });
   });
 
+  it('shows a coordinator only the current members of their crew', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Managed crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+    for (const operatorId of [managed.id, outsider.id]) {
+      await ctx.db.insert(pointsLedger).values({ operatorId, profileId: profile.id, businessDate: '2026-08-04', shiftBusinessDate: '2026-08-04', points: '100.0000', source: 'TABLEAU_ETL' });
+    }
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      const rows = await client.query('SELECT operator_id FROM points_ledger ORDER BY operator_id');
+      expect(rows.rows).toEqual([{ operator_id: managed.id }]);
+    });
+  });
+
   it('refuses an operator writing points for themselves', async () => {
     // Los puntos son dinero: solo los escribe el sistema.
     const operator = await createUser(ctx);
@@ -233,6 +252,21 @@ describe('icebreakers row level security', () => {
 
     await asRequest({ userId: author.id, roleCode: 'OPERADOR' }, async (client) => {
       expect(await countOf(client, 'icebreakers')).toBe(1);
+    });
+  });
+
+  it('lets a coordinator read only icebreakers from their current crew', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Icebreaker crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+    await ctx.db.insert(icebreakers).values([{ operatorId: managed.id, text: 'managed' }, { operatorId: outsider.id, text: 'outsider' }]);
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      const rows = await client.query('SELECT operator_id, text FROM icebreakers');
+      expect(rows.rows).toEqual([{ operator_id: managed.id, text: 'managed' }]);
+      await expect(client.query('INSERT INTO icebreakers (operator_id, text) VALUES ($1, $2)', [outsider.id, 'forged'])).rejects.toMatchObject({ code: '42501' });
     });
   });
 });

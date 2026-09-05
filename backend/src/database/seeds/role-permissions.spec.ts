@@ -45,9 +45,12 @@ describe('role permission contract', () => {
 
   it('keeps cafeteria and operator security boundaries out of other roles', () => {
     expect(rolePermissionCodes.COORDINADOR).not.toContain('cafeteria.manage');
+    expect(rolePermissionCodes.COORDINADOR).not.toContain('devices.manage');
+    expect(rolePermissionCodes.COORDINADOR).not.toContain('vault.read_meta');
     expect(rolePermissionCodes.CAFETERIA).toEqual(['cafeteria.manage', 'chat.manage']);
     expect(rolePermissionCodes.CAFETERIA).not.toContain('profiles.read');
     expect(rolePermissionCodes.CAFETERIA).not.toContain('payroll.read');
     expect(rolePermissionCodes.CAFETERIA).not.toContain('vault.credential.issue');
+    expect(rolePermissionCodes.OPERADOR).not.toContain('vault.read_meta');
   });
 });

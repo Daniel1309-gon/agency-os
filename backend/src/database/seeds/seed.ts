@@ -80,6 +80,15 @@ async function seed(): Promise<void> {
         : configured.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
       return codes.map((permissionId) => ({ roleId: role.id, permissionId }));
     });
+    // System-role permissions are policy, not additive seed data. Reconcile
+    // them so a permission removed from role-permissions.ts is also revoked
+    // on an idempotent deployment; onConflictDoNothing alone would preserve
+    // stale grants forever.
+    for (const role of roleRows) {
+      if (rolePermissionCodes[role.code as keyof typeof rolePermissionCodes]) {
+        await db.delete(rolePermissions).where(sql`${rolePermissions.roleId} = ${role.id}`);
+      }
+    }
     if (rolePermissionRows.length) await db.insert(rolePermissions).values(rolePermissionRows).onConflictDoNothing();
     const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
     const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;

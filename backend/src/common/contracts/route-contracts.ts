@@ -69,6 +69,7 @@ export const routeContracts = [
 
   route('PUT', '/api/v1/profiles/{profileId}/credential', 'RESOURCE', 'NATURAL_KEY'),
   route('GET', '/api/v1/profiles/{profileId}/credential/meta', 'RESOURCE'),
+  route('POST', '/api/v1/vault/keys/rotate', 'GLOBAL'),
   route('POST', '/api/v1/agent/session/credential-grant', 'SELF'),
   route('POST', '/api/v1/agent/session/credential-redeem', 'SELF'),
   route('POST', '/api/v1/station/credential-claims', 'SELF'),

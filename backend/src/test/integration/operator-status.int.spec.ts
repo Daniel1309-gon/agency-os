@@ -6,7 +6,7 @@ import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import type { Server } from 'socket.io';
 import { OperatorStatusService } from '../../modules/operator-status/operator-status.service.js';
 import { ShiftsService } from '../../modules/shifts/shifts.service.js';
-import { breaks, operatorCurrentStatus } from '../../database/schema/index.js';
+import { breaks, crews, crewMembers, operatorCurrentStatus } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
@@ -14,6 +14,7 @@ import {
   createUser,
   destroyTestContext,
   isoOffset,
+  halfOpen,
   resetDatabase,
   seedRoles,
   type TestContext,
@@ -71,21 +72,48 @@ describe('operator status projection', () => {
     const active = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.token);
     expect(emitted.at(-1)).toMatchObject({ event: 'operator.status.changed', payload: { operatorId: operator.id, status: 'ONLINE' } });
 
-    let [row] = await status.list();
+    let [row] = await status.list({ sub: admin.id, role: 'ADMIN' });
     expect(row).toMatchObject({ operatorId: operator.id, status: 'ONLINE' });
 
     await ctx.db.insert(breaks).values({ shiftId: shift.id, type: 'LUNCH', status: 'IN_PROGRESS', startedAt: new Date() });
-    [row] = await status.list();
+    [row] = await status.list({ sub: admin.id, role: 'ADMIN' });
     expect(row.status).toBe('BREAK');
 
     await ctx.db.insert(operatorCurrentStatus).values({ operatorId: operator.id, status: 'ALERT', reason: 'LOGIN_FAILED', changedAt: new Date() });
-    [row] = await status.list();
+    [row] = await status.list({ sub: admin.id, role: 'ADMIN' });
     expect(row).toMatchObject({ status: 'ALERT', reason: 'LOGIN_FAILED' });
 
     await ctx.db.delete(operatorCurrentStatus).where(eq(operatorCurrentStatus.operatorId, operator.id));
     await ctx.db.update(breaks).set({ status: 'COMPLETED', endedAt: new Date() }).where(and(eq(breaks.shiftId, shift.id), eq(breaks.status, 'IN_PROGRESS')));
     await assignments.closeSession(session.id, active.version, operator.id, device.token);
-    [row] = await status.list();
+    [row] = await status.list({ sub: admin.id, role: 'ADMIN' });
     expect(row.status).toBe('OFFLINE');
+  });
+
+  it('limits a coordinator snapshot to operators in the coordinator current crew', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const inScope = await createUser(ctx, { role: 'OPERADOR', email: 'inside@agency.test' });
+    const outOfScope = await createUser(ctx, { role: 'OPERADOR', email: 'outside@agency.test' });
+    const [crew] = await ctx.db.insert(crews).values({
+      name: 'Cuadrilla de prueba',
+      coordinatorId: coordinator.id,
+      isActive: true,
+      createdBy: admin.id,
+      updatedBy: admin.id,
+    }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({
+      crewId: crew.id,
+      userId: inScope.id,
+      validRange: halfOpen(isoOffset(-60), isoOffset(60)),
+    });
+    await ctx.db.insert(operatorCurrentStatus).values([
+      { operatorId: inScope.id, status: 'ONLINE', reason: 'SESSION_ACTIVE', changedAt: new Date() },
+      { operatorId: outOfScope.id, status: 'ALERT', reason: 'LOGIN_FAILED', changedAt: new Date() },
+    ]);
+
+    const snapshot = await status.list({ sub: coordinator.id, role: 'COORDINADOR' });
+
+    expect(snapshot.map((row) => row.operatorId)).toEqual([inScope.id]);
   });
 });

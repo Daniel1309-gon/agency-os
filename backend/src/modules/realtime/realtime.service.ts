@@ -45,7 +45,7 @@ export class RealtimeService {
     this.server = server;
   }
 
-  async snapshotFor(user: AccessTokenClaims): Promise<OperatorStatusSnapshot[]> {
+  async snapshotFor(user: Pick<AccessTokenClaims, 'sub' | 'role'>): Promise<OperatorStatusSnapshot[]> {
     const snapshot = await this.snapshotAll();
     if (user.role === 'ADMIN' || user.role === 'DIRECTOR_OPERATIVO') return snapshot;
     if (user.role === 'COORDINADOR') {

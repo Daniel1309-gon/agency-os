@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { demoAccounts, validateDemoSeedConfig } from './demo-seed.js';
+import { demoAccounts, demoProfiles, validateDemoSeedConfig } from './demo-seed.js';
 
 describe('demo seed configuration', () => {
   it('defines one account for every non-admin application role', () => {
@@ -8,6 +8,17 @@ describe('demo seed configuration', () => {
       { email: 'coordinador@agency.test', role: 'COORDINADOR' },
       { email: 'operador@agency.test', role: 'OPERADOR' },
       { email: 'cafeteria@agency.test', role: 'CAFETERIA' },
+    ]);
+  });
+
+  it('defines the six station E2E profiles with deterministic Chrome directories', () => {
+    expect(demoProfiles.map(({ displayName, loginEmail, chromeProfileDir }) => ({ displayName, loginEmail, chromeProfileDir }))).toEqual([
+      { displayName: 'Luna Demo', loginEmail: 'luna.demo@talkytimes.test', chromeProfileDir: 'Profile 1' },
+      { displayName: 'Mar Demo', loginEmail: 'mar.demo@talkytimes.test', chromeProfileDir: 'Profile 2' },
+      { displayName: 'Sol Demo', loginEmail: 'sol.demo@talkytimes.test', chromeProfileDir: 'Profile 3' },
+      { displayName: 'Nube Demo', loginEmail: 'nube.demo@talkytimes.test', chromeProfileDir: 'Profile 4' },
+      { displayName: 'Alma Demo', loginEmail: 'alma.demo@talkytimes.test', chromeProfileDir: 'Profile 5' },
+      { displayName: 'Vera Demo', loginEmail: 'vera.demo@talkytimes.test', chromeProfileDir: 'Profile 6' },
     ]);
   });
 

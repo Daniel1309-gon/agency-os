@@ -46,7 +46,20 @@ export class ShiftsService {
   }
 
   async current(operatorId: string) {
-    return this.db.db.query.shifts.findFirst({ where: and(eq(shifts.operatorId, operatorId), sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS')) });
+    return this.db.db.query.shifts.findFirst({
+      columns: {
+        id: true,
+        operatorId: true,
+        businessDate: true,
+        scheduledRange: true,
+        actualStartAt: true,
+        actualEndAt: true,
+        status: true,
+        effectiveMinutes: true,
+        notes: true,
+      },
+      where: and(eq(shifts.operatorId, operatorId), sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS')),
+    });
   }
 
   async start(id: string, operatorId?: string) {

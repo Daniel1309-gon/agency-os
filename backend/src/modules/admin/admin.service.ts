@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
@@ -8,6 +8,25 @@ import { hashPassword } from '../../common/auth/crypto.js';
 import { ConfigService } from '../../config/config.service.js';
 import type { CompensationInput, FeatureFlagInput, IpAllowlistInput, SettingInput, UserCreateInput, UserPatchInput } from './admin.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+
+interface AuditCursor {
+  occurredAt: string;
+  id: string;
+}
+
+function decodeAuditCursor(value: string): AuditCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<AuditCursor>;
+    if (typeof parsed.occurredAt !== 'string' || Number.isNaN(Date.parse(parsed.occurredAt)) || typeof parsed.id !== 'string' || !/^\d+$/.test(parsed.id)) throw new Error('invalid');
+    return { occurredAt: new Date(parsed.occurredAt).toISOString(), id: parsed.id };
+  } catch {
+    throw new BadRequestException('audit cursor is invalid');
+  }
+}
+
+function encodeAuditCursor(row: { occurredAt: Date; id: number }): string {
+  return Buffer.from(JSON.stringify({ occurredAt: row.occurredAt.toISOString(), id: String(row.id) })).toString('base64url');
+}
 
 @Injectable()
 export class AdminService {
@@ -35,7 +54,7 @@ export class AdminService {
             )`,
           ),
         );
-    return this.db.db.select({ id: users.id, email: users.email, fullName: users.fullName, nationalId: users.nationalId, phone: users.phone, roleId: users.roleId, status: users.status, mustChangePassword: users.mustChangePassword, rocketchatUserId: users.rocketchatUserId, rocketchatDirectRoomId: users.rocketchatDirectRoomId, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt, updatedAt: users.updatedAt }).from(users).where(scope).orderBy(asc(users.fullName));
+    return this.db.db.select({ id: users.id, email: users.email, fullName: users.fullName, nationalId: users.nationalId, phone: users.phone, roleId: users.roleId, roleCode: roles.code, status: users.status, mustChangePassword: users.mustChangePassword, rocketchatUserId: users.rocketchatUserId, rocketchatDirectRoomId: users.rocketchatDirectRoomId, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt, updatedAt: users.updatedAt }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(scope).orderBy(asc(users.fullName));
   }
   async roles() { return this.db.db.select({ id: roles.id, code: roles.code, name: roles.name, hierarchyLevel: roles.hierarchyLevel, isSystem: roles.isSystem }).from(roles).orderBy(asc(roles.hierarchyLevel)); }
   async permissions() { return this.db.db.select({ id: permissions.id, code: permissions.code, module: permissions.module, description: permissions.description }).from(permissions).orderBy(asc(permissions.module), asc(permissions.code)); }
@@ -78,12 +97,16 @@ export class AdminService {
     }
   }
 
-  async audit(filters: { from?: string; to?: string; action?: string; actorId?: string }, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
+  async audit(filters: { from?: string; to?: string; action?: string; actorId?: string; cursor?: string; limit?: string }, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
     const conditions = [];
+    const limit = Math.min(100, Math.max(1, Number(filters.limit ?? 50)));
+    if (!Number.isInteger(limit)) throw new BadRequestException('audit limit must be an integer');
+    const cursor = filters.cursor ? decodeAuditCursor(filters.cursor) : undefined;
     if (filters.from) conditions.push(sql`${auditLog.occurredAt} >= ${new Date(filters.from)}`);
     if (filters.to) conditions.push(sql`${auditLog.occurredAt} < ${new Date(filters.to)}`);
     if (filters.action) conditions.push(eq(auditLog.action, filters.action));
     if (filters.actorId) conditions.push(eq(auditLog.actorUserId, filters.actorId));
+    if (cursor) conditions.push(sql`(${auditLog.occurredAt}, ${auditLog.id}) < (${cursor.occurredAt}::timestamptz, ${cursor.id}::bigint)`);
     if (actor.role !== 'ADMIN' && actor.role !== 'DIRECTOR_OPERATIVO') {
       conditions.push(or(
         eq(auditLog.actorUserId, actor.sub),
@@ -97,7 +120,8 @@ export class AdminService {
         )`,
       ));
     }
-    return this.db.db.select({ id: auditLog.id, occurredAt: auditLog.occurredAt, actorType: auditLog.actorType, actorUserId: auditLog.actorUserId, actorDeviceId: auditLog.actorDeviceId, action: auditLog.action, entityType: auditLog.entityType, entityId: auditLog.entityId, result: auditLog.result, ip: auditLog.ip, requestId: auditLog.requestId, metadata: auditLog.metadata }).from(auditLog).where(and(...conditions)).orderBy(desc(auditLog.occurredAt)).limit(500);
+    const rows = await this.db.db.select({ id: auditLog.id, occurredAt: auditLog.occurredAt, actorType: auditLog.actorType, actorUserId: auditLog.actorUserId, actorDeviceId: auditLog.actorDeviceId, action: auditLog.action, entityType: auditLog.entityType, entityId: auditLog.entityId, result: auditLog.result, ip: auditLog.ip, requestId: auditLog.requestId, metadata: auditLog.metadata }).from(auditLog).where(and(...conditions)).orderBy(desc(auditLog.occurredAt), desc(auditLog.id)).limit(limit);
+    return { data: rows, pagination: { limit, nextCursor: rows.length === limit ? encodeAuditCursor(rows[rows.length - 1]) : null } };
   }
 
   async settings() { const rows = await this.db.db.select({ key: appSettings.key, value: appSettings.value, description: appSettings.description, isSecret: appSettings.isSecret, updatedAt: appSettings.updatedAt }).from(appSettings); return rows.map((row) => row.isSecret ? { ...row, value: '[REDACTED]' } : row); }

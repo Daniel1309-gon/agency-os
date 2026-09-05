@@ -387,7 +387,7 @@ describe('AdminService', () => {
 
     const rows = await admin.audit({ action: 'scope.test' }, { sub: coordinator.id, role: 'COORDINADOR' });
 
-    expect(rows).toEqual([expect.objectContaining({ actorUserId: managed.id })]);
+    expect(rows.data).toEqual([expect.objectContaining({ actorUserId: managed.id })]);
   });
 
   it('turns a duplicate email into a 409', async () => {

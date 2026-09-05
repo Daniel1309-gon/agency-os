@@ -25,6 +25,17 @@ export class VaultController {
   }
 }
 
+@Controller('vault')
+export class VaultKeyController {
+  constructor(private readonly vault: VaultService) {}
+
+  @Post('keys/rotate')
+  @RequirePermissions('vault.rotate')
+  rotateKey(@CurrentUser() user: AccessTokenClaims) {
+    return this.vault.rotateEncryptionKey(user.sub);
+  }
+}
+
 @Controller('agent/session')
 @RequireDevice()
 @RequireRoles('OPERADOR')
