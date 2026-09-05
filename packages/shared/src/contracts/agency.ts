@@ -6,11 +6,77 @@ export type RoleCode = z.infer<typeof roleCodeSchema>;
 export const operatorStatusSchema = z.enum(['ONLINE', 'BREAK', 'ALERT', 'OFFLINE']);
 export type OperatorStatus = z.infer<typeof operatorStatusSchema>;
 
+export const operatorStatusSnapshotSchema = z.object({
+  operatorId: z.string().uuid(),
+  fullName: z.string(),
+  status: operatorStatusSchema,
+  reason: z.string(),
+  changedAt: z.string().datetime({ offset: true }).nullable(),
+}).strict();
+export type OperatorStatusSnapshot = z.infer<typeof operatorStatusSnapshotSchema>;
+
 export const profileSessionStatusSchema = z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'STALE', 'CLOSED']);
 export type ProfileSessionStatus = z.infer<typeof profileSessionStatusSchema>;
 
+export const shiftStatusSchema = z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
+export type ShiftStatus = z.infer<typeof shiftStatusSchema>;
+
+export const shiftSummarySchema = z.object({
+  id: z.string().uuid(),
+  operatorId: z.string().uuid(),
+  businessDate: z.string().date(),
+  scheduledRange: z.string().nullable(),
+  actualStartAt: z.string().datetime({ offset: true }).nullable(),
+  actualEndAt: z.string().datetime({ offset: true }).nullable(),
+  status: shiftStatusSchema,
+  effectiveMinutes: z.number().int().nonnegative().nullable(),
+  notes: z.string().nullable(),
+}).strict();
+export type ShiftSummary = z.infer<typeof shiftSummarySchema>;
+
+export const breakStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
+export type BreakStatus = z.infer<typeof breakStatusSchema>;
+
+export const breakSummarySchema = z.object({
+  id: z.string().uuid(),
+  shiftId: z.string().uuid(),
+  type: z.string(),
+  scheduledAt: z.string().datetime({ offset: true }).nullable(),
+  startedAt: z.string().datetime({ offset: true }).nullable(),
+  endedAt: z.string().datetime({ offset: true }).nullable(),
+  durationMinutes: z.number().int().nonnegative().nullable(),
+  status: breakStatusSchema,
+}).strict();
+export type BreakSummary = z.infer<typeof breakSummarySchema>;
+
 export const profileStatusSchema = z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'RETIRED']);
 export type ProfileStatus = z.infer<typeof profileStatusSchema>;
+
+export const profileRecordSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  loginEmail: z.string().email(),
+  externalRef: z.string().nullable(),
+  country: z.string().nullable(),
+  status: profileStatusSchema,
+  chromeProfileDir: z.string().nullable(),
+  notes: z.string().nullable(),
+  version: z.number().int().nonnegative(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type ProfileRecord = z.infer<typeof profileRecordSchema>;
+
+export const profileListResponseSchema = z.object({
+  data: z.array(profileRecordSchema),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type ProfileListResponse = z.infer<typeof profileListResponseSchema>;
 
 export const cafeteriaOrderStatusSchema = z.enum(['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED', 'EXPIRED']);
 export type CafeteriaOrderStatus = z.infer<typeof cafeteriaOrderStatusSchema>;
