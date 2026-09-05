@@ -1,4 +1,4 @@
-type Status = 'active' | 'available' | 'handoff' | 'online' | 'break' | 'offline';
+type Status = 'active' | 'available' | 'handoff' | 'online' | 'break' | 'alert' | 'offline';
 
 interface StatusPillProps {
   status: Status;
@@ -11,6 +11,7 @@ const defaultLabels: Record<Status, string> = {
   handoff: 'En relevo',
   online: 'En línea',
   break: 'En pausa',
+  alert: 'Alerta',
   offline: 'Fuera de turno',
 };
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { assignedProfileSchema, prepareSessionMessageSchema, type AssignedProfile } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { StatusPill } from '../StatusPill/StatusPill';
+import { resolveExtensionId } from './extension-config';
 
 interface ChromeRuntime {
   lastError?: { message?: string };
@@ -14,9 +15,7 @@ function extensionRuntime(): ChromeRuntime | null {
 }
 
 function extensionId(): string {
-  const id = import.meta.env.VITE_EXTENSION_ID as string | undefined;
-  if (!id || !/^[a-p]{32}$/.test(id)) throw new Error('La extensión segura no está configurada en este equipo.');
-  return id;
+  return resolveExtensionId(import.meta.env.VITE_EXTENSION_ID);
 }
 
 function sendToExtension(message: unknown): Promise<void> {

@@ -2,9 +2,11 @@ import { AuthProvider, useAuth } from './auth/AuthProvider';
 import LoginPage from './pages/LoginPage/LoginPage';
 import PasswordChangePage from './pages/PasswordChangePage/PasswordChangePage';
 import DashboardPage from './pages/DashboardPage/DashboardPage';
+import { useWorkspaceLocation } from './navigation/use-workspace-location';
 
 function AuthenticatedApp() {
   const { user, accessToken, status, isSubmitting, error, login, changePassword, logout } = useAuth();
+  const location = useWorkspaceLocation();
 
   if (status === 'loading') {
     return (
@@ -18,7 +20,12 @@ function AuthenticatedApp() {
   if (!user) return <LoginPage onAuthenticated={login} isSubmitting={isSubmitting} error={error} />;
   if (user.mustChangePassword) return <PasswordChangePage onSubmit={changePassword} error={error} />;
 
-  return <DashboardPage user={user} accessToken={accessToken} onLogout={logout} />;
+  async function logoutAndReturn() {
+    await logout();
+    location.replace('/');
+  }
+
+  return <DashboardPage user={user} accessToken={accessToken} pathname={location.pathname} onNavigate={location.navigate} onReplace={location.replace} onLogout={logoutAndReturn} />;
 }
 
 export default function App() {

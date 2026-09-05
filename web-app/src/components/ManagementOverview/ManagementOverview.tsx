@@ -30,31 +30,6 @@ export function ManagementOverview({ accessToken }: { accessToken: string | null
           <MetricCard label="Pedidos pendientes" value={metrics.pendingOrders.toString().padStart(2, '0')} detail="En cola de cafetería" accent="blue" direction={metrics.pendingOrders ? 'up' : 'steady'} />
         </div>
 
-        <div className="management-grid">
-          <section className="panel chart-panel" id="section-01">
-            <header className="panel-header"><div><p className="panel-kicker">Lectura operativa · ahora</p><h2>Estado de la operación</h2></div><span className="live-indicator"><i /> En vivo</span></header>
-            <div className="operation-summary-grid">
-              <div><span>Conexiones</span><strong>{metrics.operatorsOnline} operadores</strong><small>con actividad detectada</small></div>
-              <div><span>Sesiones</span><strong>{metrics.activeSessions} perfiles</strong><small>lanzamiento o sesión activa</small></div>
-              <div><span>Cobertura</span><strong>{coverage}%</strong><small>de los turnos vigentes</small></div>
-              <div><span>Cafetería</span><strong>{metrics.pendingOrders} pedidos</strong><small>requieren seguimiento</small></div>
-            </div>
-          </section>
-
-          <aside className="panel activity-panel" id="section-02">
-            <header className="panel-header"><div><p className="panel-kicker">Fuente de datos</p><h2>Semáforo operativo</h2></div><span className="live-indicator"><i /> Actualizado</span></header>
-            <div className="activity-list">
-              <div className="activity-item"><span className="activity-item__dot activity-item__dot--blue" /><div><strong>Sesiones</strong><span>{metrics.activeSessions ? 'Hay perfiles en operación' : 'Sin sesiones activas'}</span></div><time>Ahora</time></div>
-              <div className="activity-item"><span className={`activity-item__dot activity-item__dot--${coverage >= 90 ? 'blue' : 'orange'}`} /><div><strong>Cobertura de turnos</strong><span>{coverage >= 90 ? 'Dentro del objetivo operativo' : 'Requiere atención'}</span></div><time>Ahora</time></div>
-              <div className="activity-item"><span className={`activity-item__dot activity-item__dot--${metrics.pendingOrders ? 'orange' : 'navy'}`} /><div><strong>Pedidos</strong><span>{metrics.pendingOrders ? 'Hay pedidos en la cola KDS' : 'Cola despejada'}</span></div><time>Ahora</time></div>
-            </div>
-          </aside>
-        </div>
-
-        <section className="operation-strip" id="section-03">
-          <div><span className="operation-strip__icon">◈</span><span><strong>Datos operativos de Entrega 1</strong><small>Tableau, revenue e históricos de icebreakers quedan para Entrega 2.</small></span></div>
-          <span className="status-pill status-pill--active"><i aria-hidden="true" />Operativa</span>
-        </section>
       </>}
     </div>
   );

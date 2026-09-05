@@ -57,7 +57,9 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     const socket: Socket = io(`${socketOrigin()}/operations`, {
       auth: { token: accessToken },
       transports: ['websocket'],
+      autoConnect: false,
     });
+    let disposed = false;
     const onSnapshot = (payload: unknown) => {
       const parsed = cafeteriaOrderSchema.array().safeParse(payload);
       if (parsed.success) setOrders((current) => mergeOrders(current, parsed.data));
@@ -69,7 +71,11 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     socket.on('cafeteria.orders.snapshot', onSnapshot);
     socket.on('cafeteria.order.created', onChanged);
     socket.on('cafeteria.order.changed', onChanged);
+    queueMicrotask(() => {
+      if (!disposed) socket.connect();
+    });
     return () => {
+      disposed = true;
       socket.off('cafeteria.orders.snapshot', onSnapshot);
       socket.off('cafeteria.order.created', onChanged);
       socket.off('cafeteria.order.changed', onChanged);
