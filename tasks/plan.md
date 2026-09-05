@@ -2,7 +2,7 @@
 
 **Fecha de la auditoría:** 2026-08-13  
 **Alcance:** backend NestJS/Fastify, PostgreSQL, Redis, workers e integraciones que el backend debe exponer o consumir.  
-**Fuera de alcance de implementación de este plan:** UI web, código final de la extensión/helper, administración del VPS de Rocket.Chat y el motor FastAPI de IA. Sí se incluyen sus contratos, pruebas de integración y gates porque el backend no puede declarar completos los FR que dependen de ellos.
+**Fuera de alcance de implementación de este plan:** código final de la extensión/helper, administración del VPS de Rocket.Chat y el motor FastAPI de IA. La UI web estaba inicialmente fuera de alcance, pero el 2026-08-26 se autorizó continuar su implementación con el alcance verificable de Entrega 1: autenticación existente, perfiles asignados, turnos/breaks, semáforo y catálogo de perfiles sin secretos.
 
 ## 1. Objetivo y fuentes de verdad
 
@@ -74,10 +74,10 @@ Un FR solo pasa a **Cumple** cuando se verifican todos estos puntos:
 | FR | Estado / prioridad | Evidencia actual | Brecha concreta | Corrección y criterio de aceptación | Tareas |
 |---|---|---|---|---|---|
 | **FR-01** Login, JWT corto, refresh y scrypt | Parcial / P0 | `auth.controller.ts`, `auth.service.ts` y `crypto.ts` implementan login, refresh y scrypt asíncrono. | La rotación de refresh puede sufrir carrera; faltan pruebas de reutilización concurrente, política completa de cookie, rate limits por identidad/IP y confirmación de rehash al subir `log2N`. La ruta pública evade hoy IP. | Un solo refresh gana mediante update condicional/lock; la reutilización revoca la familia; cookies `HttpOnly`, `Secure`, `SameSite` y path explícitos; login no revela existencia; scrypt conserva parámetros y rehash en login; pruebas de ocho logins concurrentes y presión de memoria. | SEC-03, SEC-04, QUA-02 |
-| **FR-02** RBAC y RLS | Parcial crítico / P0 | Roles/permisos y `PermissionsGuard` existen; migración 0002 activa RLS en seis tablas. | `DIRECTOR_OPERATIVO` recibe todos los permisos de ADMIN sin matriz aprobada; muchas rutas no declaran permiso; coordinador no tiene alcance de cuadrilla consistente; la conexión `agency` parece propietaria y puede eludir RLS; solo seis tablas están cubiertas. | Matriz ruta×rol aprobada, denegación por defecto, filtros de cuadrilla en servicio y RLS, runtime con rol no propietario, pruebas cruzadas para ADMIN/DIRECTOR/COORDINADOR/OPERADOR/CAFETERIA/JOB. Ningún controlador sensible queda sin política explícita. | FND-04, SEC-01, SEC-02 |
+| **FR-02** RBAC y RLS | Parcial crítico / P0 | Roles/permisos y `PermissionsGuard` existen; la matriz OQ-01/OQ-02 está documentada en ADR 0009 y la migración 0014 replica el scope de cuadrilla en PostgreSQL. | Faltan ejecutar en el entorno del CI las pruebas cruzadas con la migración nueva y completar todos los dominios fuera de las seis tablas RLS actuales. | Matriz ruta×rol aprobada, denegación por defecto, filtros de cuadrilla en servicio y RLS, runtime con rol no propietario, pruebas cruzadas para ADMIN/DIRECTOR/COORDINADOR/OPERADOR/CAFETERIA/JOB. Ningún controlador sensible queda sin política explícita. | FND-04, SEC-01, SEC-02 |
 | **FR-03** Restricción por IP | No cumple en rutas públicas / P0 | `IpAllowlistGuard` consulta CIDR y scopes. | `@Public()` omite por completo el guard, por lo que login, refresh y enroll quedan abiertos; si no hay filas activas el guard permite; no hay configuración segura de proxies confiables. | Solo `/health/live` y `/health/ready` quedan fuera. Producción falla cerrado si no hay allowlist. `request.ip` solo acepta cabeceras reenviadas desde CIDR del balanceador. Pruebas con `X-Forwarded-For` falsificado, IPv4-mapped IPv6, CIDR expirado y scopes. | SEC-03 |
 | **FR-04** Operador solo en turno y horas extra | Parcial / P0 | `ShiftAccessService`, `ShiftWindowGuard`, checks de login/refresh, rangos `[)` y overrides revocables; materialización desde plantillas, cierre automático, relevo contiguo y CAS de sesiones en `backend/src/modules/jobs/jobs.service.ts` y `backend/src/modules/assignments/assignments.service.ts`; pruebas unitarias e integración PostgreSQL en `backend/src/test/integration/shift-access.int.spec.ts`, `backend/src/test/integration/shifts-and-crews.int.spec.ts` y `backend/src/test/integration/assignments.int.spec.ts`. | La ventana, el relevo y la concurrencia de heartbeat ya tienen base verificable, pero faltan proyección tiempo-real completa, overrides sobre turnos materializados y resolver el alcance RBAC/RLS condicionado por SEC-02. | Operador no obtiene ni renueva sesión fuera de un `shift`/override válido; toda acción operativa revalida la ventana; ADMIN/DIRECTOR/COORDINADOR/CAFETERIA usan reglas explícitas. Bordes semiabiertos `[)`, horarios 06:05/14:05/22:05, jornada nocturna, cierre idempotente, CAS y relevo 5/55 preparado por rangos probados. | SEC-06, OPS-02, OPS-03, OPS-05 |
-| **FR-05** Auditoría inmutable | No cumple / P0 | Tabla `audit_log`, check de claves secretas y lector administrativo existen. | No hay inserciones productivas; las revocaciones dependen de que exista `agency_app`; no hay partición/retención, catálogo de eventos ni garantía de registrar intentos denegados. | Escritor central transaccional registra acceso/denegación vault, comisión, asignación, publicación/revisión, seguridad y acciones administrativas; actor/IP/request/device/result presentes; solo rol de auditoría lee; nadie actualiza/borra; partición mensual y prueba de secreto prohibido. | SEC-07, SEC-08 |
+| **FR-05** Auditoría inmutable | Parcial / P0 | `AuditService` central, trigger append-only, check de claves secretas, serializer fail-closed y lector administrativo con cursor existen. | Falta definir retención legal/operativa (OQ-08) y partición mensual; las denegaciones de perímetro siguen deliberadamente best-effort y limitadas para no amplificar carga. | Escritor central transaccional registra acceso/denegación vault, comisión, asignación, publicación/revisión, seguridad y acciones administrativas; actor/IP/request/device/result presentes; solo rol de auditoría lee; nadie actualiza/borra; partición mensual y prueba de secreto prohibido. | SEC-07, SEC-08 |
 
 ### 5.2 FR-06 a FR-09 — perfiles y vault
 
@@ -332,7 +332,7 @@ No iniciar cambios funcionales hasta que build/lint/typecheck/unit/integration s
 - **Cubre:** FR-02, FR-06, FR-08, FR-09, FR-18, FR-20, FR-21–27, FR-28–35.
 - **Trabajo:** formalizar Director y alcance de coordinador; inventariar tablas; policies separadas por comando con `USING`/`WITH CHECK`; crew IDs/contexto request; `FORCE RLS` en sensibles; corregir policies que hoy excluyen coordinator/CAFETERIA o bloquean writes legítimos.
 - **Archivos probables:** nueva migración SQL, `database.service.ts`, `rls.int.spec.ts`, seed de roles/permisos.
-- **Dependencias:** SEC-01, FND-04; bloqueado parcialmente por decisiones OQ-01/OQ-02.
+- **Dependencias:** SEC-01, FND-04; la matriz OQ-01/OQ-02 está resuelta en ADR 0009.
 - **Aceptación:** matriz de pruebas positivas/negativas por rol y operación; operador A no infiere filas de B; coordinador A no ve crew B; CAFETERIA solo opera pedidos; JOB solo operaciones declaradas.
 - **Verificación/caso de abuso:** ejecutar el mismo test con `agency_app` real, nunca cambiando a un rol artificial solo dentro del spec.
 
@@ -657,7 +657,7 @@ Con un artefacto Tableau fijo, demostrar raw→staging→canonical→atribución
 - **Cubre:** FR-21, FR-25.
 - **Trabajo:** state machine DRAFT→EVALUATING→BLOCKED/APPROVED→PUBLISHED; CAS; validar assignment/profile/turno; jerarquía y crew de reviewer; notificación outbox; audit; resolver flujo de aprobación y falsos positivos/negativos.
 - **Archivos probables:** icebreaker service/repository, outbox contracts, migration states, integration tests.
-- **Dependencias:** ICE-02, ICE-03, ASY-02, SEC-07; OQ-02/OQ-03.
+- **Dependencias:** ICE-02, ICE-03, ASY-02, SEC-07; OQ-03.
 - **Aceptación:** versión bloqueada no se publica; editar invalida aprobación anterior; dos publish generan uno; superior ajeno no revisa; bloqueo+violation+notification son atómicos.
 - **Verificación/caso de abuso:** review propio, coordinator de otra crew, race edit/publish y caída del dispatcher.
 
@@ -919,8 +919,8 @@ Reglas transversales para todas las colecciones: `limit` máximo, cursor estable
 
 | ID | Decisión requerida | Bloquea | Cómo se resuelve |
 |---|---|---|---|
-| **OQ-01** | Facultades exactas de DIRECTOR_OPERATIVO frente a ADMIN. | SEC-02, PAY-04, acciones administrativas. | Taller con cliente + matriz ruta/permiso; no copiar “all”. |
-| **OQ-02** | Qué cuadrillas controla cada coordinador y quién es “superior” para reviews. | SEC-02, ICE-04, MET-07. | Formalizar membership temporal y jerarquía; casos con coordinador sustituto. |
+| **OQ-01** | **Resuelta:** ADMIN conserva usuarios, RBAC, seguridad, configuración y vault; DIRECTOR_OPERATIVO opera globalmente sin esas facultades. | — | ADR 0009 + seed reconciliable + pruebas de permisos. |
+| **OQ-02** | **Resuelta:** Coordinador se limita a su cuadrilla vigente; Director/ADMIN revisan globalmente; Operador solo sus propios icebreakers. | — | ADR 0009 + scope de servicio y RLS; faltan pruebas de CI. |
 | **OQ-03** | Flujo de aprobación, score mínimo, reglas TalkyTimes y regla operativa de descansos/mensajes. | OPS-06, ICE-04. | Respuesta del cliente incorporada como configuración/version, no hardcode. |
 | **OQ-04** | **Resuelta parcialmente:** PAT, sitio `partnerdata`, API `3.29`, inventario y Revenue detailed confirmados. REST `vf_` no admite rangos. | Ninguno para el cliente Tableau base; la worksheet temporal queda en OQ-05. | Mantener manifiesto sanitizado y cliente con allowlist; no usar `vf_` como control de ventana. |
 | **OQ-05** | Worksheet **plana horaria** de puntos/revenue, columnas, nulls, row count, timezone embebida e historial de cambios. La expansión UI no está disponible por REST; Revenue detailed es resumen y SourceID semanal. | MET-04/MET-05/MET-06. | Publicar/identificar la worksheet, firmar data contract con muestras anonimizadas y control totals. |
@@ -930,10 +930,10 @@ Reglas transversales para todas las colecciones: `limit` máximo, cursor estable
 | **OQ-09** | Fórmulas exactas: COP/punto, comisión, días, metas, tiers, bonos y eventos. | PAY-02/PAY-03. | Casos dorados firmados antes de programar cálculo. |
 | **OQ-10** | Credenciales/API, naming y membresías de Rocket.Chat; objetivo de latencia medido desde qué punto. | COM-01/COM-02. | Usar despliegue documentado y cuenta de servicio mínima; definir SLI commit→visible. |
 | **OQ-11** | Resultado de spikes Feature #9/FR-39 y límites permitidos. | INT-02/INT-03. | Evidencia técnica y decisión viable/parcial/no viable; flags siguen off. |
-| **OQ-12** | Infraestructura final: LB/proxy CIDRs, Redis/PG HA, object storage, RPO/RTO. | SEC-03, ASY-03, PAY-05, QUA-03. | Diseño de despliegue antes de pruebas HA, coherente con costo contratado. |
+| **OQ-12** | **Resuelta:** baseline de dos API stateless + LB, worker separado con leases, PostgreSQL/Redis HA, object storage privado, backup/PITR, RPO 5 min y RTO 30 min; los CIDR reales son parámetros del proveedor. | Ninguna decisión de diseño; QUA-03 conserva la prueba de failover/restore. | Ejecutar el game day y registrar métricas sobre el proveedor contratado. |
 | **OQ-13** | Máximo real de perfiles concurrentes por operador/PC. | OPS-03, INT-01, QUA-02. | Medición con 5 y 8 perfiles en PC objetivo; configurar límite, no hardcode. |
 
-Las OQ-01/OQ-02 y OQ-09 bloquean autorización/dinero y deben resolverse antes de sus migraciones finales. Las de Tableau no bloquean cerrar SEC/OPS/ASY. Los gates de TalkyTimes no justifican retrasar la seguridad del vault ya implementado.
+OQ-09 sigue bloqueando autorización de dinero y debe resolverse antes de cerrar nómina. OQ-01/OQ-02 ya tienen decisión y solo requieren completar su evidencia de pruebas. Las de Tableau no bloquean cerrar SEC/OPS/ASY. Los gates de TalkyTimes no justifican retrasar la seguridad del vault ya implementado.
 
 ## 12. Registro de riesgos de ejecución
 

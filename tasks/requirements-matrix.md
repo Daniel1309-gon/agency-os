@@ -61,7 +61,7 @@ decisión explícita). Una pregunta abierta nunca convierte un requisito en comp
 | NFR-SECURITY | Seguridad | `PARTIAL` | QUA-01 | [`http-security.int.spec.ts`](../backend/src/test/integration/http-security.int.spec.ts); faltan roles DB, RLS total y E2E. |
 | NFR-PERFORMANCE | Rendimiento | `PARTIAL` | QUA-02 | Scrypt tiene pruebas en [`crypto.spec.ts`](../backend/src/common/auth/crypto.spec.ts); falta carga en infraestructura objetivo. |
 | NFR-COMPATIBILITY | Compatibilidad | `PARTIAL` | FND-04, INT-01 | Contratos iniciales en [`packages/shared`](../packages/shared/src/contracts/agency.ts); falta snapshot OpenAPI y extensión real. |
-| NFR-AVAILABILITY_HA | Disponibilidad/HA | `PARTIAL` | ASY-01, ASY-03, QUA-03 | Redis real probado en [`realtime-redis.int.spec.ts`](../backend/src/test/integration/realtime-redis.int.spec.ts); falta failover/dos APIs. |
+| NFR-AVAILABILITY_HA | Disponibilidad/HA | `PARTIAL` | ASY-01, ASY-03, QUA-03 | Redis real probado en [`realtime-redis.int.spec.ts`](../backend/src/test/integration/realtime-redis.int.spec.ts); dos APIs y restore local PASS en [`ha-local-game-day-2026-08-26.md`](evidence/ha-local-game-day-2026-08-26.md); falta failover HA gestionado y RPO/RTO. |
 | NFR-MAINTAINABILITY | Mantenibilidad | `PARTIAL` | FND-05, QUA-04 | Toolchain reproducible documentado en [`CLAUDE.md`](../CLAUDE.md); faltan boundaries y repository/port. |
 
 ## Registro de decisiones abiertas
@@ -72,8 +72,8 @@ pregunta continúa abierta.
 
 | ID | Estado | Responsable | Fecha límite | Bloquea | Pregunta pendiente |
 |---|---|---|---|---|---|
-| OQ-01 | `OPEN` | Clienta decide; Daniel coordina | 2026-08-24 | SEC-02 | Facultades exactas de Director Operativo frente a ADMIN. |
-| OQ-02 | `OPEN` | Clienta decide; Daniel coordina | 2026-08-24 | SEC-02, ICE-04 | Alcance de Coordinador y jerarquía de reviews. |
+| OQ-01 | `RESOLVED` | Daniel documenta la matriz | 2026-08-24 | — | ADMIN conserva usuarios, RBAC, seguridad, configuración y vault; Director Operativo opera globalmente sin esas facultades. |
+| OQ-02 | `RESOLVED` | Daniel documenta la matriz | 2026-08-24 | — | Coordinador queda limitado a su cuadrilla vigente y revisa sus icebreakers; Director/ADMIN revisan globalmente; Operador solo los propios. |
 | OQ-03 | `OPEN` | Clienta decide; Daniel coordina | 2026-08-31 | OPS-06, ICE-04 | Reglas de breaks, score y aprobación. |
 | OQ-04 | `PARTIAL` | Daniel + responsable Tableau | 2026-09-18 | MET-03 | PAT/inventario confirmados; queda cerrar el insumo temporal. |
 | OQ-05 | `OPEN` | Responsable Tableau del cliente | 2026-09-18 | MET-04, MET-05 | Data contract de worksheet plana horaria. |
@@ -83,12 +83,12 @@ pregunta continúa abierta.
 | OQ-09 | `OPEN` | Clienta decide; Daniel modela | 2026-10-02 | PAY-02, PAY-04 | Fórmulas exactas de pago, metas, bonos y eventos. |
 | OQ-10 | `OPEN` | Clienta entrega credencial; Daniel integra | 2026-08-28 | COM-01, COM-02 | Cuenta de servicio, naming y reglas Rocket.Chat. |
 | OQ-11 | `OPEN` | Clienta autoriza; Daniel ejecuta spike | 2026-09-11 | INT-02, INT-03 | Gates Feature #9/FR-39 y límites permitidos. |
-| OQ-12 | `OPEN` | Daniel diseña; clienta aprueba costo | 2026-08-28 | SEC-03, ASY-03, QUA-03 | Topología HA, storage, RPO/RTO y proxies. |
+| OQ-12 | `RESOLVED` | Daniel: baseline de producción | 2026-08-28 | — | Dos API stateless + LB gestionado, worker separado con leases, PostgreSQL/Redis HA, storage privado, backup/PITR, RPO 5 min, RTO 30 min y CIDR del proxy obligatorio al desplegar. |
 | OQ-13 | `OPEN` | Daniel mide; clienta facilita PC | 2026-09-11 | INT-01, QUA-02 | Máximo real de perfiles concurrentes. |
 
 ## Gates externos activos de Entrega 1
 
 - `INT-01`: PC Windows de prueba, helper, extensión forcelist, credenciales TalkyTimes autorizadas y prueba con ocho perfiles.
-- `OQ-01`/`OQ-02`: bloquean la matriz definitiva de autorización, no la preparación de roles DB.
+- `OQ-01`/`OQ-02`: resueltas en la matriz y ADR 0009; SEC-02 conserva la ejecución de pruebas RLS.
 - `OQ-10`: bloquea reconciliación y SLA reales de Rocket.Chat.
 - Las OQ de Tableau no bloquean cerrar SEC/OPS/ASY de Entrega 1.

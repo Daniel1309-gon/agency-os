@@ -53,8 +53,8 @@
     { "id": "NFR-MAINTAINABILITY", "status": "PARTIAL", "delivery": ["E1", "E2", "E3"], "tasks": ["FND-05", "QUA-04"], "evidence": ["CLAUDE.md"] }
   ],
   "openQuestions": [
-    { "id": "OQ-01", "status": "OPEN", "question": "Facultades exactas de DIRECTOR_OPERATIVO frente a ADMIN", "owner": "Clienta (decide) + Daniel (coordina)", "dueDate": "2026-08-24", "blocks": ["SEC-02"] },
-    { "id": "OQ-02", "status": "OPEN", "question": "Alcance de Coordinador y jerarquía de reviews", "owner": "Clienta (decide) + Daniel (coordina)", "dueDate": "2026-08-24", "blocks": ["SEC-02", "ICE-04"] },
+    { "id": "OQ-01", "status": "RESOLVED", "question": "Facultades exactas de DIRECTOR_OPERATIVO frente a ADMIN", "owner": "Daniel (decide la matriz operativa documentada)", "dueDate": "2026-08-24", "blocks": [], "resolution": "ADMIN conserva usuarios, RBAC, seguridad, configuración y vault; DIRECTOR_OPERATIVO tiene visibilidad y operación global, sin esas facultades administrativas." },
+    { "id": "OQ-02", "status": "RESOLVED", "question": "Alcance de Coordinador y jerarquía de reviews", "owner": "Daniel (decide la matriz operativa documentada)", "dueDate": "2026-08-24", "blocks": [], "resolution": "COORDINADOR opera únicamente sobre su cuadrilla vigente; puede revisar icebreakers de sus operadores. DIRECTOR_OPERATIVO y ADMIN revisan globalmente; OPERADOR solo crea, evalúa y publica los propios." },
     { "id": "OQ-03", "status": "OPEN", "question": "Reglas de breaks, score y aprobación", "owner": "Clienta (decide) + Daniel (coordina)", "dueDate": "2026-08-31", "blocks": ["OPS-06", "ICE-04"] },
     { "id": "OQ-04", "status": "PARTIAL", "question": "Cerrar el insumo temporal de Tableau tras confirmar PAT e inventario", "owner": "Daniel + responsable Tableau del cliente", "dueDate": "2026-09-18", "blocks": ["MET-03"] },
     { "id": "OQ-05", "status": "OPEN", "question": "Data contract de worksheet plana horaria", "owner": "Responsable Tableau del cliente", "dueDate": "2026-09-18", "blocks": ["MET-04", "MET-05"] },
@@ -64,7 +64,7 @@
     { "id": "OQ-09", "status": "OPEN", "question": "Fórmulas exactas de pago, metas, bonos y eventos", "owner": "Clienta (decide) + Daniel (modela)", "dueDate": "2026-10-02", "blocks": ["PAY-02", "PAY-04"] },
     { "id": "OQ-10", "status": "OPEN", "question": "Cuenta de servicio, naming y reglas Rocket.Chat", "owner": "Clienta (credencial) + Daniel (integra)", "dueDate": "2026-08-28", "blocks": ["COM-01", "COM-02"] },
     { "id": "OQ-11", "status": "OPEN", "question": "Gates Feature 9 y FR-39 y límites permitidos", "owner": "Clienta (autoriza) + Daniel (ejecuta spike)", "dueDate": "2026-09-11", "blocks": ["INT-02", "INT-03"] },
-    { "id": "OQ-12", "status": "OPEN", "question": "Topología HA, storage, RPO/RTO y proxies", "owner": "Daniel (diseña) + clienta (aprueba costo)", "dueDate": "2026-08-28", "blocks": ["SEC-03", "ASY-03", "QUA-03"] },
+    { "id": "OQ-12", "status": "RESOLVED", "question": "Topología HA, storage, RPO/RTO y proxies", "owner": "Daniel (diseño base aprobado para Entrega 1)", "dueDate": "2026-08-28", "blocks": [], "resolution": "Baseline de producción: dos API stateless detrás de LB gestionado, worker separado con lease en PostgreSQL, PostgreSQL HA con failover y PITR, Redis HA, object storage privado para exportes/raw, backup diario verificado, RPO máximo 5 min y RTO objetivo 30 min. TRUSTED_PROXY_CIDRS es obligatorio y fail-closed; los CIDR reales se parametrizan al desplegar." },
     { "id": "OQ-13", "status": "OPEN", "question": "Máximo real de perfiles concurrentes por PC y operador", "owner": "Daniel (mide) + clienta (facilita PC)", "dueDate": "2026-09-11", "blocks": ["INT-01", "QUA-02"] }
   ]
 }
