@@ -92,8 +92,14 @@ let cachedCleanup: string | null = null;
  */
 export async function resetDatabase(context: TestContext): Promise<void> {
   if (!cachedCleanup) {
+    // Las particiones quedan fuera: el DELETE sobre la tabla particionada ya las vacia, y
+    // enumerarlas dejaria la lista cacheada apuntando a una particion que la retencion de
+    // audit_log puede haber borrado entre medias.
     const result = await context.pool.query<{ tablename: string }>(
-      "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+      `SELECT c.relname AS tablename
+       FROM pg_class c
+       INNER JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition`,
     );
     cachedCleanup = result.rows.map((row) => `DELETE FROM "public"."${row.tablename}";`).join('\n');
   }

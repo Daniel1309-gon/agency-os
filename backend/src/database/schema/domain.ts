@@ -132,7 +132,7 @@ export const loginAttempts = pgTable('login_attempts', {
 export const auditLog = pgTable(
   'audit_log',
   {
-    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    id: bigint('id', { mode: 'number' }).generatedAlwaysAsIdentity(),
     occurredAt: ts('occurred_at').notNull().defaultNow(),
     actorType: varchar('actor_type', { length: 16 }).notNull(),
     actorUserId: uuid('actor_user_id').references(() => users.id),
@@ -145,7 +145,12 @@ export const auditLog = pgTable(
     requestId: text('request_id'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
   },
-  (t) => ({ auditOccurredAt: index('audit_log_occurred_at_idx').on(t.occurredAt) }),
+  // audit_log está particionada por mes sobre occurred_at, así que la clave de partición
+  // forma parte de la PK. Ver 0016_partition_audit_log.sql.
+  (t) => ({
+    auditOccurredAt: index('audit_log_occurred_at_idx').on(t.occurredAt),
+    auditPk: primaryKey({ columns: [t.id, t.occurredAt], name: 'audit_log_pkey' }),
+  }),
 );
 
 export const ttProfiles = pgTable(

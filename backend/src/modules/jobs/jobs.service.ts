@@ -19,6 +19,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.timers.push(setInterval(() => void this.runExclusive('shifts:materialize', 55, async () => { await this.materializeShifts(); }), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('shifts:open-close', 55, () => this.closeExpiredShifts()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('breaks:notify', 55, () => this.notifyUpcomingBreaks()), 60_000));
+    // Las particiones tienen que existir antes del primer INSERT del mes, no una hora
+    // después de arrancar; el resto del día basta con revisarlas cada hora.
+    void this.runExclusive('audit:partitions', 300, () => this.maintainAuditPartitions());
+    this.timers.push(setInterval(() => void this.runExclusive('audit:partitions', 300, () => this.maintainAuditPartitions()), 3_600_000));
   }
 
   async onModuleDestroy(): Promise<void> { for (const timer of this.timers) clearInterval(timer); }
@@ -27,6 +31,21 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const token = await this.redis.acquireLock(`agency:job:${name}`, ttl).catch(() => null);
     if (!token) return;
     try { await work(); } finally { await this.redis.releaseLock(`agency:job:${name}`, token).catch(() => undefined); }
+  }
+
+  /**
+   * Crea las particiones de audit_log por adelantado y aplica la retención configurada.
+   * `audit.retention_months = 0` conserva todo, que es lo que corresponde mientras OQ-08
+   * siga abierta: nadie ha fijado todavía cuántos meses de auditoría hay que guardar.
+   */
+  private async maintainAuditPartitions(): Promise<void> {
+    await this.db.db.execute(sql`
+      SELECT audit_log_maintain(2, COALESCE((
+        SELECT CASE WHEN jsonb_typeof(value) = 'number' THEN greatest((value #>> '{}')::int, 0) END
+        FROM app_settings
+        WHERE key = 'audit.retention_months'
+      ), 0))
+    `);
   }
 
   private async reapSessions(): Promise<void> {

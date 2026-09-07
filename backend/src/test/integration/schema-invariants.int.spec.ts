@@ -340,6 +340,82 @@ describe('decision #8 — the audit log cannot carry a secret in a first-level k
   });
 });
 
+describe('audit_log is partitioned by month and stays append-only in every partition', () => {
+  it('routes an insert into the partition of its month', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    await ctx.pool.query("SELECT audit_log_ensure_partition('2026-09-01'::date)");
+    await ctx.db.insert(auditLog).values({
+      actorType: 'USER',
+      actorUserId: actor.id,
+      action: 'setting.updated',
+      result: 'SUCCESS',
+      occurredAt: new Date('2026-09-15T12:00:00Z'),
+    });
+
+    const routed = await ctx.pool.query(
+      "SELECT tableoid::regclass::text AS partition FROM audit_log WHERE occurred_at = '2026-09-15T12:00:00Z'",
+    );
+    expect(routed.rows[0].partition).toBe('audit_log_2026_09');
+  });
+
+  it('rejects TRUNCATE on a partition, not only on the parent', async () => {
+    // Los triggers de fila se clonan a cada particion, pero los de TRUNCATE no. Sin un
+    // trigger por particion, truncar audit_log_2026_09 borraria un mes de auditoria
+    // saltandose la inmutabilidad de 0004. Esta prueba es la que guarda ese hueco.
+    await ctx.pool.query("SELECT audit_log_ensure_partition('2026-09-01'::date)");
+    await expect(ctx.pool.query('TRUNCATE audit_log')).rejects.toThrow(/append-only/);
+    await expect(ctx.pool.query('TRUNCATE audit_log_2026_09')).rejects.toThrow(/append-only/);
+    await expect(ctx.pool.query('TRUNCATE audit_log_default')).rejects.toThrow(/append-only/);
+  });
+
+  it('keeps UPDATE and DELETE rejected after partitioning', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    await ctx.db.insert(auditLog).values({
+      actorType: 'USER',
+      actorUserId: actor.id,
+      action: 'setting.updated',
+      result: 'SUCCESS',
+    });
+
+    await expect(ctx.pool.query("UPDATE audit_log SET action = 'tampered'")).rejects.toThrow(/append-only/);
+    await expect(ctx.pool.query('DELETE FROM audit_log')).rejects.toThrow(/append-only/);
+  });
+
+  it('creates partitions ahead and drops only what the retention leaves behind', async () => {
+    const old = 'audit_log_2020_01';
+    await ctx.pool.query("SELECT audit_log_ensure_partition('2020-01-01'::date)");
+    const before = await ctx.pool.query('SELECT to_regclass($1) AS present', [old]);
+    expect(before.rows[0].present).toBe(old);
+
+    // Retencion 0 = OQ-08 abierta = no se borra nada.
+    const kept = await ctx.pool.query('SELECT audit_log_maintain(2, 0) AS result');
+    expect(kept.rows[0].result.dropped).toEqual([]);
+    expect((await ctx.pool.query('SELECT to_regclass($1) AS present', [old])).rows[0].present).toBe(old);
+
+    // Con retencion de 12 meses, una particion de 2020 ya esta vencida.
+    const swept = await ctx.pool.query('SELECT audit_log_maintain(2, 12) AS result');
+    expect(swept.rows[0].result.dropped).toContain(old);
+    expect((await ctx.pool.query('SELECT to_regclass($1) AS present', [old])).rows[0].present).toBeNull();
+  });
+
+  it('creates the current month and the next two, and never drops the default partition', async () => {
+    const result = await ctx.pool.query('SELECT audit_log_maintain(2, 1) AS result');
+    expect(result.rows[0].result.dropped).not.toContain('audit_log_default');
+
+    const months = await ctx.pool.query(`
+      SELECT count(*)::int AS total
+      FROM pg_inherits inh
+      INNER JOIN pg_class child ON child.oid = inh.inhrelid
+      WHERE inh.inhparent = 'public.audit_log'::regclass
+        AND child.relname ~ '^audit_log_[0-9]{4}_[0-9]{2}$'
+        AND to_date(right(child.relname, 7), 'YYYY_MM')
+            >= date_trunc('month', now() AT TIME ZONE 'UTC')::date
+    `);
+    expect(months.rows[0].total).toBeGreaterThanOrEqual(3);
+    expect((await ctx.pool.query("SELECT to_regclass('audit_log_default') AS present")).rows[0].present).toBe('audit_log_default');
+  });
+});
+
 describe('a closed payroll period is closed for writing', () => {
   it('rejects ledger and account writes inside a CLOSED or PAID period', async () => {
     const operator = await createUser(ctx);

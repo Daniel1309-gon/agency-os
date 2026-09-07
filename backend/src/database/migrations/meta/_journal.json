@@ -113,6 +113,13 @@
       "when": 1788002000000,
       "tag": "0015_outbox_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788003000000,
+      "tag": "0016_partition_audit_log",
+      "breakpoints": true
     }
   ]
 }

@@ -103,6 +103,7 @@ async function seed(): Promise<void> {
       { key: 'metrics.reconciliation_tolerance', value: 0.01, description: 'Allowed points difference', isSecret: false },
       { key: 'auth.login_rate_limit', value: { max: 5, windowSeconds: 900 }, description: 'Login rate limit', isSecret: false },
       { key: 'shifts.grace_minutes', value: 0, description: 'Shift handoff grace period', isSecret: false },
+      { key: 'audit.retention_months', value: 0, description: 'Months of audit_log to keep; 0 keeps every partition until OQ-08 fixes the period', isSecret: false },
     ]).onConflictDoNothing();
     await db.insert(featureFlags).values([
       { key: 'fr39.interactions', isEnabled: false, description: 'Interaction automation gated by spike' },
