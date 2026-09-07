@@ -1,0 +1,4 @@
+# Byte-compared generated artifacts: the generators emit LF, so checkout must not
+# rewrite them to CRLF or `pnpm test:contracts` fails on Windows only.
+backend/openapi.snapshot.json eol=lf
+tasks/route-policy-matrix.md eol=lf
