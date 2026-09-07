@@ -48,5 +48,7 @@ se normalizó la copia de trabajo. Solo afectaba a estaciones Windows; en CI Lin
 
 ## Lo que este run no cierra
 
-No sustituye un run de GitHub Actions desde clon limpio, ni los Checkpoints 1–3, ni los gates
+El mismo commit corrió en GitHub Actions: [run 34163719832](https://github.com/Daniel1309-gon/agency-os/actions/runs/34163719832),
+verde en los tres jobs (calidad, imágenes de estación, migraciones/seed/integración).
+No sustituye los Checkpoints 1–3, ni los gates
 externos INT-01, OQ-03, OQ-10 y OQ-13.
