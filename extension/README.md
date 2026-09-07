@@ -3,6 +3,11 @@
 Este directorio es un proyecto independiente del backend y del frontend. No comparte `node_modules`
 ni dependencias npm con ellos.
 
+**Distribución elegida (2026-09-07):** Chrome Web Store no listada + instalación forzada.
+Ver [paquete piloto, registro e instalación](CHROME-WEB-STORE.md). Para preparar el ZIP local:
+`npm run package:webstore -- --local`. Los comandos CRX siguientes corresponden al ensayo anterior
+de distribución privada; no son el procedimiento del piloto de la tienda.
+
 ```powershell
 npm run check
 npm run check:js

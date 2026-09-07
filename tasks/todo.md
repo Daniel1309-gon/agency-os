@@ -1,5 +1,21 @@
 # Checklist de ejecución — remediación backend Agency OS
 
+## Corrección propuesta — inicio de turno (2026-09-07)
+
+Plan y aceptación por tarea: [inicio-turno-plan.md](inicio-turno-plan.md). Distribución elegida: Chrome Web Store no listada + instalación forzada. Paquete piloto local y script preparados con pruebas; publicación e instalación real pendientes. Ver [procedimiento](../extension/CHROME-WEB-STORE.md).
+
+- [ ] T1. Reproducir Luna y Mar y comprobar la ruta real de la ventana afectada.
+- [ ] T2. Validar distribución automática en una estación dedicada.
+- [ ] T3. Detectar extensión/helper/configuración/credenciales faltantes antes de lanzar.
+- [ ] Checkpoint 1. Instalación repetible y diagnóstico visible.
+- [ ] T4. Alinear estados, autorización de handoff y plazos sin ampliar el grant de 60 s.
+- [ ] T5. Confirmar la extensión en el perfil destino.
+- [ ] T6. Separar formulario listo de autenticación confirmada.
+- [ ] T7. Implementar heartbeat recuperable y cierre local en el relevo.
+- [ ] Checkpoint 2. Un perfil completa todo el ciclo y se recupera sin estados falsos.
+- [ ] T8. Abrir todos los perfiles y reintentar únicamente los fallidos.
+- [ ] T9. Ensayar 20 rondas con seis perfiles, luego ocho, y desplegar por etapas.
+
 Plan detallado: [`tasks/plan.md`](plan.md). Marcar una tarea solo cuando sus criterios de aceptación **y** verificación estén adjuntos como evidencia. La existencia de código, tabla o test no ejecutado no cuenta como completado.
 
 ## Reglas de trabajo

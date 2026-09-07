@@ -1,12 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const templatePath = join(root, 'chrome-extension', 'manifest.template.json');
 const outputPath = join(root, 'chrome-extension', 'manifest.json');
-const webOrigin = process.env.AGENCY_OS_WEB_APP_ORIGIN || 'https://app.agency-os.example';
-const apiOrigin = process.env.AGENCY_OS_API_ORIGIN || 'https://api.agency-os.example';
 
 function exactOrigin(value, name) {
   const parsed = new URL(value);
@@ -17,9 +15,17 @@ function exactOrigin(value, name) {
   return parsed.origin;
 }
 
-const template = await readFile(templatePath, 'utf8');
-const manifest = template
-  .replaceAll('__WEB_APP_ORIGIN__', exactOrigin(webOrigin, 'AGENCY_OS_WEB_APP_ORIGIN'))
-  .replaceAll('__API_ORIGIN__', exactOrigin(apiOrigin, 'AGENCY_OS_API_ORIGIN'));
-await writeFile(outputPath, `${manifest.trim()}\n`, 'utf8');
-console.log(`manifest rendered for ${webOrigin} and ${apiOrigin}`);
+export async function renderManifest(webOrigin, apiOrigin) {
+  const template = await readFile(templatePath, 'utf8');
+  return JSON.parse(template
+    .replaceAll('__WEB_APP_ORIGIN__', exactOrigin(webOrigin, 'AGENCY_OS_WEB_APP_ORIGIN'))
+    .replaceAll('__API_ORIGIN__', exactOrigin(apiOrigin, 'AGENCY_OS_API_ORIGIN')));
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const webOrigin = process.env.AGENCY_OS_WEB_APP_ORIGIN || 'https://app.agency-os.example';
+  const apiOrigin = process.env.AGENCY_OS_API_ORIGIN || 'https://api.agency-os.example';
+  const manifest = await renderManifest(webOrigin, apiOrigin);
+  await writeFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  console.log(`manifest rendered for ${webOrigin} and ${apiOrigin}`);
+}

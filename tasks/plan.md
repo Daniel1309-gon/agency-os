@@ -1,5 +1,7 @@
 # Plan de remediación del backend contra Agency OS v2.2
 
+Plan complementario del 2026-09-07: [inicio de turno y apertura fiable de perfiles](inicio-turno-plan.md). Distribución elegida: Chrome Web Store no listada + instalación forzada; paquete y script preparados para piloto local, publicación pendiente. Confirmación del destino, estados de login, heartbeat y reintentos aún sin implementar.
+
 **Fecha de la auditoría:** 2026-08-13  
 **Alcance:** backend NestJS/Fastify, PostgreSQL, Redis, workers e integraciones que el backend debe exponer o consumir.  
 **Fuera de alcance de implementación de este plan:** código final de la extensión/helper, administración del VPS de Rocket.Chat y el motor FastAPI de IA. La UI web estaba inicialmente fuera de alcance, pero el 2026-08-26 se autorizó continuar su implementación con el alcance verificable de Entrega 1: autenticación existente, perfiles asignados, turnos/breaks, semáforo y catálogo de perfiles sin secretos.
