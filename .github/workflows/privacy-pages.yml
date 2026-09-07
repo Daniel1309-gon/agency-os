@@ -1,0 +1,47 @@
+name: Deploy privacy policy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - docs/privacy.html
+      - .github/workflows/privacy-pages.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Refuse incomplete policy
+        run: |
+          if grep -nE '\[COMPLETAR|PENDIENTE|REEMPLAZAR' docs/privacy.html; then
+            echo 'La política aún contiene campos obligatorios pendientes.' >&2
+            exit 1
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload policy
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

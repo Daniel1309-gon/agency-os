@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de privacidad — Agency OS</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; line-height: 1.6; }
+    body { margin: 0; background: #f6f7f9; color: #1f2937; }
+    main { box-sizing: border-box; max-width: 820px; margin: 0 auto; padding: 48px 24px; }
+    article { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px; }
+    h1 { margin-top: 0; line-height: 1.2; }
+    h2 { margin-top: 32px; font-size: 1.2rem; }
+    .updated { color: #6b7280; }
+    code { background: #f3f4f6; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Política de privacidad</h1>
+      <p class="updated">Agency OS — Acceso seguro a TalkyTimes BETA<br>Última actualización: 7 de septiembre de 2026</p>
+
+      <h2>Responsable y contacto</h2>
+      <p><strong>Responsable:</strong> Caroll Corredor</p>
+      <p><strong>Contacto de privacidad:</strong> <a href="mailto:admin.sistemas@globalcompanylatam.com">admin.sistemas@globalcompanylatam.com</a></p>
+
+      <h2>Alcance y finalidad</h2>
+      <p>Esta política aplica a la extensión de Chrome “Agency OS - Acceso seguro a TalkyTimes BETA”. Su única finalidad es preparar el acceso del operador a los perfiles de TalkyTimes que le fueron asignados por Agency OS.</p>
+
+      <h2>Datos que procesa la extensión</h2>
+      <ul>
+        <li>Token de autenticación del operador y token revocable de la estación.</li>
+        <li>Identificadores del perfil y de la sesión de Agency OS.</li>
+        <li>Usuario y contraseña de la cuenta de TalkyTimes autorizada para ese perfil.</li>
+        <li>Directorio de perfil de Chrome, versión de la extensión y estado de la inyección.</li>
+        <li>Dirección IP de origen de las solicitudes recibidas por el API de Agency OS.</li>
+      </ul>
+
+      <h2>Cómo se usan los datos</h2>
+      <p>Los tokens e identificadores se envían al API de Agency OS para comprobar la estación, la sesión y la asignación vigente. La credencial autorizada se recibe del API, se coloca en el formulario de inicio de sesión de TalkyTimes y la página de TalkyTimes la utiliza para iniciar sesión.</p>
+      <p>La extensión no guarda la contraseña en <code>storage.local</code>, <code>storage.sync</code> ni en archivos. La contraseña puede existir temporalmente en memoria y en el campo del formulario durante el acceso. El token de estación se conserva mediante la configuración administrada de Windows y el contexto temporal de la sesión usa <code>storage.session</code>.</p>
+
+      <h2>Compartición y transferencias</h2>
+      <p>Los datos se transmiten únicamente a Agency OS y a TalkyTimes cuando es necesario para la finalidad descrita. No vendemos datos, no los usamos para publicidad personalizada y no los usamos para determinar solvencia ni ofrecer préstamos. No compartimos datos con terceros no relacionados con esa finalidad.</p>
+
+      <h2>Conservación y eliminación</h2>
+      <p>Los datos asociados a un perfil se conservan mientras el perfil está activo. Después de darlo de baja, se eliminan en un plazo de 14 días. Los tokens de estación permanecen hasta su rotación o revocación. El contexto temporal de la extensión se elimina al cerrar o limpiar la sesión.</p>
+      <p>Para solicitar la eliminación o ejercer otros derechos, escribe al contacto de privacidad indicando el perfil correspondiente.</p>
+
+      <h2>Seguridad</h2>
+      <p>La extensión usa conexiones seguras cuando opera contra servicios HTTPS. Los accesos están limitados por la sesión, la asignación, la estación autorizada y los controles del backend. Ninguna medida técnica garantiza que un usuario con herramientas de desarrollo pueda leer datos que estén temporalmente en memoria o en el DOM.</p>
+
+      <h2>Uso limitado de datos</h2>
+      <p>El uso de la información recibida por la extensión se limita a proporcionar y proteger su única función descrita: preparar el acceso del operador a los perfiles de TalkyTimes asignados. No usamos esos datos para publicidad, venta de información, calificación crediticia ni fines ajenos a esa función.</p>
+
+      <h2>Solicitudes</h2>
+      <p>Para consultar, corregir o solicitar la eliminación de datos, utiliza el contacto de privacidad indicado arriba. La solicitud puede requerir verificar la identidad y la relación con la cuenta o estación correspondiente.</p>
+    </article>
+  </main>
+</body>
+</html>
