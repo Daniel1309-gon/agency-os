@@ -8,7 +8,11 @@ export const botWebhookSchema = z.object({
   timestamp: z.coerce.date(),
   text: z.string().min(1).max(2000),
   trigger_word: z.string().trim().min(1).max(80),
-}).strict();
+});
+// Sin .strict(): Rocket.Chat manda ademas channel_name, user_name, bot, siteUrl y otros
+// campos que varian entre versiones. Rechazar el payload entero por una clave de mas
+// hacia que toda integracion real se descartara en silencio. Zod ignora las extra, que es
+// lo que pide la normalizacion en la frontera: quedarse con lo declarado y nada mas.
 
 export interface BotWebhookInput {
   token: string;

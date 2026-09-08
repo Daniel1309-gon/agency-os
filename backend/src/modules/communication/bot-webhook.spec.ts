@@ -26,6 +26,21 @@ describe('Rocket.Chat webhook boundary', () => {
 
   it('rejects malformed native payloads without throwing at the webhook boundary', () => {
     expect(normalizeRocketChatWebhook({ ...payload, channel_id: undefined })).toBeUndefined();
+
+    // El payload real de Rocket.Chat trae mas campos de los que declaramos y varian entre
+    // versiones. Si la normalizacion los rechaza, la integracion se descarta en silencio y
+    // el bot no responde nunca: eso es justo lo que paso en el piloto del 2026-09-07.
+    expect(
+      normalizeRocketChatWebhook({
+        ...payload,
+        channel_name: 'ayuda-bot',
+        user_name: 'dan.iel13',
+        bot: false,
+        siteUrl: 'https://chat.globalcompany.company',
+        isEdited: false,
+        alias: '',
+      }),
+    ).toEqual(normalizeRocketChatWebhook(payload));
   });
 
   it('removes only the configured trigger at the beginning', () => {
