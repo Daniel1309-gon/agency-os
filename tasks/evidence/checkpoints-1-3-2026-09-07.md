@@ -66,3 +66,10 @@ OPS-07 y una prueba con reinicio de API; el 3 necesita ASY-01 y ASY-04 construid
 
 La lectura útil: la fase de seguridad de la Entrega 1 está verificada de punta a punta contra
 infraestructura real, y lo que falta ya no es evidencia sino código.
+
+---
+
+**Seguimiento (2026-09-08).** Las dos brechas del Checkpoint 2 quedaron cerradas: el cálculo del
+tiempo efectivo en [`ops-07-effective-time-2026-09-08.md`](ops-07-effective-time-2026-09-08.md) y
+el reinicio de API en [`checkpoint-2-restart-2026-09-08.md`](checkpoint-2-restart-2026-09-08.md).
+Este documento se conserva como el registro de la corrida del 2026-09-07 y no se reescribe.
