@@ -1,11 +1,12 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { breaks, crewMembers, crews, roles, shiftOverrides, shiftTemplates, shifts, users } from '../../database/schema/index.js';
-import type { ShiftCreateInput, ShiftOverrideInput, ShiftTemplateInput } from './shifts.schemas.js';
+import type { EffectiveTimeQueryInput, ShiftCreateInput, ShiftOverrideInput, ShiftTemplateInput } from './shifts.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { EFFECTIVE_TIME_REPOSITORY, type EffectiveTimeRepository } from './effective-time.port.js';
 
 function scheduledRange(from: string, to: string) {
   if (new Date(from).getTime() >= new Date(to).getTime()) throw new ConflictException('Shift end must be after start');
@@ -18,6 +19,7 @@ export class ShiftsService {
     private readonly db: DatabaseService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
+    @Inject(EFFECTIVE_TIME_REPOSITORY) private readonly effectiveTimeRepository: EffectiveTimeRepository,
   ) {}
 
   async create(input: ShiftCreateInput, actorId: string) {
@@ -72,13 +74,16 @@ export class ShiftsService {
   async end(id: string, operatorId?: string) {
     const endedAt = new Date();
     return this.db.transaction(async () => {
-      const [row] = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt, effectiveMinutes: sql`greatest(0, extract(epoch from (${endedAt.toISOString()}::timestamptz - coalesce(${shifts.actualStartAt}, ${endedAt.toISOString()}::timestamptz))) / 60)::int` }).where(and(eq(shifts.id, id), operatorId ? eq(shifts.operatorId, operatorId) : undefined, eq(shifts.status, 'IN_PROGRESS'))).returning({ id: shifts.id, status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes });
+      const [row] = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt }).where(and(eq(shifts.id, id), operatorId ? eq(shifts.operatorId, operatorId) : undefined, eq(shifts.status, 'IN_PROGRESS'))).returning({ id: shifts.id, status: shifts.status, actualEndAt: shifts.actualEndAt });
       if (!row) throw new NotFoundException('Shift not found or not in progress');
       await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(eq(breaks.shiftId, id), eq(breaks.status, 'IN_PROGRESS')));
       await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(eq(breaks.shiftId, id), eq(breaks.status, 'PENDING')));
+      // El tiempo efectivo se liquida despues de cerrar los breaks para que el ultimo tramo
+      // de descanso ya tenga fin cuando la formula lo resta.
+      const minutes = await this.effectiveTimeRepository.settle([id], endedAt);
       await this.audit.record({ actorType: operatorId ? 'USER' : 'SYSTEM', actorUserId: operatorId, action: 'shift.ended', entityType: 'shift', entityId: row.id, result: 'SUCCESS', metadata: { shiftId: row.id, toStatus: row.status } });
       if (operatorId) await this.realtime.publishOperatorChanged(operatorId);
-      return row;
+      return { ...row, effectiveMinutes: minutes.get(id) ?? 0 };
     });
   }
 
@@ -112,8 +117,9 @@ export class ShiftsService {
     return row;
   }
 
-  async effectiveTime(from: string, to: string, operatorId?: string) {
-    return this.db.db.select({ id: shifts.id, operatorId: shifts.operatorId, businessDate: shifts.businessDate, status: shifts.status, actualStartAt: shifts.actualStartAt, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(and(gte(shifts.businessDate, from), lte(shifts.businessDate, to), operatorId ? eq(shifts.operatorId, operatorId) : undefined)).orderBy(shifts.businessDate);
+  async effectiveTime(query: EffectiveTimeQueryInput, actorId: string) {
+    const [actor] = await this.db.db.select({ role: roles.code }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(eq(users.id, actorId)).limit(1);
+    return this.effectiveTimeRepository.report(query, { actorId, role: actor?.role ?? 'OPERADOR' });
   }
 
   private async assertActorCanManageOperator(actorId: string, operatorId: string): Promise<void> {

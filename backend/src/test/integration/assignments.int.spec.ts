@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
@@ -30,7 +31,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database));
   profiles = new ProfilesService(ctx.database, new AuditService(ctx.database));
-  jobs = new JobsService(ctx.database, ctx.redis, new RealtimeService(ctx.database));
+  jobs = new JobsService(ctx.database, ctx.redis, new RealtimeService(ctx.database), new DrizzleEffectiveTimeRepository(ctx.database));
 });
 
 afterAll(async () => {

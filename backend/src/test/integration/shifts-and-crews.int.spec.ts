@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
+import { EFFECTIVE_TIME_FORMULA_VERSION } from '../../modules/shifts/effective-time.port.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { ShiftsService } from '../../modules/shifts/shifts.service.js';
@@ -10,7 +12,7 @@ import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { DevicesService } from '../../modules/devices/devices.service.js';
 import { ProfilesService } from '../../modules/profiles/profiles.service.js';
-import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, shiftTemplates, shifts } from '../../database/schema/index.js';
+import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, profileSessions, shiftTemplates, shifts } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 /**
@@ -30,11 +32,11 @@ let profilesService: ProfilesService;
 beforeAll(async () => {
   ctx = await createTestContext();
   const realtime = new RealtimeService(ctx.database);
-  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime);
+  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime, new DrizzleEffectiveTimeRepository(ctx.database));
   breaksService = new BreaksService(ctx.database, new AuditService(ctx.database), realtime);
   crews = new CrewsService(ctx.database, new AuditService(ctx.database));
   admin = new AdminService(ctx.database, ctx.config, new AuditService(ctx.database));
-  jobs = new JobsService(ctx.database, ctx.redis, realtime);
+  jobs = new JobsService(ctx.database, ctx.redis, realtime, new DrizzleEffectiveTimeRepository(ctx.database));
   devicesService = new DevicesService(ctx.database, new AuditService(ctx.database));
   profilesService = new ProfilesService(ctx.database, new AuditService(ctx.database));
 });
@@ -42,6 +44,31 @@ beforeAll(async () => {
 afterAll(async () => {
   await destroyTestContext(ctx);
 });
+
+/**
+ * FR-17 mide trabajo, no presencia: sin sesion de perfil abierta el tiempo efectivo es cero.
+ * Por eso las pruebas de tiempo efectivo tienen que abrir una sesion real.
+ */
+async function openSession(operatorId: string, from: Date, to: Date | null): Promise<void> {
+  const profile = await createProfile(ctx);
+  const [assignment] = await ctx.db.insert(profileAssignments).values({
+    profileId: profile.id,
+    operatorId,
+    validRange: halfOpen(from, to ?? new Date(from.getTime() + 86_400_000)),
+    status: 'ACTIVE',
+    assignedBy: operatorId,
+  }).returning({ id: profileAssignments.id });
+  await ctx.db.insert(profileSessions).values({
+    profileId: profile.id,
+    operatorId,
+    assignmentId: assignment.id,
+    chromeProfileDir: 'Profile 1',
+    status: to ? 'ENDED' : 'ACTIVE',
+    startedAt: from,
+    endedAt: to,
+    lastHeartbeatAt: to ?? from,
+  });
+}
 
 beforeEach(async () => {
   await resetDatabase(ctx);
@@ -90,7 +117,7 @@ describe('ShiftsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('records the effective minutes when the shift closes', async () => {
+  it('records the effective minutes when the shift closes, discounting the break', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = await shiftsService.create(
@@ -101,11 +128,33 @@ describe('ShiftsService', () => {
     await shiftsService.start(shift.id, operator.id);
     expect(await shiftsService.current(operator.id)).toMatchObject({ id: shift.id, status: 'IN_PROGRESS' });
 
-    await ctx.db.update(shifts).set({ actualStartAt: new Date(Date.now() - 45 * 60_000) }).where(eq(shifts.id, shift.id));
+    // Sesion abierta hace 45 minutos y un descanso de 15 dentro de ella: 45 - 15 = 30.
+    await openSession(operator.id, new Date(Date.now() - 45 * 60_000), null);
+    await ctx.db.insert(breaks).values({
+      shiftId: shift.id,
+      type: 'REST',
+      status: 'COMPLETED',
+      startedAt: new Date(Date.now() - 30 * 60_000),
+      endedAt: new Date(Date.now() - 15 * 60_000),
+    });
+
     const closed = await shiftsService.end(shift.id, operator.id);
 
     expect(closed.status).toBe('COMPLETED');
-    expect(closed.effectiveMinutes).toBe(45);
+    expect(closed.effectiveMinutes).toBe(30);
+  });
+
+  it('does not pay a shift where no session was ever opened', async () => {
+    // Consecuencia explicita de la formula de FR-17: presencia sin trabajo no suma minutos.
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const shift = await shiftsService.create(
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
+      actor.id,
+    );
+    await shiftsService.start(shift.id, operator.id);
+
+    expect((await shiftsService.end(shift.id, operator.id)).effectiveMinutes).toBe(0);
   });
 
   it('creates scheduled breaks together with the shift and stores their assigned time', async () => {
@@ -300,11 +349,13 @@ describe('JobsService', () => {
       status: 'IN_PROGRESS',
       startedAt: new Date('2026-08-23T13:00:00.000Z'),
     }).returning({ id: breaks.id });
+    await openSession(operator.id, start, null);
 
     await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(end);
 
     const [closedShift] = await ctx.db.select({ status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(eq(shifts.id, shift.id));
-    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 480 });
+    // 8 h de turno menos los 65 minutos de descanso que quedaron abiertos hasta el cierre.
+    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 415 });
     const [missed] = await ctx.db.select({ status: shifts.status }).from(shifts).where(eq(shifts.id, missedShift.id));
     expect(missed.status).toBe('MISSED');
     const [closedBreak] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, breakRow.id));
@@ -471,5 +522,73 @@ describe('Delivery 1 crew-scoped resources', () => {
     expect(coordinatorView.data.map((profile) => profile.id)).toEqual([visible.id]);
     expect(operatorView.data.map((profile) => profile.id)).toEqual([visible.id]);
     await expect(profilesService.get(hidden.id, { sub: coordinator.id, role: 'COORDINADOR' })).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('effective-time report', () => {
+  async function seedReport() {
+    const adminUser = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const mine = await createUser(ctx);
+    const theirs = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: `Report crew ${Date.now()}`, coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: mine.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+    await ctx.db.insert(shifts).values([
+      { operatorId: mine.id, businessDate: '2026-07-01', status: 'COMPLETED', effectiveMinutes: 400, scheduledRange: halfOpen('2026-07-01T11:05:00.000Z', '2026-07-01T19:05:00.000Z') },
+      { operatorId: mine.id, businessDate: '2026-07-02', status: 'COMPLETED', effectiveMinutes: 380, scheduledRange: halfOpen('2026-07-02T11:05:00.000Z', '2026-07-02T19:05:00.000Z') },
+      { operatorId: theirs.id, businessDate: '2026-07-01', status: 'COMPLETED', effectiveMinutes: 470, scheduledRange: halfOpen('2026-07-01T11:05:00.000Z', '2026-07-01T19:05:00.000Z') },
+    ]);
+    return { adminUser, coordinator, mine, theirs, crew };
+  }
+
+  const period = { from: '2026-07-01', to: '2026-07-31', page: 1, pageSize: 25 };
+
+  it('limits a coordinator to the operators of their own crew', async () => {
+    const { coordinator, mine, theirs } = await seedReport();
+
+    const report = await shiftsService.effectiveTime(period, coordinator.id);
+
+    expect(report.items.map((row) => row.operatorId)).toEqual([mine.id, mine.id]);
+    expect(report.byOperator).toEqual([{ operatorId: mine.id, shifts: 2, minutes: 780 }]);
+    expect(report.totalMinutes).toBe(780);
+    // Pedir explicitamente al operador ajeno no es una via de escape del scope.
+    await expect(shiftsService.effectiveTime({ ...period, operatorId: theirs.id }, coordinator.id))
+      .resolves.toMatchObject({ total: 0, totalMinutes: 0, items: [] });
+  });
+
+  it('lets an operator see only their own shifts', async () => {
+    const { mine } = await seedReport();
+
+    const report = await shiftsService.effectiveTime(period, mine.id);
+
+    expect(report.total).toBe(2);
+    expect(new Set(report.items.map((row) => row.operatorId))).toEqual(new Set([mine.id]));
+  });
+
+  it('paginates without losing the totals of the whole period', async () => {
+    const { adminUser, mine, theirs } = await seedReport();
+
+    const first = await shiftsService.effectiveTime({ ...period, page: 1, pageSize: 2 }, adminUser.id);
+    const second = await shiftsService.effectiveTime({ ...period, page: 2, pageSize: 2 }, adminUser.id);
+
+    expect(first.items).toHaveLength(2);
+    expect(second.items).toHaveLength(1);
+    // Los totales describen el periodo completo, no la pagina que se pidio.
+    expect(first.total).toBe(3);
+    expect(first.totalMinutes).toBe(1250);
+    expect(second.totalMinutes).toBe(1250);
+    expect(first.byOperator).toEqual(expect.arrayContaining([
+      { operatorId: mine.id, shifts: 2, minutes: 780 },
+      { operatorId: theirs.id, shifts: 1, minutes: 470 },
+    ]));
+    expect(first.formulaVersion).toBe(EFFECTIVE_TIME_FORMULA_VERSION);
+  });
+
+  it('lets an admin narrow the report down to one crew', async () => {
+    const { adminUser, mine, crew } = await seedReport();
+
+    const report = await shiftsService.effectiveTime({ ...period, crewId: crew.id }, adminUser.id);
+
+    expect(report.byOperator).toEqual([{ operatorId: mine.id, shifts: 2, minutes: 780 }]);
   });
 });

@@ -5111,12 +5111,13 @@
           },
           "actors": [
             "ADMIN",
-            "DIRECTOR_OPERATIVO"
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "OFFSET",
           "path": "/api/v1/reports/effective-time",
           "scope": "CREW",
           "shift": false

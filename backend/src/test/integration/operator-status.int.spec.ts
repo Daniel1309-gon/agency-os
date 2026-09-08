@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
 import { and, eq } from 'drizzle-orm';
 import { AssignmentsService } from '../../modules/assignments/assignments.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
@@ -34,7 +35,7 @@ beforeAll(async () => {
     to: vi.fn(() => ({ emit: (event: string, payload: { operatorId: string; status: string }) => emitted.push({ event, payload }) })),
   } as unknown as Server);
   assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), realtime);
-  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime);
+  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime, new DrizzleEffectiveTimeRepository(ctx.database));
   status = new OperatorStatusService(ctx.database, realtime);
 });
 

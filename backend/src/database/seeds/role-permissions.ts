@@ -33,6 +33,7 @@ export const rolePermissionCodes: Record<SeedRoleCode, readonly string[]> = {
     'shifts.approve_overtime',
     'operators.monitor',
     'metrics.audit',
+    'reports.read',
     'icebreaker.review',
     'payroll.read',
     'chat.manage',

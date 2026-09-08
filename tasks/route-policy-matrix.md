@@ -94,7 +94,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/profiles/{id}/deactivate` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: profiles.update | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PUT /api/v1/profiles/{profileId}/credential` | ADMIN | authenticated; permissions: vault.rotate | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NATURAL_KEY | NOT_APPLICABLE |
 | `GET /api/v1/profiles/{profileId}/credential/meta` | ADMIN | authenticated; permissions: vault.read_meta | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
-| `GET /api/v1/reports/effective-time` | ADMIN, DIRECTOR_OPERATIVO | authenticated; permissions: reports.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/reports/effective-time` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: reports.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | OFFSET |
 | `POST /api/v1/rocketchat/bot/events` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NATURAL_KEY | NOT_APPLICABLE |
 | `GET /api/v1/rocketchat/bot/knowledge` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `PUT /api/v1/rocketchat/bot/knowledge/{slug}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NATURAL_KEY | NOT_APPLICABLE |

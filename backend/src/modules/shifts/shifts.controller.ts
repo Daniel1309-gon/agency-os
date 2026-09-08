@@ -44,5 +44,5 @@ export class ShiftOverridesController {
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly shifts: ShiftsService) {}
-  @Get('effective-time') @RequirePermissions('reports.read') @UsePipes(new ZodValidationPipe(effectiveTimeQuerySchema)) report(@Query() query: EffectiveTimeQueryInput) { return this.shifts.effectiveTime(query.from, query.to, query.operatorId); }
+  @Get('effective-time') @RequirePermissions('reports.read') @UsePipes(new ZodValidationPipe(effectiveTimeQuerySchema)) report(@Query() query: EffectiveTimeQueryInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.effectiveTime(query, user.sub); }
 }

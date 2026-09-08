@@ -1,16 +1,17 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { and, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { buildScheduledRange, businessDateInBogota, weekdayForBusinessDate } from './shift-schedule.js';
+import { EFFECTIVE_TIME_REPOSITORY, type EffectiveTimeRepository } from '../shifts/effective-time.port.js';
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
   private readonly timers: NodeJS.Timeout[] = [];
 
-  constructor(private readonly db: DatabaseService, private readonly redis: RedisService, private readonly realtime: RealtimeService) {}
+  constructor(private readonly db: DatabaseService, private readonly redis: RedisService, private readonly realtime: RealtimeService, @Inject(EFFECTIVE_TIME_REPOSITORY) private readonly effectiveTimeRepository: EffectiveTimeRepository) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
@@ -130,11 +131,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const operatorIds = await this.db.transaction(async () => {
       const atSql = sql`${atIso}::timestamptz`;
       const missed = await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
-      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt, effectiveMinutes: sql`greatest(0, extract(epoch from (${atSql} - coalesce(${shifts.actualStartAt}, ${atSql}))) / 60)::int` }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
+      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
       const ids = [...missed, ...completed].map((row) => row.id);
       if (!ids.length) return [];
       await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
       await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'PENDING')));
+      // Misma formula que el cierre manual del turno: la unica copia vive en el repositorio.
+      await this.effectiveTimeRepository.settle(completed.map((row) => row.id), endedAt);
       return [...new Set([...missed, ...completed].map((row) => row.operatorId))];
     });
     await Promise.all(operatorIds.map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));

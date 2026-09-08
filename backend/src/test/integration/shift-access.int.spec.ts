@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
 import { eq } from 'drizzle-orm';
 import { ShiftAccessService, type ShiftAccessClock } from '../../common/auth/shift-access.service.js';
 import { shiftOverrides, shifts } from '../../database/schema/index.js';
@@ -16,7 +17,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   const clock: ShiftAccessClock = { now: () => now };
   access = new ShiftAccessService(ctx.database, clock);
-  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database));
+  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database), new DrizzleEffectiveTimeRepository(ctx.database));
 });
 
 afterAll(async () => {
