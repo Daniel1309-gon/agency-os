@@ -49,7 +49,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **SEC-08** Inmutabilidad, partición, cursor y retención audit. Depende de SEC-07/OQ-08. Subavance verificado: `audit_log` particionada por mes con PK `(id, occurred_at)`, `audit_log_ensure_partition` y `audit_log_maintain` (SECURITY DEFINER, `EXECUTE` solo para `agency_app`) creando particiones por adelantado y aplicando retención, partición `DEFAULT` como red de seguridad para no perder escrituras, y job horario `audit:partitions`. La inmutabilidad se mantuvo al particionar: los triggers de fila se clonan solos, pero los de `TRUNCATE` no, así que cada partición recibe el suyo — sin eso `TRUNCATE audit_log_2026_09` habría borrado un mes saltándose `0004`. Evidencia: `backend/src/database/migrations/0016_partition_audit_log.sql`, `backend/src/test/integration/schema-invariants.int.spec.ts` (5 pruebas: enrutado por mes, `TRUNCATE` rechazado en padre y en partición, `UPDATE`/`DELETE` rechazados, creación por adelantado y borrado por retención), `pnpm ci:verify` local verde con 203 pruebas de integración. **Pendiente:** el periodo real de retención es OQ-08 — `audit.retention_months` se siembra en `0`, que conserva todo; fijar el número es un cambio de setting, no de migración. Falta además SEC-07.
 - [ ] **SEC-09** Vault grant/redeem/binding/rotación de claves. Depende de SEC-02/03/05/06/07.
 - [ ] **SEC-10** Alertas/revocación por abuso del vault. Depende de SEC-09/ASY-02.
-- [ ] **Checkpoint 1:** matriz RBAC/RLS con rol runtime, IP/device/shift negativos, vault concurrente y audit inmutable.
+- [x] **Checkpoint 1:** matriz RBAC/RLS con rol runtime, IP/device/shift negativos, vault concurrente y audit inmutable. Ejecutado el 2026-09-07 sobre base recreada: 203 pruebas de integracion verdes contra PostgreSQL y Redis reales, con cada exigencia mapeada a su prueba nombrada. Evidencia: [`checkpoints-1-3-2026-09-07.md`](evidence/checkpoints-1-3-2026-09-07.md).
 
 ## Fase 2 — operación de perfiles y turnos
 
@@ -61,7 +61,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **OPS-05** Materialización de turnos :05, overrides y cruce de mes. Subavance verificado en commits `5a50083`, `d4b2240`, `ca68098` y `d290271`: cierre exacto en `06:05/14:05/22:05`, finalización de breaks, materialización desde plantillas activas, jornada nocturna Bogotá→UTC e idempotencia respaldada por la restricción de no solapamiento; evidencia en `backend/src/modules/jobs/jobs.service.ts`, `backend/src/modules/jobs/shift-schedule.ts`, `backend/src/modules/jobs/shift-schedule.spec.ts`, `backend/src/test/integration/shifts-and-crews.int.spec.ts` y [CI run 32673995788](https://github.com/Daniel1309-gon/agency-os/actions/runs/32673995788). Pendiente completar overrides dentro del flujo materializado, relevos/sesiones y aceptación del cierre de mes.
 - [ ] **OPS-06** Descansos, aviso durable y semáforo. BLOCKED parcial: OQ-03.
 - [ ] **OPS-07** Tiempo efectivo por intervalos y scope de crew.
-- [ ] **Checkpoint 2:** recorrido 06:05→break→relevo 14:05 con concurrencia y reinicio.
+- [ ] **Checkpoint 2:** recorrido 06:05→break→relevo 14:05 con concurrencia y reinicio. Ejecutado el 2026-09-07: el recorrido, el relevo sin 409 espurio, el aviso durable de break y la concurrencia quedan demostrados. **Dos brechas:** ninguna prueba reinicia la API a mitad del recorrido, y el tiempo efectivo se calcula como `fin - inicio` sin restar breaks (OPS-07), asi que la prueba verde afirma la formula equivocada. Evidencia: [`checkpoints-1-3-2026-09-07.md`](evidence/checkpoints-1-3-2026-09-07.md).
 
 ## Fase 3 — jobs y realtime
 
@@ -69,7 +69,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **ASY-02** Relay outbox y dispatchers idempotentes.
 - [ ] **ASY-03** WebSocket Redis HA, rooms y reconnect. Baseline OQ-12 resuelta; falta ejecutar la prueba cruzada en HA.
 - [ ] **ASY-04** Scheduler, leases, retries, DLQ y métricas.
-- [ ] **Checkpoint 3:** job sobrevive restart y evento cruza dos instancias sin duplicarse.
+- [ ] **Checkpoint 3:** job sobrevive restart y evento cruza dos instancias sin duplicarse. Ejecutado el 2026-09-07: la supervivencia del worker con entrega unica y el evento cruzando dos instancias en <500 ms quedan demostrados, y la topologia del balanceador esta en ADR 0009. **Falta construir, no verificar:** ASY-01 (scheduler durable) y ASY-04 (DLQ observable); tampoco se ejercita el reinicio de Redis. Evidencia: [`checkpoints-1-3-2026-09-07.md`](evidence/checkpoints-1-3-2026-09-07.md).
 
 ## Fase 4 — métricas y Tableau
 
