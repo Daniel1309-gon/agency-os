@@ -8,7 +8,12 @@ const responseSchema = z.object({ success: z.boolean().optional(), message: z.ob
 export class RocketChatClient {
   constructor(private readonly config: ConfigService) {}
 
-  async sendMessage(roomId: string, body: string, idempotencyKey: string): Promise<void> {
+  /**
+   * `threadMessageId` cuelga la respuesta del mensaje que la provoco. En el canal del bot
+   * eso evita que la duda de una persona notifique a todo el canal: quien no sigue el hilo
+   * no recibe nada.
+   */
+  async sendMessage(roomId: string, body: string, idempotencyKey: string, threadMessageId?: string): Promise<void> {
     const baseUrl = this.config.get('ROCKETCHAT_BASE_URL');
     const token = this.config.get('ROCKETCHAT_TOKEN');
     const userId = this.config.get('ROCKETCHAT_USER_ID');
@@ -16,7 +21,7 @@ export class RocketChatClient {
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/chat.sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-auth-token': token, 'x-user-id': userId },
-      body: JSON.stringify({ message: { rid: roomId, msg: body, _id: idempotencyKey } }),
+      body: JSON.stringify({ message: { rid: roomId, msg: body, _id: idempotencyKey, ...(threadMessageId ? { tmid: threadMessageId } : {}) } }),
       signal: AbortSignal.timeout(8_000),
     });
     const raw = await response.json().catch(() => ({}));
