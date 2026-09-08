@@ -49,7 +49,7 @@ decisión explícita). Una pregunta abierta nunca convierte un requisito en comp
 | FR-33 | Pedidos | `PARTIAL` | E2 | CAF-01 | Idempotencia base en [`cafeteria.int.spec.ts`](../backend/src/test/integration/cafeteria.int.spec.ts). |
 | FR-34 | KDS | `PARTIAL` | E2 | CAF-02, ASY-03 | Servicio base en [`cafeteria.service.ts`](../backend/src/modules/cafeteria/cafeteria.service.ts); falta CAS/WebSocket. |
 | FR-35 | Débito de nómina | `PARTIAL` | E2 | CAF-03, CAF-04, PAY-03 | Flujo preliminar en [`cafeteria.service.ts`](../backend/src/modules/cafeteria/cafeteria.service.ts). |
-| FR-36 | Canales Rocket.Chat | `PARTIAL` | E0/E1 | COM-01 | Integración base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); depende de OQ-10. |
+| FR-36 | Canales Rocket.Chat | `PARTIAL` | E0/E1 | COM-01 | Integración base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); credencial verificada contra el servidor real y reglas fijadas en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). Falta vincular canal y escaneo de deriva; la sincronización de miembros sale del criterio por decisión del cliente. |
 | FR-37 | Mensajes y alertas | `PARTIAL` | E0/E1 | COM-02, ASY-02 | Outbox y entrega base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); falta worker durable. |
 | FR-38 | Semáforo y bot | `PARTIAL` | E1 | COM-03, ASY-03 | Estado derivado en [`operator-status.int.spec.ts`](../backend/src/test/integration/operator-status.int.spec.ts); falta realtime HA. |
 | FR-39 | Interacciones por país | `BLOCKED` | E3 | INT-03 | Feature flag apagada y gate externo registrados en [`agents.md`](../agents.md). |
@@ -81,7 +81,7 @@ pregunta continúa abierta.
 | OQ-07 | `OPEN` | Clienta decide; Daniel modela | 2026-09-25 | MET-05, PAY-04 | Frontera nocturna y pertenencia al periodo. |
 | OQ-08 | `OPEN` | Clienta decide; Daniel propone | 2026-08-31 | SEC-08 | Retención legal/operativa de auditoría y raw. |
 | OQ-09 | `OPEN` | Clienta decide; Daniel modela | 2026-10-02 | PAY-02, PAY-04 | Fórmulas exactas de pago, metas, bonos y eventos. |
-| OQ-10 | `OPEN` | Clienta entrega credencial; Daniel integra | 2026-08-28 | COM-01, COM-02 | Cuenta de servicio, naming y reglas Rocket.Chat. |
+| OQ-10 | `RESOLVED` | Clienta decidio; Daniel documenta | 2026-08-28 | — | Canales de cuadrilla privados; membresia manual del coordinador con deteccion de deriva; salir quita el historial; alerta urgente por DM al coordinador. Ver [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). |
 | OQ-11 | `OPEN` | Clienta autoriza; Daniel ejecuta spike | 2026-09-11 | INT-02, INT-03 | Gates Feature #9/FR-39 y límites permitidos. |
 | OQ-12 | `RESOLVED` | Daniel: baseline de producción | 2026-08-28 | — | Dos API stateless + LB gestionado, worker separado con leases, PostgreSQL/Redis HA, storage privado, backup/PITR, RPO 5 min, RTO 30 min y CIDR del proxy obligatorio al desplegar. |
 | OQ-13 | `OPEN` | Daniel mide; clienta facilita PC | 2026-09-11 | INT-01, QUA-02 | Máximo real de perfiles concurrentes. |
@@ -90,5 +90,5 @@ pregunta continúa abierta.
 
 - `INT-01`: PC Windows de prueba, helper, extensión forcelist, credenciales TalkyTimes autorizadas y prueba con ocho perfiles.
 - `OQ-01`/`OQ-02`: resueltas en la matriz y ADR 0009; SEC-02 conserva la ejecución de pruebas RLS.
-- `OQ-10`: bloquea reconciliación y SLA reales de Rocket.Chat.
+- `OQ-10`: resuelta en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md); COM-01 y COM-02 quedan desbloqueadas para construir.
 - Las OQ de Tableau no bloquean cerrar SEC/OPS/ASY de Entrega 1.

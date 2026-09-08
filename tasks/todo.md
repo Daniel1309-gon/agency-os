@@ -109,7 +109,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 
 ## Fase 8 — Rocket.Chat y estado
 
-- [ ] **COM-01** Reconciliación de canales/membresías. BLOCKED real: OQ-10.
+- [ ] **COM-01** Vinculación de canales y deteccion de deriva de membresia. Desbloqueada: OQ-10 resuelta en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). Canales de cuadrilla privados (`GROUP`); la membresia la administra el coordinador a mano, asi que el criterio de FR-36 ya no exige sincronizarla y el PAT no necesita invitar ni expulsar. Subavance verificado en el piloto del bot: identidad del servicio comprobada contra `chat.globalcompany.company`, canal registrado y usuario vinculado por API con auditoria; evidencia en `tasks/evidence/rocketchat-bot-pilot-2026-09-07.md`.
 - [ ] **COM-02** Mensajes recurrentes/urgentes, retry y SLA <1 s.
 - [ ] **COM-03** Semáforo derivado y bot allowlisted.
 - [ ] **Checkpoint 6:** periodo dorado completo + comunicación/status con worker reiniciado.
@@ -139,7 +139,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **OQ-07** Frontera nocturna/periodo.
 - [ ] **OQ-08** Retención de auditoría/raw.
 - [ ] **OQ-09** Fórmulas de pago/bonos/eventos.
-- [ ] **OQ-10** Cuenta de servicio y reglas Rocket.Chat.
+- [x] **OQ-10** Cuenta de servicio y reglas Rocket.Chat. Resuelta en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md).
 - [ ] **OQ-11** Gates Feature #9/FR-39.
 - [x] **OQ-12** Topología HA/storage/RPO/RTO/proxies. Baseline resuelta en [ADR 0009](../docs/decisions/0009-rbac-and-production-topology.md); QUA-03 conserva el gate de failover/restore real.
 - [ ] **OQ-13** Máximo de perfiles por PC/operador.
