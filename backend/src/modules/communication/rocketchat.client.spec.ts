@@ -8,13 +8,16 @@ const config = {
 } as unknown as ConfigService;
 
 function stubFetch() {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
+  // Los parametros van declarados: sin ellos TypeScript infiere [] para mock.calls y no se
+  // puede leer el cuerpo enviado.
+  const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+    new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
 
 function sentMessage(fetchMock: ReturnType<typeof stubFetch>): Record<string, unknown> {
-  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  const [, init] = fetchMock.mock.calls[0];
   return (JSON.parse(String(init.body)) as { message: Record<string, unknown> }).message;
 }
 
