@@ -3,6 +3,7 @@ import { assignedProfileSchema, prepareSessionMessageSchema, type AssignedProfil
 import { ApiError, apiClient } from '../../services/api-client';
 import { StatusPill } from '../StatusPill/StatusPill';
 import { resolveExtensionId } from './extension-config';
+import { closeLocalAgentSession, focusLocalAgentSession, localAgentEnabled, sendToLocalAgent } from './local-agent';
 
 interface ChromeRuntime {
   lastError?: { message?: string };
@@ -75,6 +76,19 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
     try {
       let sessionId = profile.session?.id;
       let sessionVersion = profile.session?.version;
+      if (profile.session?.status === 'ACTIVE' && sessionId && sessionVersion && localAgentEnabled()) {
+        try {
+          await focusLocalAgentSession(sessionId, sessionVersion);
+          setNotice(`Perfil ${profile.profileName} enfocado por el agente local.`);
+          await loadProfiles();
+          return;
+        } catch {
+          await closeLocalAgentSession({ sessionId, version: sessionVersion });
+          setNotice(`La sesión anterior de ${profile.profileName} terminó. Vuelve a abrir el perfil.`);
+          await loadProfiles();
+          return;
+        }
+      }
       if (!sessionId || profile.session?.status === 'ERROR' || profile.session?.status === 'STALE') {
         const session = await apiClient.request<{ id: string; version: number }>('/agent/sessions/prepare', {
           method: 'POST',
@@ -87,23 +101,45 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
         sessionId = session.id;
         sessionVersion = session.version;
       }
-      const token = apiClient.getAccessToken();
-      if (!token || !sessionId || !sessionVersion) throw new Error('La sesión segura expiró. Vuelve a iniciar sesión.');
+      if (!sessionId || !sessionVersion) throw new Error('La sesión segura expiró. Vuelve a iniciar sesión.');
       const launchUrl = `https://talkytimes.com/auth/login?agencyProfile=${encodeURIComponent(profile.profileId)}&agencySession=${encodeURIComponent(sessionId)}`;
-      const message = prepareSessionMessageSchema.parse({
-        action: 'prepareSession',
-        accessToken: token,
-        profileId: profile.profileId,
-        sessionId,
-        chromeProfileDir: profile.chromeProfileDir,
-        launchUrl,
-        version: sessionVersion,
-      });
-      await sendToExtension(message);
-      setNotice(`Perfil ${profile.profileName} preparado. Completa el clic de ingreso en TalkyTimes.`);
+      if (localAgentEnabled()) {
+        await sendToLocalAgent({ profileId: profile.profileId, sessionId, chromeProfileDir: profile.chromeProfileDir, launchUrl, version: sessionVersion });
+        setNotice(`Perfil ${profile.profileName} abierto por el agente local.`);
+      } else {
+        const token = apiClient.getAccessToken();
+        if (!token) throw new Error('La sesión segura expiró. Vuelve a iniciar sesión.');
+        const message = prepareSessionMessageSchema.parse({
+          action: 'prepareSession',
+          accessToken: token,
+          profileId: profile.profileId,
+          sessionId,
+          chromeProfileDir: profile.chromeProfileDir,
+          launchUrl,
+          version: sessionVersion,
+        });
+        await sendToExtension(message);
+        setNotice(`Perfil ${profile.profileName} preparado. Completa el clic de ingreso en TalkyTimes.`);
+      }
       await loadProfiles();
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : nextError instanceof Error ? nextError.message : 'No pudimos abrir el perfil.');
+    } finally {
+      setLoadingProfileId(null);
+    }
+  }
+
+  async function closeProfile(profile: AssignedProfile) {
+    if (!profile.session || !localAgentEnabled()) return;
+    setLoadingProfileId(profile.profileId);
+    setError(null);
+    setNotice(null);
+    try {
+      await closeLocalAgentSession({ sessionId: profile.session.id, version: profile.session.version });
+      setNotice(`Perfil ${profile.profileName} cerrado correctamente.`);
+      await loadProfiles();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'No pudimos cerrar el perfil.');
     } finally {
       setLoadingProfileId(null);
     }
@@ -139,7 +175,10 @@ export function OperatorProfiles({ accessToken }: { accessToken: string | null }
               <StatusPill status={profileStatus.tone} label={profileStatus.label} />
               <span>{profile.session?.startedAt ? `Iniciada ${new Date(profile.session.startedAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}` : 'Lista para abrir'}</span>
             </div>
-              <button className="row-action" type="button" onClick={() => void prepareProfile(profile)} disabled={isBusy || profileStatus.tone === 'handoff' && profile.session?.status === 'LAUNCHING'}>{isBusy ? 'Preparando…' : profile.session?.status === 'ACTIVE' ? 'Continuar' : 'Abrir perfil'} <span aria-hidden="true">↗</span></button>
+              <div className="profile-row__actions">
+                <button className="row-action" type="button" onClick={() => void prepareProfile(profile)} disabled={isBusy || profileStatus.tone === 'handoff' && profile.session?.status === 'LAUNCHING'}>{isBusy ? 'Preparando…' : profile.session?.status === 'ACTIVE' ? 'Continuar' : 'Abrir perfil'} <span aria-hidden="true">↗</span></button>
+                {localAgentEnabled() && profile.session?.status === 'ACTIVE' && <button className="row-action row-action--danger" type="button" onClick={() => void closeProfile(profile)} disabled={isBusy}>Cerrar</button>}
+              </div>
           </article>
           );
         })}

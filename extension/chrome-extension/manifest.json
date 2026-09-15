@@ -24,10 +24,12 @@
   ],
   "host_permissions": [
     "https://talkytimes.com/*",
-    "http://localhost:3000/*"
+    "http://localhost:3000/*",
+    "https://globalcompany.company/*"
   ],
   "externally_connectable": {
     "matches": [
+      "https://globalcompany.company/*",
       "https://app.agency-os.example/*",
       "http://localhost:5173/*"
     ]
