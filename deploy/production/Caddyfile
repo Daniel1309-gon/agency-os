@@ -1,0 +1,21 @@
+{$DOMAIN} {
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  @api path /api/*
+  reverse_proxy @api api:3000
+
+  @health path /health/*
+  reverse_proxy @health api:3000
+
+  @socket path /socket.io/*
+  reverse_proxy @socket api:3000
+
+  reverse_proxy web:80
+}
