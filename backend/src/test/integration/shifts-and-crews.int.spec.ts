@@ -361,6 +361,30 @@ describe('JobsService', () => {
     const [closedBreak] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, breakRow.id));
     expect(closedBreak).toMatchObject({ status: 'COMPLETED', endedAt: end, durationMinutes: 65 });
   });
+
+  it('recovers overdue shifts at their own boundaries across the month without adding outage time', async () => {
+    const operator = await createUser(ctx);
+    const from = new Date('2026-08-31T19:05:00.000Z');
+    const midnightShift = new Date('2026-09-01T03:05:00.000Z');
+    const end = new Date('2026-09-01T11:05:00.000Z');
+    const recovery = new Date('2026-09-01T12:30:00.000Z');
+    const rows = await ctx.db.insert(shifts).values([
+      { operatorId: operator.id, businessDate: '2026-08-31', scheduledRange: halfOpen(from, midnightShift), status: 'IN_PROGRESS', actualStartAt: from },
+      { operatorId: operator.id, businessDate: '2026-08-31', scheduledRange: halfOpen(midnightShift, end), status: 'IN_PROGRESS', actualStartAt: midnightShift },
+    ]).returning({ id: shifts.id });
+    await openSession(operator.id, from, null);
+    for (const [index, boundary] of [midnightShift, end].entries()) {
+      await ctx.db.insert(breaks).values({ shiftId: rows[index].id, type: 'REST', status: 'IN_PROGRESS', startedAt: new Date(boundary.getTime() - 15 * 60_000) });
+    }
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(recovery);
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(new Date(recovery.getTime() + 60_000));
+    for (const [index, boundary] of [midnightShift, end].entries()) {
+      const [shift] = await ctx.db.select().from(shifts).where(eq(shifts.id, rows[index].id));
+      const [rest] = await ctx.db.select().from(breaks).where(eq(breaks.shiftId, rows[index].id));
+      expect(shift).toMatchObject({ businessDate: '2026-08-31', actualEndAt: boundary, effectiveMinutes: 465 });
+      expect(rest).toMatchObject({ endedAt: boundary, durationMinutes: 15 });
+    }
+  });
 });
 
 describe('CrewsService', () => {

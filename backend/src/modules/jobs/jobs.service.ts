@@ -4,11 +4,12 @@ import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import { buildScheduledRange, businessDateInBogota, weekdayForBusinessDate } from './shift-schedule.js';
+import { buildScheduledRange, businessDateInBogota, shiftBusinessDate, weekdayForBusinessDate } from './shift-schedule.js';
 import { EFFECTIVE_TIME_REPOSITORY, type EffectiveTimeRepository } from '../shifts/effective-time.port.js';
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
+  private static readonly MATERIALIZATION_LOOKBACK_DAYS = 1;
   private readonly timers: NodeJS.Timeout[] = [];
 
   constructor(private readonly db: DatabaseService, private readonly redis: RedisService, private readonly realtime: RealtimeService, @Inject(EFFECTIVE_TIME_REPOSITORY) private readonly effectiveTimeRepository: EffectiveTimeRepository) {}
@@ -17,7 +18,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (process.env.NODE_ENV === 'test') return;
     this.timers.push(setInterval(() => void this.runExclusive('sessions:reap', 55, () => this.reapSessions()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('cafeteria:expire-orders', 55, () => this.expireOrders()), 60_000));
-    this.timers.push(setInterval(() => void this.runExclusive('shifts:materialize', 55, async () => { await this.materializeShifts(); }), 60_000));
+    this.timers.push(setInterval(() => void this.runExclusive('shifts:materialize', 55, async () => { await this.materializeShiftBacklog(); }), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('shifts:open-close', 55, () => this.closeExpiredShifts()), 60_000));
     this.timers.push(setInterval(() => void this.runExclusive('breaks:notify', 55, () => this.notifyUpcomingBreaks()), 60_000));
     // Las particiones tienen que existir antes del primer INSERT del mes, no una hora
@@ -125,20 +126,44 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Reconcile today and the immediately previous business date after a short outage. */
+  private async materializeShiftBacklog(at = new Date()): Promise<number> {
+    const today = businessDateInBogota(at);
+    let inserted = 0;
+    for (let offset = -JobsService.MATERIALIZATION_LOOKBACK_DAYS; offset <= 0; offset += 1) {
+      inserted += await this.materializeShifts(shiftBusinessDate(today, offset));
+    }
+    return inserted;
+  }
+
   private async closeExpiredShifts(at = new Date()): Promise<void> {
-    const endedAt = at;
     const atIso = at.toISOString();
     const operatorIds = await this.db.transaction(async () => {
       const atSql = sql`${atIso}::timestamptz`;
-      const missed = await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(eq(shifts.status, 'SCHEDULED'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
-      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt }).where(and(eq(shifts.status, 'IN_PROGRESS'), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`)).returning({ id: shifts.id, operatorId: shifts.operatorId });
-      const ids = [...missed, ...completed].map((row) => row.id);
+      // La tabla de turnos es la cola durable del cierre. El lock dura toda la
+      // liquidación, incluso si vence el lock Redis de quien despertó el job.
+      const due = await this.db.db.select({ id: shifts.id, operatorId: shifts.operatorId })
+        .from(shifts)
+        .where(and(inArray(shifts.status, ['SCHEDULED', 'IN_PROGRESS']), isNotNull(shifts.scheduledRange), sql`upper(${shifts.scheduledRange}) <= ${atSql}`))
+        .orderBy(sql`upper(${shifts.scheduledRange})`, shifts.id).limit(100)
+        .for('update', { skipLocked: true });
+      const ids = due.map((row) => row.id);
       if (!ids.length) return [];
-      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
+      await this.db.db.update(shifts).set({ status: 'MISSED' }).where(and(inArray(shifts.id, ids), eq(shifts.status, 'SCHEDULED')));
+      const completed = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: sql`upper(${shifts.scheduledRange})` })
+        .where(and(inArray(shifts.id, ids), eq(shifts.status, 'IN_PROGRESS')))
+        .returning({ id: shifts.id, endedAt: shifts.actualEndAt });
+      const endedAt = sql`(select upper(${shifts.scheduledRange}) from ${shifts} where ${shifts.id} = ${breaks.shiftId})`;
+      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt} - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
       await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'PENDING')));
-      // Misma formula que el cierre manual del turno: la unica copia vive en el repositorio.
-      await this.effectiveTimeRepository.settle(completed.map((row) => row.id), endedAt);
-      return [...new Set([...missed, ...completed].map((row) => row.operatorId))];
+      // Agrupar por borde conserva el procesamiento por lotes de OPS-07.
+      const byBoundary = new Map<string, string[]>();
+      for (const row of completed) {
+        const boundary = row.endedAt!.toISOString();
+        byBoundary.set(boundary, [...(byBoundary.get(boundary) ?? []), row.id]);
+      }
+      for (const [boundary, shiftIds] of byBoundary) await this.effectiveTimeRepository.settle(shiftIds, new Date(boundary));
+      return [...new Set(due.map((row) => row.operatorId))];
     });
     await Promise.all(operatorIds.map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));
   }

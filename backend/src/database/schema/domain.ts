@@ -291,6 +291,7 @@ export const profileSessions = pgTable(
     startedAt: ts('started_at').notNull().defaultNow(),
     lastHeartbeatAt: ts('last_heartbeat_at').notNull().defaultNow(),
     endedAt: ts('ended_at'),
+    browserClosedAt: ts('browser_closed_at'),
     endReason: varchar('end_reason', { length: 32 }),
     errorCode: text('error_code'),
     errorDetail: text('error_detail'),
@@ -711,6 +712,26 @@ export const outboxEvents = pgTable('outbox_events', {
   createdAt: ts('created_at').notNull().defaultNow(),
   processedAt: ts('processed_at'),
 });
+
+export const jobRuns = pgTable('job_runs', {
+  id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+  jobName: text('job_name').notNull(),
+  runKey: text('run_key').notNull(),
+  scheduledFor: ts('scheduled_for').notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('PENDING'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+  claimedBy: text('claimed_by'),
+  leaseToken: uuid('lease_token'),
+  leaseExpiresAt: ts('lease_expires_at'),
+  lastError: text('last_error'),
+  startedAt: ts('started_at'),
+  finishedAt: ts('finished_at'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+}, (table) => ({
+  jobRunIdentity: uniqueIndex('job_runs_job_key_uq').on(table.jobName, table.runKey),
+  due: index('job_runs_due_idx').on(table.status, table.nextAttemptAt, table.scheduledFor),
+}));
 
 export const interactionCampaigns = pgTable('interaction_campaigns', {
   id: id(),

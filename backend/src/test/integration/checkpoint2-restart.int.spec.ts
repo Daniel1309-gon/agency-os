@@ -10,7 +10,7 @@ import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { ShiftsService } from '../../modules/shifts/shifts.service.js';
 import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
-import { breaks, profileAssignments, profileSessions, shifts } from '../../database/schema/index.js';
+import { breaks, profileAssignments, profileSessions, shiftTemplates, shifts } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 /**
@@ -197,6 +197,90 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     expect(closed.status).toBe('COMPLETED');
     // Sin sesion de perfil el turno liquida cero: el reinicio no cambia la formula de FR-17.
     expect(closed.effectiveMinutes).toBe(0);
+
+    await api.stop();
+  });
+
+  it('recovers an unmaterialized previous business date after an API restart', async () => {
+    const operator = await createUser(ctx);
+    await ctx.db.insert(shiftTemplates).values({
+      name: 'Night recovery',
+      startTime: '22:05:00',
+      endTime: '06:05:00',
+      crossesMidnight: true,
+      weekdays: [1],
+      breakMinutes: 0,
+      validFrom: '2026-08-01',
+      isActive: true,
+    });
+
+    let api = await bootApi();
+    await api.stop();
+    api = await bootApi();
+
+    const materializeBacklog = (api.jobs as unknown as { materializeShiftBacklog(at: Date): Promise<number> }).materializeShiftBacklog;
+    const recoveryAt = new Date('2026-09-01T12:00:00.000Z');
+    await expect(materializeBacklog.call(api.jobs, recoveryAt)).resolves.toBe(1);
+    await expect(materializeBacklog.call(api.jobs, recoveryAt)).resolves.toBe(0);
+
+    const rows = await ctx.db.select({ operatorId: shifts.operatorId, businessDate: shifts.businessDate, scheduledRange: shifts.scheduledRange, status: shifts.status }).from(shifts);
+    expect(rows).toEqual([{
+      operatorId: operator.id,
+      businessDate: '2026-08-31',
+      scheduledRange: '["2026-09-01 03:05:00+00","2026-09-01 11:05:00+00")',
+      status: 'SCHEDULED',
+    }]);
+
+    await api.stop();
+  });
+
+  it('closes a handed-off overdue shift and break at their scheduled boundaries', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const morning = await createUser(ctx);
+    const afternoon = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const device = await createDevice(ctx, { operatorId: morning.id });
+    const start = new Date(Date.now() - 30 * 60_000);
+    const boundary = new Date(Date.now() + 60 * 60_000);
+    const recovery = new Date(boundary.getTime() + 45 * 60_000);
+    const breakScheduledAt = new Date(boundary.getTime() - 30 * 60_000);
+    const breakStartedAt = new Date(boundary.getTime() - 15 * 60_000);
+
+    let api = await bootApi();
+    const [shift] = await ctx.db.insert(shifts).values({
+      operatorId: morning.id,
+      businessDate: '2026-09-09',
+      scheduledRange: `[${start.toISOString()},${boundary.toISOString()})`,
+      status: 'IN_PROGRESS',
+      actualStartAt: start,
+    }).returning({ id: shifts.id });
+    const [activeBreak] = await ctx.db.insert(breaks).values({
+      shiftId: shift.id,
+      type: 'REST',
+      scheduledAt: breakScheduledAt,
+      status: 'IN_PROGRESS',
+      startedAt: breakStartedAt,
+    }).returning({ id: breaks.id });
+
+    const outgoing = await api.assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: start.toISOString(), validTo: boundary.toISOString() }, admin.id);
+    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: outgoing.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
+    await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.token);
+    await ctx.db.update(profileSessions).set({ startedAt: start, lastHeartbeatAt: start }).where(eq(profileSessions.id, session.id));
+
+    // El relevo exacto cierra la sesión en el borde programado; el worker se ejecuta 45 min tarde.
+    await api.assignments.create({ profileId: profile.id, operatorId: afternoon.id, validFrom: boundary.toISOString(), validTo: new Date(boundary.getTime() + 120 * 60_000).toISOString() }, admin.id);
+    await api.stop();
+
+    api = await bootApi();
+    await (api.jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(recovery);
+
+    const [closedShift] = await ctx.db.select({ status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(eq(shifts.id, shift.id));
+    const [closedBreak] = await ctx.db.select({ scheduledAt: breaks.scheduledAt, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes, status: breaks.status }).from(breaks).where(eq(breaks.id, activeBreak.id));
+    const [closedSession] = await ctx.db.select({ endedAt: profileSessions.endedAt, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+
+    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: boundary, effectiveMinutes: 75 });
+    expect(closedBreak).toMatchObject({ status: 'COMPLETED', scheduledAt: breakScheduledAt, endedAt: boundary, durationMinutes: 15 });
+    expect(closedSession).toMatchObject({ endedAt: boundary, endReason: 'SHIFT_ENDED' });
 
     await api.stop();
   });

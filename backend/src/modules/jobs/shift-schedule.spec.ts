@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { businessDateInBogota, buildScheduledRange, weekdayForBusinessDate } from './shift-schedule.js';
+import { businessDateInBogota, buildScheduledRange, shiftBusinessDate, weekdayForBusinessDate } from './shift-schedule.js';
 
 describe('shift schedule', () => {
   it('uses the Bogota business date instead of the UTC date', () => {
@@ -19,6 +19,10 @@ describe('shift schedule', () => {
 
   it('uses the existing template weekday convention where Sunday is zero', () => {
     expect(weekdayForBusinessDate('2026-08-23')).toBe(0);
+  });
+
+  it('moves the business date across a month boundary', () => {
+    expect(shiftBusinessDate('2026-09-01', -1)).toBe('2026-08-31');
   });
 
   it('rejects an overnight flag that would create a day-plus shift', () => {

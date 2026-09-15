@@ -33,6 +33,11 @@ function addDays(date: { year: number; month: number; day: number }, days: numbe
   return { year: result.getUTCFullYear(), month: result.getUTCMonth() + 1, day: result.getUTCDate() };
 }
 
+export function shiftBusinessDate(businessDate: string, days: number): string {
+  const shifted = addDays(parseDate(businessDate), days);
+  return [shifted.year, String(shifted.month).padStart(2, '0'), String(shifted.day).padStart(2, '0')].join('-');
+}
+
 function toUtc(date: { year: number; month: number; day: number }, clock: { hour: number; minute: number; second: number }): Date {
   return new Date(Date.UTC(date.year, date.month - 1, date.day, clock.hour, clock.minute, clock.second) + BOGOTA_UTC_OFFSET_MINUTES * 60_000);
 }
