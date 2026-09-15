@@ -52,6 +52,45 @@ describe('ApiClient', () => {
     expect(((fetchMock.mock.calls[2][1] as RequestInit).headers as Headers).get('authorization')).toBe('Bearer access-2');
   });
 
+  it('keeps the refreshed token when the retried request fails with a server error', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ error: { code: 'UNAUTHENTICATED', message: 'expired' } }, 401))
+      .mockResolvedValueOnce(response({ accessToken: 'access-2', expiresIn: 900, user: { id: 'u-1' } }))
+      .mockResolvedValueOnce(response({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }, 500));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    client.setAccessToken('access-1');
+
+    await expect(client.request('/protected')).rejects.toMatchObject({ status: 500 });
+    expect(client.getAccessToken()).toBe('access-2');
+  });
+
+  it('keeps the current token when refresh fails because the network is unavailable', async () => {
+    const networkError = new Error('network unavailable');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ error: { code: 'UNAUTHENTICATED', message: 'expired' } }, 401))
+      .mockRejectedValueOnce(networkError);
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    client.setAccessToken('access-1');
+
+    await expect(client.request('/protected')).rejects.toBe(networkError);
+    expect(client.getAccessToken()).toBe('access-1');
+  });
+
+  it('clears the token when the refreshed request is still unauthorized', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ error: { code: 'UNAUTHENTICATED', message: 'expired' } }, 401))
+      .mockResolvedValueOnce(response({ accessToken: 'access-2', expiresIn: 900, user: { id: 'u-1' } }))
+      .mockResolvedValueOnce(response({ error: { code: 'UNAUTHENTICATED', message: 'revoked' } }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    client.setAccessToken('access-1');
+
+    await expect(client.request('/protected')).rejects.toMatchObject({ status: 401 });
+    expect(client.getAccessToken()).toBeNull();
+  });
+
   it('does not persist credentials through browser storage', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ accessToken: 'access-1', expiresIn: 900, user: { id: 'u-1' } }));
     vi.stubGlobal('fetch', fetchMock);

@@ -5,7 +5,7 @@ import DashboardPage from './pages/DashboardPage/DashboardPage';
 import { useWorkspaceLocation } from './navigation/use-workspace-location';
 
 function AuthenticatedApp() {
-  const { user, accessToken, status, isSubmitting, error, login, changePassword, logout } = useAuth();
+  const { user, accessToken, status, isSubmitting, error, login, changePassword, logout, retryRestore } = useAuth();
   const location = useWorkspaceLocation();
 
   if (status === 'loading') {
@@ -13,6 +13,22 @@ function AuthenticatedApp() {
       <main className="auth-loading" aria-live="polite">
         <div className="auth-loading__mark" aria-hidden="true">AO</div>
         <p>Verificando tu sesión segura…</p>
+      </main>
+    );
+  }
+
+  if (status === 'recoverable') {
+    return (
+      <main className="auth-loading" aria-live="polite">
+        <div className="auth-retry-panel">
+          <div className="auth-loading__mark" aria-hidden="true">AO</div>
+          <h1>Estamos verificando tu acceso.</h1>
+          <p>{error ?? 'El servicio no respondió. Puedes reintentar sin volver a ingresar tus credenciales.'}</p>
+          <button className="submit-button" type="button" onClick={() => void retryRestore()}>
+            <span>Reintentar conexión</span>
+            <span className="submit-arrow" aria-hidden="true">↗</span>
+          </button>
+        </div>
       </main>
     );
   }

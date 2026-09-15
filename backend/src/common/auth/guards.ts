@@ -63,16 +63,20 @@ export class JwtAuthGuard implements CanActivate {
       await recordDenied(this.audit, request, 'auth.token.denied', { denyReason: 'MISSING_TOKEN' });
       throw new UnauthorizedException('Authentication required');
     }
+    let claims;
     try {
-      const claims = verifyAccessToken(value.slice(7), this.config.get('JWT_SECRET'));
-      setAuthenticatedUser(request, claims);
-      const [active] = await this.db.db.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(and(eq(users.id, claims.sub), eq(users.status, 'ACTIVE'), isNull(users.deletedAt), eq(roles.code, claims.role))).limit(1);
-      if (!active) throw new Error('Inactive user or stale role');
-      return true;
+      claims = verifyAccessToken(value.slice(7), this.config.get('JWT_SECRET'));
     } catch {
       await recordDenied(this.audit, request, 'auth.token.denied', { denyReason: 'INVALID_TOKEN' });
       throw new UnauthorizedException('Invalid or expired token');
     }
+    setAuthenticatedUser(request, claims);
+    const [active] = await this.db.db.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(and(eq(users.id, claims.sub), eq(users.status, 'ACTIVE'), isNull(users.deletedAt), eq(roles.code, claims.role))).limit(1);
+    if (!active) {
+      await recordDenied(this.audit, request, 'auth.token.denied', { denyReason: 'INACTIVE_USER' });
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    return true;
   }
 }
 

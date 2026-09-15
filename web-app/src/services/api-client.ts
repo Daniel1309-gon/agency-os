@@ -127,10 +127,19 @@ export class ApiClient {
 
       try {
         await this.refresh();
+      } catch (refreshError) {
+        if (refreshError instanceof ApiError && refreshError.status === 401) {
+          this.accessToken = null;
+        }
+        throw refreshError;
+      }
+      try {
         return await this.execute<T>(path, { ...options, skipRefresh: true }, true);
-      } catch {
-        this.accessToken = null;
-        throw error;
+      } catch (retryError) {
+        if (retryError instanceof ApiError && retryError.status === 401) {
+          this.accessToken = null;
+        }
+        throw retryError;
       }
     }
   }

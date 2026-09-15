@@ -105,6 +105,22 @@ describe('JwtAuthGuard', () => {
     const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase(false));
     await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${token}` } }))).rejects.toThrow(UnauthorizedException);
   });
+
+  it('lets database failures propagate instead of misclassifying them as invalid tokens', async () => {
+    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [] }, SECRET, 60);
+    const database = {
+      db: {
+        select: () => {
+          throw new Error('postgres unavailable');
+        },
+      },
+    } as unknown as DatabaseService;
+    const record = vi.fn(async () => undefined);
+    const guard = new JwtAuthGuard(config, reflectorReturning(false), { record } as unknown as AuditService, database);
+
+    await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${token}` } }))).rejects.toThrow('postgres unavailable');
+    expect(record).not.toHaveBeenCalled();
+  });
 });
 
 describe('PermissionsGuard', () => {
