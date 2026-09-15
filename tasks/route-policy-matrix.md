@@ -92,8 +92,8 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `PATCH /api/v1/profiles/{id}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: profiles.update | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/profiles/{id}/access-log` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: audit.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/profiles/{id}/deactivate` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: profiles.update | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
-| `PUT /api/v1/profiles/{profileId}/credential` | ADMIN | authenticated; permissions: vault.rotate | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NATURAL_KEY | NOT_APPLICABLE |
-| `GET /api/v1/profiles/{profileId}/credential/meta` | ADMIN | authenticated; permissions: vault.read_meta | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `PUT /api/v1/profiles/{profileId}/credential` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: vault.rotate | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NATURAL_KEY | NOT_APPLICABLE |
+| `GET /api/v1/profiles/{profileId}/credential/meta` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: vault.read_meta | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/reports/effective-time` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: reports.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | OFFSET |
 | `POST /api/v1/rocketchat/bot/events` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NATURAL_KEY | NOT_APPLICABLE |
 | `GET /api/v1/rocketchat/bot/knowledge` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
@@ -120,6 +120,8 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/shifts/me/current` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/station/credential-claims` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/station/sessions/{id}` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/station/sessions/{id}/close` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/station/sessions/{id}/heartbeat` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/tableau/runs/{id}/execute` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
@@ -131,6 +133,6 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/users/{id}/compensation` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/users/{id}/compensation` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/users/{id}/disable` | ADMIN | authenticated; permissions: users.disable | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
-| `POST /api/v1/vault/keys/rotate` | ADMIN | authenticated; permissions: vault.rotate | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/vault/keys/rotate` | ADMIN | authenticated; permissions: vault.keys.rotate | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /health/live` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /health/ready` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |

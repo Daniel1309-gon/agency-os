@@ -13,7 +13,7 @@ import { AuditService } from '../../common/audit/audit.service.js';
 import { hashToken } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { VaultCryptoService } from './vault.crypto.js';
-import { VAULT_REPOSITORY, type VaultRepository } from './vault.repository.port.js';
+import { VAULT_REPOSITORY, type VaultRepository, type VaultScopeActor } from './vault.repository.port.js';
 import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInput } from './vault.schemas.js';
 
 interface RequestContext {
@@ -37,23 +37,36 @@ export class VaultService {
     private readonly database: DatabaseService,
   ) {}
 
-  async rotate(profileId: string, input: CredentialRotationInput, actorId: string): Promise<{ version: number; rotatedAt: Date }> {
-    if (!(await this.repository.profileExistsForRotation(profileId))) throw new NotFoundException('Profile not found');
+  async rotate(profileId: string, input: CredentialRotationInput, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date }> {
+    if (!['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR'].includes(actor.role)) throw new ForbiddenException('Credential management is not available for this role');
+    const actorId = actor.id;
+    if (!(await this.repository.profileExistsForRotation(profileId, actor))) throw new NotFoundException('Profile not found');
     const version = (await this.repository.currentCredentialVersion(profileId) ?? 0) + 1;
     const encrypted = await this.crypto.encrypt(input.secret, profileId);
     const now = new Date();
-    await this.repository.rotateCredential({
-      profileId,
-      username: input.username,
-      ciphertext: encrypted.ciphertext,
-      nonce: encrypted.nonce,
-      tag: encrypted.tag,
-      keyVersion: encrypted.keyVersion,
-      aadContext: encrypted.aadContext,
-      version,
-      rotatedAt: now,
-      rotatedBy: actorId,
-    });
+    try {
+      await this.repository.rotateCredential({
+        profileId,
+        username: input.username,
+        ciphertext: encrypted.ciphertext,
+        nonce: encrypted.nonce,
+        tag: encrypted.tag,
+        keyVersion: encrypted.keyVersion,
+        aadContext: encrypted.aadContext,
+        version,
+        rotatedAt: now,
+        rotatedBy: actorId,
+      }, {
+        loginEmail: input.username,
+        version: input.profileVersion,
+        updatedBy: actorId,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PROFILE_VERSION_CONFLICT') {
+        throw new ConflictException('Profile was modified by another request');
+      }
+      throw error;
+    }
     await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.credential.rotated', entityType: 'profile', entityId: profileId, result: 'SUCCESS', metadata: { profileId, version } });
     return { version, rotatedAt: now };
   }
@@ -64,7 +77,9 @@ export class VaultService {
     return { keyVersion };
   }
 
-  async meta(profileId: string): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
+  async meta(profileId: string, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
+    if (!['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR'].includes(actor.role)) throw new ForbiddenException('Credential metadata is not available for this role');
+    if (!(await this.repository.profileExistsForRotation(profileId, actor))) throw new NotFoundException('Profile not found');
     const row = await this.repository.currentCredentialMetadata(profileId);
     if (!row) throw new NotFoundException('Credential metadata not found');
     return row;

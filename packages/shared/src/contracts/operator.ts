@@ -19,6 +19,10 @@ export const sessionCloseSchema = z.object({
   version: z.number().int().positive(),
 }).strict();
 
+export const sessionHeartbeatSchema = z.object({
+  version: z.number().int().positive(),
+}).strict();
+
 export const metricEventSchema = z.object({
   dedupeKey: z.string().trim().min(1).max(200),
   profileId: z.string().uuid(),
@@ -35,5 +39,6 @@ export const metricBatchSchema = z.object({
 export type SessionCreateInput = z.infer<typeof sessionCreateSchema>;
 export type SessionPatchInput = z.infer<typeof sessionPatchSchema>;
 export type SessionCloseInput = z.infer<typeof sessionCloseSchema>;
+export type SessionHeartbeatInput = z.infer<typeof sessionHeartbeatSchema>;
 export type MetricEventInput = z.infer<typeof metricEventSchema>;
 export type MetricBatchInput = z.infer<typeof metricBatchSchema>;

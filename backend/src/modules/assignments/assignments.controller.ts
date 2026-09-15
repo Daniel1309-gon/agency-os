@@ -5,7 +5,7 @@ import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { ProfilesService } from '../profiles/profiles.service.js';
 import { AssignmentsService } from './assignments.service.js';
-import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCloseSchema, sessionCreateSchema, sessionPatchSchema, stationSessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCloseInput, type SessionCreateInput, type SessionPatchInput, type StationSessionPatchInput } from './assignments.schemas.js';
+import { assignmentCreateSchema, assignmentHistoryQuerySchema, sessionCloseSchema, sessionCreateSchema, sessionPatchSchema, stationSessionHeartbeatSchema, stationSessionPatchSchema, type AssignmentCreateInput, type AssignmentHistoryQuery, type SessionCloseInput, type SessionCreateInput, type SessionPatchInput, type StationSessionHeartbeatInput, type StationSessionPatchInput } from './assignments.schemas.js';
 
 @Controller('assignments')
 export class AssignmentsController {
@@ -72,5 +72,19 @@ export class StationSessionsController {
     @Headers('x-device-token') token: string,
   ) {
     return this.assignments.updateStationSession(id, body, token);
+  }
+
+  @Post(':id/heartbeat')
+  @StationAuthenticated()
+  @UsePipes(new ZodValidationPipe(stationSessionHeartbeatSchema))
+  heartbeat(@Param('id') id: string, @Body() body: StationSessionHeartbeatInput, @Headers('x-device-token') token: string) {
+    return this.assignments.heartbeatStationSession(id, body.version, token);
+  }
+
+  @Post(':id/close')
+  @StationAuthenticated()
+  @UsePipes(new ZodValidationPipe(sessionCloseSchema))
+  close(@Param('id') id: string, @Body() body: SessionCloseInput, @Headers('x-device-token') token: string) {
+    return this.assignments.closeStationSession(id, body.version, token);
   }
 }

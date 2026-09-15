@@ -340,6 +340,52 @@ describe('tt_profile_credentials row level security', () => {
       ).rejects.toMatchObject({ code: '42501' });
     });
   });
+
+  it('allows a director to write a credential inside the global management scope', async () => {
+    const { profileId } = await seedCredential();
+    const director = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
+
+    await asRequest({ userId: director.id, roleCode: 'DIRECTOR_OPERATIVO' }, async (client) => {
+      await expect(client.query(
+        `INSERT INTO tt_profile_credentials
+           (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+         VALUES ($1, 'director@talky.test', '\\x01', '\\x01', '\\x01', 1, $2, 2, false, $3)`,
+        [profileId, `${profileId}:2`, director.id],
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('limits a coordinator credential write to profiles in the coordinator scope', async () => {
+    const { profileId, assignedOperatorId } = await seedCredential();
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Credential crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: assignedOperatorId, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      await expect(client.query(
+        `INSERT INTO tt_profile_credentials
+           (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+         VALUES ($1, 'coord@talky.test', '\\x02', '\\x02', '\\x02', 1, $2, 2, false, $3)`,
+        [profileId, `${profileId}:2`, coordinator.id],
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('denies credential writes outside coordinator scope and to cafeteria', async () => {
+    const { profileId } = await seedCredential();
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const cafeteria = await createUser(ctx, { role: 'CAFETERIA' });
+
+    const insert = `INSERT INTO tt_profile_credentials
+      (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+      VALUES ($1, 'blocked@talky.test', '\\x03', '\\x03', '\\x03', 1, $2, 2, false, $3)`;
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      await expect(client.query(insert, [profileId, `${profileId}:2`, coordinator.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRequest({ userId: cafeteria.id, roleCode: 'CAFETERIA' }, async (client) => {
+      await expect(client.query(insert, [profileId, `${profileId}:3`, cafeteria.id])).rejects.toMatchObject({ code: '42501' });
+    });
+  });
 });
 
 describe('agency_app deployment role', () => {

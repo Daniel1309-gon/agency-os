@@ -317,3 +317,13 @@ describe('VaultService.handoff', () => {
     expect(h.decrypt).not.toHaveBeenCalled();
   });
 });
+
+describe('VaultService.credential-management authorization', () => {
+  it('rejects credential rotation and metadata access outside manager roles', async () => {
+    const h = harness();
+    const actor = { id: OPERATOR, role: 'OPERADOR' };
+
+    await expect(h.service.rotate(PROFILE, { username: 'perfil@talky.test', secret: 'nueva' }, actor)).rejects.toThrow(ForbiddenException);
+    await expect(h.service.meta(PROFILE, actor)).rejects.toThrow(ForbiddenException);
+  });
+});

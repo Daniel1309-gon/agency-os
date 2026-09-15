@@ -22,6 +22,7 @@ const permissionDefinitions = [
   ['vault.credential.issue', 'vault', 'Issue a one-use credential grant'],
   ['vault.rotate', 'vault', 'Rotate profile credentials'],
   ['vault.read_meta', 'vault', 'Read credential metadata'],
+  ['vault.keys.rotate', 'vault', 'Rotate vault encryption keys'],
   ['devices.manage', 'devices', 'Manage devices'],
   ['shifts.read', 'shifts', 'Read shifts'],
   ['shifts.manage', 'shifts', 'Manage shifts'],

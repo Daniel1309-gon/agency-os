@@ -5,7 +5,7 @@ import { VaultService } from '../../modules/vault/vault.service.js';
 import { VaultCryptoService } from '../../modules/vault/vault.crypto.js';
 import { DrizzleVaultRepository } from '../../modules/vault/vault.drizzle-repository.js';
 import { AuditService } from '../../common/audit/audit.service.js';
-import { credentialAccessLog, profileAssignments, profileSessions, ttProfileCredentials } from '../../database/schema/index.js';
+import { credentialAccessLog, profileAssignments, profileSessions, ttProfileCredentials, ttProfiles } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
@@ -29,6 +29,7 @@ let ctx: TestContext;
 let vault: VaultService;
 
 interface Scenario {
+  adminId: string;
   operatorId: string;
   otherOperatorId: string;
   profileId: string;
@@ -87,9 +88,10 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
     })
     .returning({ id: profileSessions.id });
 
-  await vault.rotate(profile.id, { username: 'perfil@talky.test', secret: SECRET }, admin.id);
+  await vault.rotate(profile.id, { username: 'perfil@talky.test', secret: SECRET, profileVersion: 0 }, { id: admin.id, role: 'ADMIN' });
 
   return {
+    adminId: admin.id,
     operatorId: operator.id,
     otherOperatorId: other.id,
     profileId: profile.id,
@@ -126,7 +128,7 @@ describe('vault rotation', () => {
     const s = await scenario();
     const admin = await createUser(ctx, { role: 'ADMIN' });
 
-    const rotated = await vault.rotate(s.profileId, { username: 'perfil@talky.test', secret: 'la-nueva' }, admin.id);
+    const rotated = await vault.rotate(s.profileId, { username: 'perfil@talky.test', secret: 'la-nueva', profileVersion: 1 }, { id: admin.id, role: 'ADMIN' });
     expect(rotated.version).toBe(2);
 
     const current = await ctx.db
@@ -148,6 +150,18 @@ describe('vault rotation', () => {
       .where(eq(credentialAccessLog.profileId, s.profileId));
 
     expect(rows).toEqual([{ purpose: 'ADMIN_ROTATION', granted: true }]);
+  });
+
+  it('updates the catalog login and vault username together with the expected profile version', async () => {
+    const s = await scenario();
+    const rotated = await vault.rotate(s.profileId, { username: 'nuevo@talky.test', secret: 'la-nueva', profileVersion: 0 }, { id: s.adminId, role: 'ADMIN' });
+
+    expect(rotated.version).toBe(2);
+    const [profile] = await ctx.db.select({ loginEmail: ttProfiles.loginEmail, version: ttProfiles.version }).from(ttProfiles).where(eq(ttProfiles.id, s.profileId));
+    const [credential] = await ctx.db.select({ username: ttProfileCredentials.username }).from(ttProfileCredentials).where(and(eq(ttProfileCredentials.profileId, s.profileId), eq(ttProfileCredentials.isCurrent, true)));
+    expect(profile).toEqual({ loginEmail: 'nuevo@talky.test', version: 1 });
+    expect(credential).toEqual({ username: 'nuevo@talky.test' });
+    await expect(vault.rotate(s.profileId, { username: 'otro@talky.test', secret: 'otra', profileVersion: 0 }, { id: s.adminId, role: 'ADMIN' })).rejects.toThrow(ConflictException);
   });
 });
 

@@ -74,6 +74,8 @@ export const routeContracts = [
   route('POST', '/api/v1/agent/session/credential-redeem', 'SELF'),
   route('POST', '/api/v1/station/credential-claims', 'SELF'),
   route('PATCH', '/api/v1/station/sessions/{id}', 'SELF'),
+  route('POST', '/api/v1/station/sessions/{id}/heartbeat', 'SELF'),
+  route('POST', '/api/v1/station/sessions/{id}/close', 'SELF'),
 
   route('GET', '/api/v1/profiles', 'CREW', 'NOT_APPLICABLE', 'OFFSET'),
   route('POST', '/api/v1/profiles', 'CREW'),

@@ -40,6 +40,17 @@ export interface VaultCredentialRotation extends VaultEncryptedCredential {
   rotatedBy: string;
 }
 
+export interface VaultProfileUpdate {
+  loginEmail: string;
+  version: number;
+  updatedBy: string;
+}
+
+export interface VaultScopeActor {
+  id: string;
+  role: string;
+}
+
 export interface VaultAccessRecord {
   profileId: string;
   userId?: string;
@@ -54,9 +65,9 @@ export interface VaultAccessRecord {
 }
 
 export interface VaultRepository {
-  profileExistsForRotation(profileId: string): Promise<boolean>;
+  profileExistsForRotation(profileId: string, actor: VaultScopeActor): Promise<boolean>;
   currentCredentialVersion(profileId: string): Promise<number | undefined>;
-  rotateCredential(rotation: VaultCredentialRotation): Promise<void>;
+  rotateCredential(rotation: VaultCredentialRotation, profile?: VaultProfileUpdate): Promise<void>;
   currentCredentialMetadata(profileId: string): Promise<VaultCredentialMetadata | undefined>;
   findApprovedDevice(tokenHash: string, deviceId?: string): Promise<VaultDevice | undefined>;
   activeProfileExists(profileId: string): Promise<boolean>;

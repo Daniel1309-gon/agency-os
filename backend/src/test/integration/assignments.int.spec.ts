@@ -76,6 +76,24 @@ describe('AssignmentsService.create', () => {
     expect(row).toMatchObject({ profileId: profile.id, operatorId: operator.id });
   });
 
+  it('creates a recurring schedule as concrete windows in one transaction', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const result = await assignments.create({
+      profileId: profile.id,
+      operatorId: operator.id,
+      windows: [
+        { validFrom: isoOffset(-120), validTo: isoOffset(-60) },
+        { validFrom: isoOffset(60), validTo: isoOffset(120) },
+      ],
+    }, admin.id);
+
+    expect(result.count).toBe(2);
+    expect(result.items).toHaveLength(2);
+    await expect(ctx.db.select({ id: profileAssignments.id }).from(profileAssignments).where(eq(profileAssignments.operatorId, operator.id))).resolves.toHaveLength(2);
+  });
+
   it('rejects a session whose Chrome directory does not match the configured TalkyTimes profile binding', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
@@ -416,6 +434,53 @@ describe('AssignmentsService sessions', () => {
     await expect(
       assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken),
     ).resolves.toMatchObject({ status: 'ACTIVE', version: session.version + 1 });
+  });
+
+  it('renews an active station session with a bounded server permit', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+
+    const heartbeat = await assignments.heartbeatStationSession(session.id, active.version, s.deviceToken);
+
+    expect(heartbeat).toMatchObject({ decision: 'CONTINUE', status: 'ACTIVE', version: active.version + 1 });
+    expect(new Date(heartbeat.permitUntil).getTime() - new Date(heartbeat.serverTime).getTime()).toBeLessThanOrEqual(30_000);
+    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceToken)).rejects.toThrow(ConflictException);
+  });
+
+  it('closes the browser permit when the assignment is revoked', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+    await ctx.db.update(profileAssignments).set({ status: 'ENDED', endedAt: new Date(), endReason: 'HANDOFF' }).where(eq(profileAssignments.id, s.assignmentId));
+
+    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceToken)).resolves.toMatchObject({ decision: 'CLOSE', reason: 'AUTHORIZATION_ENDED', status: 'CLOSED' });
+    const [closed] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
+    expect(closed).toEqual({ status: 'CLOSED', endReason: 'AUTHORIZATION_ENDED' });
+  });
+
+  it('confirms a browser close idempotently after the assignment has ended', async () => {
+    const s = await ready();
+    const session = await assignments.openSession(
+      { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
+      s.operatorId,
+      s.deviceToken,
+    );
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+
+    const first = await assignments.closeStationSession(session.id, active.version, s.deviceToken);
+    const second = await assignments.closeStationSession(session.id, active.version, s.deviceToken);
+
+    expect(first).toMatchObject({ status: 'CLOSED', version: active.version + 1 });
+    expect(second).toMatchObject({ status: 'CLOSED', version: first.version, browserClosedAt: first.browserClosedAt });
   });
 
   it('does not let another station transition a claimed session', async () => {

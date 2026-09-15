@@ -19,6 +19,8 @@ import type {
   VaultEncryptedCredential,
   VaultLaunchingSession,
   VaultPreparedHandoffSession,
+  VaultProfileUpdate,
+  VaultScopeActor,
   VaultRepository,
 } from './vault.repository.port.js';
 
@@ -26,8 +28,31 @@ import type {
 export class DrizzleVaultRepository implements VaultRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  async profileExistsForRotation(profileId: string): Promise<boolean> {
-    const profile = await this.database.db.query.ttProfiles.findFirst({ where: eq(ttProfiles.id, profileId) });
+  async profileExistsForRotation(profileId: string, actor: VaultScopeActor): Promise<boolean> {
+    const scope = actor.role === 'ADMIN' || actor.role === 'DIRECTOR_OPERATIVO'
+      ? undefined
+      : actor.role === 'COORDINADOR'
+        ? sql`exists (
+            select 1 from profile_assignments assignment
+            inner join crew_members member on member.user_id = assignment.operator_id
+            inner join crews crew on crew.id = member.crew_id
+            where assignment.profile_id = ${ttProfiles.id}
+              and assignment.status in ('SCHEDULED', 'ACTIVE')
+              and assignment.valid_range @> now()
+              and member.valid_range @> now()
+              and crew.coordinator_id = ${actor.id}
+              and crew.is_active = true
+          )`
+        : sql`exists (
+            select 1 from profile_assignments assignment
+            where assignment.profile_id = ${ttProfiles.id}
+              and assignment.operator_id = ${actor.id}
+              and assignment.status in ('SCHEDULED', 'ACTIVE')
+              and assignment.valid_range @> now()
+          )`;
+    const profile = await this.database.db.query.ttProfiles.findFirst({
+      where: and(eq(ttProfiles.id, profileId), isNull(ttProfiles.deletedAt), scope),
+    });
     return Boolean(profile && !profile.deletedAt);
   }
 
@@ -38,8 +63,20 @@ export class DrizzleVaultRepository implements VaultRepository {
     return credential?.version;
   }
 
-  async rotateCredential(rotation: VaultCredentialRotation): Promise<void> {
+  async rotateCredential(rotation: VaultCredentialRotation, profile?: VaultProfileUpdate): Promise<void> {
     await this.database.db.transaction(async (transaction) => {
+      if (profile) {
+        const [updated] = await transaction
+          .update(ttProfiles)
+          .set({ loginEmail: profile.loginEmail, updatedBy: profile.updatedBy, updatedAt: rotation.rotatedAt, version: sql<number>`${ttProfiles.version} + 1` })
+          .where(and(
+            eq(ttProfiles.id, rotation.profileId),
+            eq(ttProfiles.version, profile.version),
+            isNull(ttProfiles.deletedAt),
+          ))
+          .returning({ id: ttProfiles.id });
+        if (!updated) throw new Error('PROFILE_VERSION_CONFLICT');
+      }
       await transaction
         .update(ttProfileCredentials)
         .set({ isCurrent: false })

@@ -15,13 +15,13 @@ export class VaultController {
   @RequirePermissions('vault.rotate')
   @UsePipes(new ZodValidationPipe(credentialRotationSchema))
   async rotate(@Param('profileId') profileId: string, @Body() body: CredentialRotationInput, @CurrentUser() user: AccessTokenClaims) {
-    return this.vault.rotate(profileId, body, user.sub);
+    return this.vault.rotate(profileId, body, { id: user.sub, role: user.role });
   }
 
   @Get('credential/meta')
   @RequirePermissions('vault.read_meta')
-  async meta(@Param('profileId') profileId: string) {
-    return this.vault.meta(profileId);
+  async meta(@Param('profileId') profileId: string, @CurrentUser() user: AccessTokenClaims) {
+    return this.vault.meta(profileId, { id: user.sub, role: user.role });
   }
 }
 
@@ -30,7 +30,7 @@ export class VaultKeyController {
   constructor(private readonly vault: VaultService) {}
 
   @Post('keys/rotate')
-  @RequirePermissions('vault.rotate')
+  @RequirePermissions('vault.keys.rotate')
   rotateKey(@CurrentUser() user: AccessTokenClaims) {
     return this.vault.rotateEncryptionKey(user.sub);
   }

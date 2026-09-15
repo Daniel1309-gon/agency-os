@@ -5,12 +5,24 @@ import { PG_EXCLUSION_VIOLATION, PG_UNIQUE_VIOLATION, isPgError } from '../../da
 import { hashToken } from '../../common/auth/crypto.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import { crewMembers, crews, devices, profileAssignments, profileSessions, roles, shifts, ttProfiles, users } from '../../database/schema/index.js';
-import type { AssignmentCreateInput, AssignmentHistoryQuery, SessionCreateInput, SessionPatchInput } from './assignments.schemas.js';
+import { crewMembers, crews, devices, profileAssignments, profileSessions, roles, shiftOverrides, shifts, ttProfiles, users } from '../../database/schema/index.js';
+import type { AssignmentBatchInput, AssignmentConcreteInput, AssignmentCreateInput, AssignmentHistoryQuery, SessionCreateInput, SessionPatchInput } from './assignments.schemas.js';
 
 function range(from: string, to: string): string {
   if (new Date(from).getTime() >= new Date(to).getTime()) throw new ConflictException('validTo must be after validFrom');
   return `[${from},${to})`;
+}
+
+interface CreatedAssignment {
+  id: string;
+  profileId: string;
+  operatorId: string;
+  validRange: string | null;
+}
+
+interface CreatedAssignmentBatch {
+  items: CreatedAssignment[];
+  count: number;
 }
 
 @Injectable()
@@ -21,7 +33,11 @@ export class AssignmentsService {
     private readonly realtime: RealtimeService,
   ) {}
 
-  async create(input: AssignmentCreateInput, assignedBy: string) {
+  async create(input: AssignmentConcreteInput, assignedBy: string): Promise<CreatedAssignment>;
+  async create(input: AssignmentBatchInput, assignedBy: string): Promise<CreatedAssignmentBatch>;
+  async create(input: AssignmentCreateInput, assignedBy: string): Promise<CreatedAssignment | CreatedAssignmentBatch>;
+  async create(input: AssignmentCreateInput, assignedBy: string): Promise<CreatedAssignment | CreatedAssignmentBatch> {
+    if ('windows' in input) return this.createBatch(input, assignedBy);
     const [profile] = await this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt))).limit(1);
     const [operator] = await this.db.db
       .select({ id: users.id, status: users.status, roleCode: roles.code })
@@ -91,6 +107,61 @@ export class AssignmentsService {
       });
       if (result.previousOperatorId) await this.realtime.publishOperatorChanged(result.previousOperatorId);
       return result.row;
+    } catch (error) {
+      if (isPgError(error, PG_EXCLUSION_VIOLATION)) throw new ConflictException('Profile is already assigned in this window');
+      throw error;
+    }
+  }
+
+  private async createBatch(input: AssignmentBatchInput, assignedBy: string): Promise<CreatedAssignmentBatch> {
+    const [profile] = await this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt))).limit(1);
+    const [operator] = await this.db.db
+      .select({ id: users.id, status: users.status, roleCode: roles.code })
+      .from(users)
+      .innerJoin(roles, eq(roles.id, users.roleId))
+      .where(and(eq(users.id, input.operatorId), isNull(users.deletedAt)))
+      .limit(1);
+    if (!profile) throw new NotFoundException('Profile not found');
+    if (!operator || operator.status !== 'ACTIVE') throw new NotFoundException('Operator not found');
+    if (operator.roleCode !== 'OPERADOR') throw new ConflictException('Assignments can only target an OPERADOR');
+    const validRanges = input.windows.map((window) => range(window.validFrom, window.validTo));
+
+    try {
+      const result = await this.db.transaction(async () => {
+        await this.assertActorCanManageOperator(assignedBy, input.operatorId);
+        const rows = [];
+        const previousOperatorIds = new Set<string>();
+        for (const validRange of validRanges) {
+          const [row] = await this.db.db.insert(profileAssignments).values({ profileId: input.profileId, operatorId: input.operatorId, validRange, status: 'ACTIVE', assignedBy }).returning({ id: profileAssignments.id, profileId: profileAssignments.profileId, operatorId: profileAssignments.operatorId, validRange: profileAssignments.validRange });
+          const [previous] = await this.db.db
+            .select({ id: profileAssignments.id, operatorId: profileAssignments.operatorId })
+            .from(profileAssignments)
+            .where(and(
+              eq(profileAssignments.profileId, input.profileId),
+              eq(profileAssignments.status, 'ACTIVE'),
+              sql`${profileAssignments.operatorId} <> ${input.operatorId}`,
+              sql`upper(${profileAssignments.validRange}) = lower(${validRange}::tstzrange)`,
+            ))
+            .limit(1);
+
+          if (previous) {
+            await this.assertActorCanManageOperator(assignedBy, previous.operatorId);
+            const handoffAt = new Date(validRange.slice(1, validRange.indexOf(',')));
+            const [ended] = await this.db.db.update(profileAssignments).set({ status: 'ENDED', endedAt: handoffAt, endReason: 'HANDOFF' }).where(and(eq(profileAssignments.id, previous.id), eq(profileAssignments.status, 'ACTIVE'))).returning({ id: profileAssignments.id });
+            if (!ended) throw new ConflictException('Previous assignment changed during handoff');
+            const closedSessions = await this.db.db.update(profileSessions).set({ status: 'CLOSED', endedAt: handoffAt, endReason: 'SHIFT_ENDED', version: sql<number>`${profileSessions.version} + 1` }).where(and(eq(profileSessions.assignmentId, previous.id), inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE', 'ERROR']))).returning({ id: profileSessions.id });
+            await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'assignment.ended', entityType: 'assignment', entityId: previous.id, result: 'SUCCESS', metadata: { reason: 'HANDOFF', operatorId: previous.operatorId } });
+            for (const session of closedSessions) await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'session.closed', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { assignmentId: previous.id, reason: 'SHIFT_ENDED' } });
+            previousOperatorIds.add(previous.operatorId);
+          }
+
+          await this.audit.record({ actorType: 'USER', actorUserId: assignedBy, action: 'assignment.created', entityType: 'assignment', entityId: row.id, result: 'SUCCESS', metadata: { profileId: input.profileId, operatorId: input.operatorId } });
+          rows.push(row);
+        }
+        return { rows, previousOperatorIds: [...previousOperatorIds] };
+      });
+      for (const operatorId of result.previousOperatorIds) await this.realtime.publishOperatorChanged(operatorId);
+      return { items: result.rows, count: result.rows.length };
     } catch (error) {
       if (isPgError(error, PG_EXCLUSION_VIOLATION)) throw new ConflictException('Profile is already assigned in this window');
       throw error;
@@ -259,6 +330,109 @@ export class AssignmentsService {
       .limit(1);
     if (!session) throw new NotFoundException('Session not found');
     return this.updateSession(id, input, session.operatorId, deviceToken);
+  }
+
+  async heartbeatStationSession(id: string, version: number, deviceToken: string) {
+    const device = await this.db.db.query.devices.findFirst({
+      where: and(eq(devices.tokenHash, hashToken(deviceToken)), eq(devices.status, 'APPROVED'), sql`${devices.tokenExpiresAt} > now()`),
+    });
+    if (!device) throw new ForbiddenException('Device is not approved');
+
+    const [session] = await this.db.db
+      .select({
+        id: profileSessions.id,
+        profileId: profileSessions.profileId,
+        operatorId: profileSessions.operatorId,
+        assignmentId: profileSessions.assignmentId,
+        status: profileSessions.status,
+        deviceId: profileSessions.deviceId,
+        version: profileSessions.version,
+      })
+      .from(profileSessions)
+      .where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, device.id)))
+      .limit(1);
+    if (!session) throw new NotFoundException('Session not found');
+
+    const now = new Date();
+    const terminal = session.status === 'CLOSED' || session.status === 'STALE' || session.status === 'ERROR';
+    if (terminal) return this.heartbeatDecision('CLOSE', session.status, session.version, now, now, now, session.status);
+    if (session.status !== 'ACTIVE') return this.heartbeatDecision('CLOSE', session.status, session.version, now, now, now, 'SESSION_NOT_ACTIVE');
+    if (version !== session.version) throw new ConflictException('Session changed concurrently');
+
+    const [[profile], [operator], [assignment]] = await Promise.all([
+      this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, session.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt))).limit(1),
+      this.db.db.select({ id: users.id }).from(users).where(and(eq(users.id, session.operatorId), eq(users.status, 'ACTIVE'), isNull(users.deletedAt))).limit(1),
+      this.db.db.select({ shiftId: profileAssignments.shiftId, assignmentEnd: sql<Date | string | null>`upper(${profileAssignments.validRange})` }).from(profileAssignments).where(and(eq(profileAssignments.id, session.assignmentId), eq(profileAssignments.profileId, session.profileId), eq(profileAssignments.operatorId, session.operatorId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`)).limit(1),
+    ]);
+    if (!profile || !operator || !assignment) {
+      return this.closeStationForAuthorization(session.id, session.version, device.id, session.operatorId, 'AUTHORIZATION_ENDED', now);
+    }
+
+    const [shift] = assignment.shiftId
+      ? await this.db.db.select({ shiftEnd: sql<Date | string | null>`upper(${shifts.scheduledRange})` }).from(shifts).where(and(eq(shifts.id, assignment.shiftId), eq(shifts.operatorId, session.operatorId))).limit(1)
+      : [];
+    const overrideRows = await this.db.db.select({ end: sql<Date | string | null>`upper(${shiftOverrides.range})` }).from(shiftOverrides).where(and(eq(shiftOverrides.operatorId, session.operatorId), isNull(shiftOverrides.revokedAt), sql`${shiftOverrides.range} @> now()`));
+    const assignmentEnd = this.asDate(assignment.assignmentEnd);
+    const shiftEnd = this.asDate(shift?.shiftEnd);
+    const overrideEnds = overrideRows.map((row) => this.asDate(row.end)).filter((value): value is Date => value !== null);
+    const workEnd = shiftEnd || overrideEnds.length ? new Date(Math.max(shiftEnd?.getTime() ?? 0, ...overrideEnds.map((value) => value.getTime()))) : null;
+    const effectiveEnd = this.minDate(assignmentEnd, workEnd) ?? new Date('9999-12-31T23:59:59.999Z');
+    if (effectiveEnd.getTime() <= now.getTime()) {
+      return this.closeStationForAuthorization(session.id, session.version, device.id, session.operatorId, 'AUTHORIZATION_ENDED', now);
+    }
+
+    const [renewed] = await this.db.db
+      .update(profileSessions)
+      .set({ lastHeartbeatAt: now, version: sql<number>`${profileSessions.version} + 1` })
+      .where(and(eq(profileSessions.id, session.id), eq(profileSessions.deviceId, device.id), eq(profileSessions.status, 'ACTIVE'), eq(profileSessions.version, version)))
+      .returning({ version: profileSessions.version });
+    if (!renewed) throw new ConflictException('Session changed concurrently');
+    const permitUntil = new Date(Math.min(effectiveEnd.getTime(), now.getTime() + 30_000));
+    await this.audit.record({ actorType: 'DEVICE', actorDeviceId: device.id, action: 'session.heartbeat', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { version: renewed.version, permitUntil: permitUntil.toISOString() } });
+    return this.heartbeatDecision('CONTINUE', 'ACTIVE', renewed.version, now, permitUntil, effectiveEnd);
+  }
+
+  async closeStationSession(id: string, version: number, deviceToken: string) {
+    const device = await this.db.db.query.devices.findFirst({
+      where: and(eq(devices.tokenHash, hashToken(deviceToken)), eq(devices.status, 'APPROVED'), sql`${devices.tokenExpiresAt} > now()`),
+    });
+    if (!device) throw new ForbiddenException('Device is not approved');
+    const [current] = await this.db.db.select({ id: profileSessions.id, operatorId: profileSessions.operatorId, status: profileSessions.status, deviceId: profileSessions.deviceId, version: profileSessions.version, endedAt: profileSessions.endedAt, endReason: profileSessions.endReason, browserClosedAt: profileSessions.browserClosedAt }).from(profileSessions).where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, device.id))).limit(1);
+    if (!current) throw new NotFoundException('Session not found');
+    if (current.status !== 'CLOSED' && current.version !== version) throw new ConflictException('Session changed concurrently');
+    const now = new Date();
+    const [row] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: current.status === 'CLOSED' ? undefined : sql<number>`${profileSessions.version} + 1`, endedAt: current.endedAt ?? now, endReason: current.endReason ?? 'BROWSER_CLOSED', browserClosedAt: current.browserClosedAt ?? now }).where(eq(profileSessions.id, id)).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, browserClosedAt: profileSessions.browserClosedAt });
+    if (!row) throw new NotFoundException('Session not found');
+    if (!current.browserClosedAt) {
+      await this.audit.record({ actorType: 'DEVICE', actorDeviceId: device.id, actorUserId: current.operatorId, action: 'session.close.confirmed', entityType: 'session', entityId: id, result: 'SUCCESS', metadata: { version: row.version } });
+      await this.realtime.publishOperatorChanged(current.operatorId);
+    }
+    return row;
+  }
+
+  private async closeStationForAuthorization(id: string, version: number, deviceId: string, operatorId: string, reason: string, endedAt: Date) {
+    const [row] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: sql<number>`${profileSessions.version} + 1`, endedAt, endReason: reason }).where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, deviceId), eq(profileSessions.version, version), inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version });
+    if (row) {
+      await this.audit.record({ actorType: 'SYSTEM', actorDeviceId: deviceId, actorUserId: operatorId, action: 'session.closed', entityType: 'session', entityId: id, result: 'SUCCESS', metadata: { reason } });
+      await this.realtime.publishOperatorChanged(operatorId);
+    }
+    return this.heartbeatDecision('CLOSE', 'CLOSED', row?.version ?? version, endedAt, endedAt, endedAt, reason);
+  }
+
+  private heartbeatDecision(decision: 'CONTINUE' | 'CLOSE', status: string, version: number, serverTime: Date, permitUntil: Date, effectiveEndAt: Date, reason?: string) {
+    return { decision, status, version, serverTime: serverTime.toISOString(), permitUntil: permitUntil.toISOString(), effectiveEndAt: effectiveEndAt.toISOString(), ...(decision === 'CLOSE' ? { reason: reason ?? 'SESSION_CLOSED' } : {}) };
+  }
+
+  private asDate(value: Date | string | null | undefined): Date | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private minDate(left: Date | null, right: Date | null): Date | null {
+    if (!left) return right;
+    if (!right) return left;
+    return left.getTime() <= right.getTime() ? left : right;
   }
 
   async closeSession(id: string, version: number, userId: string, deviceToken: string) {

@@ -62,6 +62,9 @@ export const profileRecordSchema = z.object({
   chromeProfileDir: z.string().nullable(),
   notes: z.string().nullable(),
   version: z.number().int().nonnegative(),
+  credentialVersion: z.number().int().positive().nullable(),
+  credentialRotatedAt: z.string().datetime({ offset: true }).nullable(),
+  credentialRotatedBy: z.string().nullable(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
 }).strict();

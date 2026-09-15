@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { credentialAccessLog, profileAssignments, profileSessions, ttProfiles } from '../../database/schema/index.js';
+import { credentialAccessLog, profileAssignments, profileSessions, ttProfileCredentials, ttProfiles, users } from '../../database/schema/index.js';
 import type { ProfileCreateInput, ProfileUpdateInput } from './profiles.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { assignedProfileSchema, type AssignedProfile } from '@agency-os/shared';
@@ -70,17 +70,22 @@ export class ProfilesService {
         chromeProfileDir: ttProfiles.chromeProfileDir,
         notes: ttProfiles.notes,
         version: ttProfiles.version,
+        credentialVersion: ttProfileCredentials.version,
+        credentialRotatedAt: ttProfileCredentials.rotatedAt,
+        credentialRotatedBy: users.fullName,
         createdAt: ttProfiles.createdAt,
         updatedAt: ttProfiles.updatedAt,
       })
       .from(ttProfiles)
+      .leftJoin(ttProfileCredentials, and(eq(ttProfileCredentials.profileId, ttProfiles.id), eq(ttProfileCredentials.isCurrent, true)))
+      .leftJoin(users, eq(users.id, ttProfileCredentials.rotatedBy))
       .where(this.profileScope(actor))
       .orderBy(asc(ttProfiles.displayName))
       .limit(safeSize)
       .offset((safePage - 1) * safeSize);
     const [{ count }] = await this.db.db.select({ count: sql<number>`count(*)::int` }).from(ttProfiles).where(this.profileScope(actor));
     const totalItems = Number(count ?? 0);
-    return { data: rows, pagination: { page: safePage, pageSize: safeSize, totalItems, totalPages: Math.ceil(totalItems / safeSize) } };
+    return { data: rows.map((row) => ({ ...row, credentialVersion: row.credentialVersion ?? null, credentialRotatedAt: row.credentialRotatedAt ?? null, credentialRotatedBy: row.credentialRotatedBy ?? null })), pagination: { page: safePage, pageSize: safeSize, totalItems, totalPages: Math.ceil(totalItems / safeSize) } };
   }
 
   async get(id: string, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
@@ -95,15 +100,20 @@ export class ProfilesService {
         chromeProfileDir: ttProfiles.chromeProfileDir,
         notes: ttProfiles.notes,
         version: ttProfiles.version,
+        credentialVersion: ttProfileCredentials.version,
+        credentialRotatedAt: ttProfileCredentials.rotatedAt,
+        credentialRotatedBy: users.fullName,
         createdAt: ttProfiles.createdAt,
         updatedAt: ttProfiles.updatedAt,
       })
       .from(ttProfiles)
+      .leftJoin(ttProfileCredentials, and(eq(ttProfileCredentials.profileId, ttProfiles.id), eq(ttProfileCredentials.isCurrent, true)))
+      .leftJoin(users, eq(users.id, ttProfileCredentials.rotatedBy))
       .where(and(eq(ttProfiles.id, id), this.profileScope(actor)))
       .limit(1)
       .then((rows) => rows[0]);
     if (!row) throw new NotFoundException('Profile not found');
-    return row;
+    return { ...row, credentialVersion: row.credentialVersion ?? null, credentialRotatedAt: row.credentialRotatedAt ?? null, credentialRotatedBy: row.credentialRotatedBy ?? null };
   }
 
   async create(input: ProfileCreateInput, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
@@ -114,6 +124,10 @@ export class ProfilesService {
 
   async update(id: string, input: ProfileUpdateInput, actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
     const { version, ...changes } = input;
+    if (changes.loginEmail !== undefined) {
+      const [credential] = await this.db.db.select({ username: ttProfileCredentials.username }).from(ttProfileCredentials).where(and(eq(ttProfileCredentials.profileId, id), eq(ttProfileCredentials.isCurrent, true))).limit(1);
+      if (credential && credential.username !== changes.loginEmail) throw new ConflictException('Use the credential form to change the TalkyTimes login');
+    }
     if (Object.prototype.hasOwnProperty.call(changes, 'chromeProfileDir')) {
       const [liveSession] = await this.db.db
         .select({ id: profileSessions.id })

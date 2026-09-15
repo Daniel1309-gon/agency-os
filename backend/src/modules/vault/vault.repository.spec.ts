@@ -45,4 +45,26 @@ describe('DrizzleVaultRepository.rotateCredential', () => {
     });
     expect(JSON.stringify(db.inserted('credential_access_log')[0])).not.toContain('ciphertext');
   });
+
+  it('updates the profile login email in the same transaction', async () => {
+    const db = createFakeDatabase();
+    const repository = new DrizzleVaultRepository(db.service);
+    db.stub('tt_profiles').returning([{ id: PROFILE }]);
+
+    await repository.rotateCredential({
+      profileId: PROFILE,
+      username: 'new@example.test',
+      ciphertext: Buffer.from('ciphertext'),
+      nonce: Buffer.from('nonce'),
+      tag: Buffer.from('tag'),
+      keyVersion: 3,
+      aadContext: `${PROFILE}:3`,
+      version: 4,
+      rotatedAt: new Date('2026-08-21T12:00:00.000Z'),
+      rotatedBy: ADMIN,
+    }, { loginEmail: 'new@example.test', version: 7, updatedBy: ADMIN });
+
+    expect(db.updated('tt_profiles')[0]).toMatchObject({ loginEmail: 'new@example.test', updatedBy: ADMIN });
+    expect(db.transactions()).toBe(1);
+  });
 });

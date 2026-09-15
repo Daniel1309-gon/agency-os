@@ -5,11 +5,13 @@ export {
   metricEventSchema,
   sessionCloseSchema,
   sessionCreateSchema,
+  sessionHeartbeatSchema,
   sessionPatchSchema,
   type MetricBatchInput,
   type MetricEventInput,
   type SessionCreateInput,
   type SessionCloseInput,
+  type SessionHeartbeatInput,
   type SessionPatchInput,
 } from './contracts/operator.js';
 export {
