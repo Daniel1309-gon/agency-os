@@ -69,13 +69,11 @@ export class MetricsService {
         ? sql`exists (select 1 from ${crewMembers} member inner join ${crews} crew on crew.id = member.crew_id where member.user_id = ${cafeteriaOrders.operatorId} and member.valid_range @> now() and crew.coordinator_id = ${user.sub} and crew.is_active = true)`
         : eq(cafeteriaOrders.operatorId, user.sub);
 
-    const [[online], [activeSessions], [scheduled], [covered], [pendingOrders]] = await Promise.all([
-      this.db.db.select({ value: count(sql`distinct ${profileSessions.operatorId}`) }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))),
-      this.db.db.select({ value: count() }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))),
-      this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, inArray(shifts.status, ['SCHEDULED', 'IN_PROGRESS']))),
-      this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS'), sql`exists (select 1 from ${profileSessions} session where session.operator_id = ${shifts.operatorId} and session.status in ('LAUNCHING', 'ACTIVE'))`)),
-      this.db.db.select({ value: count() }).from(cafeteriaOrders).where(and(orderScope, inArray(cafeteriaOrders.status, ['PLACED', 'ACCEPTED', 'PREPARING', 'READY']))),
-    ]);
+    const [online] = await this.db.db.select({ value: count(sql`distinct ${profileSessions.operatorId}`) }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE'])));
+    const [activeSessions] = await this.db.db.select({ value: count() }).from(profileSessions).where(and(operatorSessionScope, inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE'])));
+    const [scheduled] = await this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, inArray(shifts.status, ['SCHEDULED', 'IN_PROGRESS'])));
+    const [covered] = await this.db.db.select({ value: count(sql`distinct ${shifts.operatorId}`) }).from(shifts).where(and(shiftScope, sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS'), sql`exists (select 1 from ${profileSessions} session where session.operator_id = ${shifts.operatorId} and session.status in ('LAUNCHING', 'ACTIVE'))`));
+    const [pendingOrders] = await this.db.db.select({ value: count() }).from(cafeteriaOrders).where(and(orderScope, inArray(cafeteriaOrders.status, ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'])));
     return {
       operatorsOnline: Number(online?.value ?? 0),
       operatorsScheduled: Number(scheduled?.value ?? 0),

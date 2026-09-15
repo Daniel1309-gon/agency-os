@@ -142,20 +142,18 @@ export class DrizzleVaultRepository implements VaultRepository {
     profileId: string;
     operatorId: string;
   }): Promise<boolean> {
-    const [session, profile] = await Promise.all([
-      this.database.db.query.profileSessions.findFirst({
-        where: and(
-          eq(profileSessions.id, input.sessionId),
-          eq(profileSessions.profileId, input.profileId),
-          eq(profileSessions.operatorId, input.operatorId),
-        ),
-        columns: { chromeProfileDir: true },
-      }),
-      this.database.db.query.ttProfiles.findFirst({
-        where: and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)),
-        columns: { chromeProfileDir: true },
-      }),
-    ]);
+    const session = await this.database.db.query.profileSessions.findFirst({
+      where: and(
+        eq(profileSessions.id, input.sessionId),
+        eq(profileSessions.profileId, input.profileId),
+        eq(profileSessions.operatorId, input.operatorId),
+      ),
+      columns: { chromeProfileDir: true },
+    });
+    const profile = await this.database.db.query.ttProfiles.findFirst({
+      where: and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)),
+      columns: { chromeProfileDir: true },
+    });
     return Boolean(profile?.chromeProfileDir && session?.chromeProfileDir === profile.chromeProfileDir);
   }
 

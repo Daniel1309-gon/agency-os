@@ -45,28 +45,26 @@ export class DrizzleEffectiveTimeRepository implements EffectiveTimeRepository {
     const earliest = bounds.length ? new Date(Math.min(...bounds.map((item) => item.start.getTime()))) : closedAt;
     const latest = bounds.length ? new Date(Math.max(...bounds.map((item) => item.end.getTime()), closedAt.getTime())) : closedAt;
 
-    const [overrideRows, sessionRows, breakRows] = await Promise.all([
-      this.database.db
-        .select({ operatorId: shiftOverrides.operatorId, from: sql<Date>`lower(${shiftOverrides.range})`, to: sql<Date>`upper(${shiftOverrides.range})` })
-        .from(shiftOverrides)
-        .where(and(
-          inArray(shiftOverrides.operatorId, operatorIds),
-          isNull(shiftOverrides.revokedAt),
-          sql`${shiftOverrides.range} && tstzrange(${earliest.toISOString()}::timestamptz, ${latest.toISOString()}::timestamptz)`,
-        )),
-      this.database.db
-        .select({ operatorId: profileSessions.operatorId, startedAt: profileSessions.startedAt, endedAt: profileSessions.endedAt })
-        .from(profileSessions)
-        .where(and(
-          inArray(profileSessions.operatorId, operatorIds),
-          lte(profileSessions.startedAt, latest),
-          sql`coalesce(${profileSessions.endedAt}, ${closedAt.toISOString()}::timestamptz) > ${earliest.toISOString()}::timestamptz`,
-        )),
-      this.database.db
-        .select({ shiftId: breaks.shiftId, startedAt: breaks.startedAt, endedAt: breaks.endedAt })
-        .from(breaks)
-        .where(and(inArray(breaks.shiftId, shiftIds), isNotNull(breaks.startedAt))),
-    ]);
+    const overrideRows = await this.database.db
+      .select({ operatorId: shiftOverrides.operatorId, from: sql<Date>`lower(${shiftOverrides.range})`, to: sql<Date>`upper(${shiftOverrides.range})` })
+      .from(shiftOverrides)
+      .where(and(
+        inArray(shiftOverrides.operatorId, operatorIds),
+        isNull(shiftOverrides.revokedAt),
+        sql`${shiftOverrides.range} && tstzrange(${earliest.toISOString()}::timestamptz, ${latest.toISOString()}::timestamptz)`,
+      ));
+    const sessionRows = await this.database.db
+      .select({ operatorId: profileSessions.operatorId, startedAt: profileSessions.startedAt, endedAt: profileSessions.endedAt })
+      .from(profileSessions)
+      .where(and(
+        inArray(profileSessions.operatorId, operatorIds),
+        lte(profileSessions.startedAt, latest),
+        sql`coalesce(${profileSessions.endedAt}, ${closedAt.toISOString()}::timestamptz) > ${earliest.toISOString()}::timestamptz`,
+      ));
+    const breakRows = await this.database.db
+      .select({ shiftId: breaks.shiftId, startedAt: breaks.startedAt, endedAt: breaks.endedAt })
+      .from(breaks)
+      .where(and(inArray(breaks.shiftId, shiftIds), isNotNull(breaks.startedAt)));
 
     return scheduled.map((row) => {
       const window = windows.get(row.shiftId);
@@ -126,30 +124,28 @@ export class DrizzleEffectiveTimeRepository implements EffectiveTimeRepository {
       visible,
     );
 
-    const [items, [totals], byOperator] = await Promise.all([
-      this.database.db
-        .select({
-          id: shifts.id,
-          operatorId: shifts.operatorId,
-          businessDate: shifts.businessDate,
-          status: shifts.status,
-          actualStartAt: shifts.actualStartAt,
-          actualEndAt: shifts.actualEndAt,
-          effectiveMinutes: shifts.effectiveMinutes,
-        })
-        .from(shifts)
-        .where(filter)
-        .orderBy(shifts.businessDate, shifts.id)
-        .limit(query.pageSize)
-        .offset((query.page - 1) * query.pageSize),
-      this.database.db.select({ shiftCount: count(), minutes: sum(shifts.effectiveMinutes) }).from(shifts).where(filter),
-      this.database.db
-        .select({ operatorId: shifts.operatorId, shiftCount: count(), minutes: sum(shifts.effectiveMinutes) })
-        .from(shifts)
-        .where(filter)
-        .groupBy(shifts.operatorId)
-        .orderBy(shifts.operatorId),
-    ]);
+    const items = await this.database.db
+      .select({
+        id: shifts.id,
+        operatorId: shifts.operatorId,
+        businessDate: shifts.businessDate,
+        status: shifts.status,
+        actualStartAt: shifts.actualStartAt,
+        actualEndAt: shifts.actualEndAt,
+        effectiveMinutes: shifts.effectiveMinutes,
+      })
+      .from(shifts)
+      .where(filter)
+      .orderBy(shifts.businessDate, shifts.id)
+      .limit(query.pageSize)
+      .offset((query.page - 1) * query.pageSize);
+    const [totals] = await this.database.db.select({ shiftCount: count(), minutes: sum(shifts.effectiveMinutes) }).from(shifts).where(filter);
+    const byOperator = await this.database.db
+      .select({ operatorId: shifts.operatorId, shiftCount: count(), minutes: sum(shifts.effectiveMinutes) })
+      .from(shifts)
+      .where(filter)
+      .groupBy(shifts.operatorId)
+      .orderBy(shifts.operatorId);
 
     return {
       items,

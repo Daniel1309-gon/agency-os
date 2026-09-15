@@ -215,27 +215,25 @@ export class AssignmentsService {
       query.operatorId ? eq(profileAssignments.operatorId, query.operatorId) : undefined,
       query.profileId ? eq(profileAssignments.profileId, query.profileId) : undefined,
     );
-    const [items, [total]] = await Promise.all([
-      this.db.db
-        .select({
-          id: profileAssignments.id,
-          profileId: profileAssignments.profileId,
-          operatorId: profileAssignments.operatorId,
-          shiftId: profileAssignments.shiftId,
-          validRange: profileAssignments.validRange,
-          status: profileAssignments.status,
-          assignedBy: profileAssignments.assignedBy,
-          endedAt: profileAssignments.endedAt,
-          endReason: profileAssignments.endReason,
-          createdAt: profileAssignments.createdAt,
-        })
-        .from(profileAssignments)
-        .where(filter)
-        .orderBy(desc(profileAssignments.createdAt), desc(profileAssignments.id))
-        .limit(query.pageSize)
-        .offset((query.page - 1) * query.pageSize),
-      this.db.db.select({ value: count() }).from(profileAssignments).where(filter),
-    ]);
+    const items = await this.db.db
+      .select({
+        id: profileAssignments.id,
+        profileId: profileAssignments.profileId,
+        operatorId: profileAssignments.operatorId,
+        shiftId: profileAssignments.shiftId,
+        validRange: profileAssignments.validRange,
+        status: profileAssignments.status,
+        assignedBy: profileAssignments.assignedBy,
+        endedAt: profileAssignments.endedAt,
+        endReason: profileAssignments.endReason,
+        createdAt: profileAssignments.createdAt,
+      })
+      .from(profileAssignments)
+      .where(filter)
+      .orderBy(desc(profileAssignments.createdAt), desc(profileAssignments.id))
+      .limit(query.pageSize)
+      .offset((query.page - 1) * query.pageSize);
+    const [total] = await this.db.db.select({ value: count() }).from(profileAssignments).where(filter);
     return { items, page: query.page, pageSize: query.pageSize, total: total?.value ?? 0 };
   }
 
@@ -359,11 +357,9 @@ export class AssignmentsService {
     if (session.status !== 'ACTIVE') return this.heartbeatDecision('CLOSE', session.status, session.version, now, now, now, 'SESSION_NOT_ACTIVE');
     if (version !== session.version) throw new ConflictException('Session changed concurrently');
 
-    const [[profile], [operator], [assignment]] = await Promise.all([
-      this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, session.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt))).limit(1),
-      this.db.db.select({ id: users.id }).from(users).where(and(eq(users.id, session.operatorId), eq(users.status, 'ACTIVE'), isNull(users.deletedAt))).limit(1),
-      this.db.db.select({ shiftId: profileAssignments.shiftId, assignmentEnd: sql<Date | string | null>`upper(${profileAssignments.validRange})` }).from(profileAssignments).where(and(eq(profileAssignments.id, session.assignmentId), eq(profileAssignments.profileId, session.profileId), eq(profileAssignments.operatorId, session.operatorId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`)).limit(1),
-    ]);
+    const [profile] = await this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, session.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt))).limit(1);
+    const [operator] = await this.db.db.select({ id: users.id }).from(users).where(and(eq(users.id, session.operatorId), eq(users.status, 'ACTIVE'), isNull(users.deletedAt))).limit(1);
+    const [assignment] = await this.db.db.select({ shiftId: profileAssignments.shiftId, assignmentEnd: sql<Date | string | null>`upper(${profileAssignments.validRange})` }).from(profileAssignments).where(and(eq(profileAssignments.id, session.assignmentId), eq(profileAssignments.profileId, session.profileId), eq(profileAssignments.operatorId, session.operatorId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`)).limit(1);
     if (!profile || !operator || !assignment) {
       return this.closeStationForAuthorization(session.id, session.version, device.id, session.operatorId, 'AUTHORIZATION_ENDED', now);
     }
