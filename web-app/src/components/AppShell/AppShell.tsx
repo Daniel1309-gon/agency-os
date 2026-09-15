@@ -49,7 +49,6 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
             <span className="sidebar-label">Sesión actual</span>
             <strong>{user.fullName}</strong>
             <span className="sidebar-role-label">{roleLabels[role]}</span>
-            <span className="sidebar-online"><i aria-hidden="true" /> Sistema operativo</span>
           </div>
 
           <nav className="workspace-nav" aria-label="Secciones del workspace">
@@ -68,7 +67,6 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
             <span className="sidebar-security__mark">✓</span>
             <span><strong>Acceso protegido</strong><small>Sesión auditada</small></span>
           </div>
-          <button className="logout-button" type="button" onClick={onLogout}>Cerrar sesión <span aria-hidden="true">↗</span></button>
         </div>
       </aside>
 
@@ -81,7 +79,6 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
               <p className="workspace-brand__caption">{roleLabels[role]}</p>
             </div>
           </div>
-          <button className="mobile-logout" type="button" onClick={onLogout} aria-label="Cerrar sesión">↗</button>
         </div>
 
         <nav className="workspace-mobile-nav" aria-label="Secciones del workspace">
@@ -95,10 +92,18 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
 
         <div className="workspace-topbar">
           <div className="workspace-breadcrumb"><span>Agency OS</span><b>/</b><span>{activeRoute.label}</span></div>
-          <div className="workspace-identity" aria-label="Usuario autenticado">
-            <span className="workspace-identity__initials" aria-hidden="true">{user.fullName.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
-            <span>{user.fullName}</span>
-          </div>
+          <details className="workspace-user-menu">
+            <summary className="workspace-identity" aria-label="Abrir menú de usuario">
+              <span className="workspace-identity__initials" aria-hidden="true">{user.fullName.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
+              <span>{user.fullName}</span>
+              <span className="workspace-identity__chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="workspace-user-menu__panel">
+              <span className="workspace-user-menu__label">Sesión autenticada</span>
+              <strong>{roleLabels[role]}</strong>
+              <button type="button" onClick={onLogout}>Cerrar sesión <span aria-hidden="true">↗</span></button>
+            </div>
+          </details>
         </div>
 
         {children}

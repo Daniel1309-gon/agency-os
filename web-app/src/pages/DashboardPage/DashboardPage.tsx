@@ -93,7 +93,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'team': return <CoordinatorTeamPage accessToken={accessToken} />;
     case 'users': return <UserManagement accessToken={accessToken} user={user} />;
     case 'profiles': return <ProfileManagement accessToken={accessToken} user={user} />;
-    case 'assignments': return <AssignmentManagement accessToken={accessToken} user={user} />;
+    case 'assignments': return <AssignmentManagement accessToken={accessToken} user={user} onNavigate={onNavigate} />;
     case 'shifts': return <ShiftManagement accessToken={accessToken} user={user} />;
     case 'metrics': return <ManagementOverview accessToken={accessToken} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;

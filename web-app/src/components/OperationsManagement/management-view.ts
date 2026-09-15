@@ -1,4 +1,4 @@
-import type { UserSummary } from '@agency-os/shared';
+import type { AssignmentRecord, UserSummary } from '@agency-os/shared';
 
 export interface AssignmentScheduleInput {
   fromDate: string;
@@ -87,6 +87,57 @@ export function parseRange(range: string | null): { from: string; to: string } |
   const to = parseTimestamp(match[2]);
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
   return { from: from.toISOString(), to: to.toISOString() };
+}
+
+export interface AssignmentGroup {
+  id: string;
+  profileId: string;
+  operatorId: string;
+  shiftId: string | null;
+  status: string;
+  endReason: string | null;
+  records: AssignmentRecord[];
+}
+
+function localDay(value: string): number {
+  const date = new Date(value);
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/** Collapses consecutive concrete windows for the table while keeping each record for actions. */
+export function groupAssignmentRecords(records: AssignmentRecord[]): AssignmentGroup[] {
+  const buckets = new Map<string, AssignmentRecord[]>();
+  for (const record of records) {
+    const parsed = parseRange(record.validRange);
+    const start = parsed?.from ?? record.id;
+    const key = [record.profileId, record.operatorId, record.shiftId ?? '', record.status, record.endReason ?? '', record.createdAt, parsed ? new Date(parsed.from).toISOString().slice(11, 16) : start].join('|');
+    buckets.set(key, [...(buckets.get(key) ?? []), record]);
+  }
+
+  const groups: AssignmentGroup[] = [];
+  for (const bucket of buckets.values()) {
+    const sorted = [...bucket].sort((left, right) => {
+      const leftStart = parseRange(left.validRange)?.from ?? '';
+      const rightStart = parseRange(right.validRange)?.from ?? '';
+      return leftStart.localeCompare(rightStart);
+    });
+    let cluster: AssignmentRecord[] = [];
+    const pushCluster = () => {
+      if (!cluster.length) return;
+      const first = cluster[0];
+      groups.push({ id: first.id, profileId: first.profileId, operatorId: first.operatorId, shiftId: first.shiftId, status: first.status, endReason: first.endReason, records: cluster });
+      cluster = [];
+    };
+    for (const record of sorted) {
+      const previous = cluster.at(-1);
+      const previousRange = previous ? parseRange(previous.validRange) : null;
+      const currentRange = parseRange(record.validRange);
+      if (previous && previousRange && currentRange && (localDay(currentRange.from) - localDay(previousRange.from)) / 86_400_000 > 7) pushCluster();
+      cluster.push(record);
+    }
+    pushCluster();
+  }
+  return groups.sort((left, right) => (parseRange(right.records[0]?.validRange)?.from ?? '').localeCompare(parseRange(left.records[0]?.validRange)?.from ?? ''));
 }
 
 export function formatRange(range: string | null): string {

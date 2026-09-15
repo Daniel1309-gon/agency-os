@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssignmentWindows, canManage, formatRange, toIsoDateTime } from './management-view';
+import { buildAssignmentWindows, canManage, formatRange, groupAssignmentRecords, toIsoDateTime } from './management-view';
+import type { AssignmentRecord } from '@agency-os/shared';
 
 describe('operations management view helpers', () => {
   it('allows wildcard permissions and rejects permissions outside the session', () => {
@@ -54,5 +55,31 @@ describe('buildAssignmentWindows', () => {
   it('rejects an empty weekday selection and equal times', () => {
     expect(() => buildAssignmentWindows({ fromDate: '2026-09-21', toDate: '2026-09-21', weekdays: [], dailyFrom: '06:05', dailyTo: '14:05' })).toThrow('Selecciona al menos un día');
     expect(() => buildAssignmentWindows({ fromDate: '2026-09-21', toDate: '2026-09-21', weekdays: [1], dailyFrom: '06:05', dailyTo: '06:05' })).toThrow('distintas');
+  });
+});
+
+describe('groupAssignmentRecords', () => {
+  it('shows a recurring window as one row while retaining concrete dates for actions', () => {
+    const common = {
+      profileId: '11111111-1111-4111-8111-111111111111',
+      operatorId: '22222222-2222-4222-8222-222222222222',
+      shiftId: null,
+      status: 'ACTIVE',
+      assignedBy: '33333333-3333-4333-8333-333333333333',
+      endedAt: null,
+      endReason: null,
+      createdAt: '2026-09-01T12:00:00.000Z',
+    } satisfies Omit<AssignmentRecord, 'id' | 'validRange'>;
+    const rows = ['2026-09-21', '2026-09-28', '2026-10-05'].map((date, index) => ({
+      ...common,
+      id: `44444444-4444-4444-8444-44444444444${index + 1}`,
+      validRange: `[${date}T11:05:00.000Z,${date}T19:05:00.000Z)`,
+    }));
+
+    const groups = groupAssignmentRecords(rows);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].records).toHaveLength(3);
+    expect(groups[0].records.map((record) => record.id)).toEqual(rows.map((record) => record.id));
   });
 });
