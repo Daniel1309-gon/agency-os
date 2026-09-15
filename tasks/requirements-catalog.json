@@ -193,13 +193,10 @@
       "id": "FR-14",
       "status": "PARTIAL",
       "delivery": [
-        "E1"
+        "E2"
       ],
       "tasks": [
-        "MET-01",
-        "SEC-05",
-        "SEC-06",
-        "OPS-03"
+        "MET-01"
       ],
       "evidence": [
         "backend/src/test/integration/metrics.int.spec.ts"

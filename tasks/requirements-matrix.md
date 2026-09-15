@@ -27,7 +27,7 @@ decisión explícita). Una pregunta abierta nunca convierte un requisito en comp
 | FR-11 | Extensión obtiene credencial | `BLOCKED` | E1 | SEC-05, SEC-09, INT-01 | Backend grant/redeem probado en [`vault.int.spec.ts`](../backend/src/test/integration/vault.int.spec.ts); bloqueado por PC y credenciales autorizadas. |
 | FR-12 | Perfiles nativos aislados | `BLOCKED` | E1 | INT-01 | Diseño registrado en [`agents.md`](../agents.md); falta prueba con 5/8 perfiles en PC objetivo. |
 | FR-13 | Detección automática de caída | `N/A` | E1 | N/A | Fuera de alcance por decisión explícita en [`agents.md`](../agents.md); se conserva heartbeat/estado manual. |
-| FR-14 | Métricas de extensión | `PARTIAL` | E1 | MET-01, SEC-05, SEC-06, OPS-03 | [`metrics.int.spec.ts`](../backend/src/test/integration/metrics.int.spec.ts); faltan límites y validación semántica completa. |
+| FR-14 | Métricas de extensión | `PARTIAL` | E2 | MET-01 | [`metrics.int.spec.ts`](../backend/src/test/integration/metrics.int.spec.ts); la ingesta de métricas de negocio queda en E2 según §9 de requerimientos v2.2. E1 conserva únicamente heartbeat/estado de sesión mediante OPS-03. |
 | FR-15 | Inicio/fin de turno | `PARTIAL` | E1 | OPS-03, OPS-05 | [`shifts-and-crews.int.spec.ts`](../backend/src/test/integration/shifts-and-crews.int.spec.ts); falta materialización idempotente total. |
 | FR-16 | Breaks y aviso | `PARTIAL` | E1 | OPS-06, ASY-02 | [`breaks.service.ts`](../backend/src/modules/breaks/breaks.service.ts); falta aviso durable y autocierre. |
 | FR-17 | Tiempo efectivo | `COMPLIANT` | E1 | OPS-07 | [`effective-time.port.ts`](../backend/src/modules/shifts/effective-time.port.ts) y [ADR 0011](../docs/decisions/0011-effective-time-formula.md); fórmula por intersección de intervalos, reporte paginado con scope de cuadrilla y totales. Sin sesión abierta el turno liquida cero, decisión registrada en la ADR. |
@@ -50,8 +50,8 @@ decisión explícita). Una pregunta abierta nunca convierte un requisito en comp
 | FR-34 | KDS | `PARTIAL` | E2 | CAF-02, ASY-03 | Servicio base en [`cafeteria.service.ts`](../backend/src/modules/cafeteria/cafeteria.service.ts); falta CAS/WebSocket. |
 | FR-35 | Débito de nómina | `PARTIAL` | E2 | CAF-03, CAF-04, PAY-03 | Flujo preliminar en [`cafeteria.service.ts`](../backend/src/modules/cafeteria/cafeteria.service.ts). |
 | FR-36 | Canales Rocket.Chat | `PARTIAL` | E0/E1 | COM-01 | Integración base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); credencial verificada contra el servidor real y reglas fijadas en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). Falta vincular canal y escaneo de deriva; la sincronización de miembros sale del criterio por decisión del cliente. |
-| FR-37 | Mensajes y alertas | `PARTIAL` | E0/E1 | COM-02, ASY-02 | Outbox y entrega base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); falta worker durable. |
-| FR-38 | Semáforo y bot | `PARTIAL` | E1 | COM-03, ASY-03 | Estado derivado en [`operator-status.int.spec.ts`](../backend/src/test/integration/operator-status.int.spec.ts); falta realtime HA. |
+| FR-37 | Mensajes y alertas | `PARTIAL` | E0/E1 | COM-02, ASY-02 | Outbox y entrega base en [`communication.int.spec.ts`](../backend/src/test/integration/communication.int.spec.ts); programación única es el baseline, recurrencia queda abierta y falta worker durable. |
+| FR-38 | Semáforo y bot | `PARTIAL` | E1 | COM-03, ASY-03 | Semáforo web derivado en [`operator-status.int.spec.ts`](../backend/src/test/integration/operator-status.int.spec.ts); falta realtime HA. Publicación del semáforo en chat sigue fuera de alcance hasta decisión expresa. |
 | FR-39 | Interacciones por país | `BLOCKED` | E3 | INT-03 | Feature flag apagada y gate externo registrados en [`agents.md`](../agents.md). |
 
 ## Requisitos no funcionales

@@ -1,5 +1,7 @@
 # Plan de remediación del backend contra Agency OS v2.2
 
+Plan específico vigente de cierre de E1: [Plan de cierre de Entrega 1 — 2026-09-08](plan-cierre-entrega-1-2026-09-08.md). Detalla tareas, discrepancias de alcance, dependencias y gates; conserva este plan general como referencia y no declara los pendientes completados.
+
 **Fecha de la auditoría:** 2026-08-13  
 **Alcance:** backend NestJS/Fastify, PostgreSQL, Redis, workers e integraciones que el backend debe exponer o consumir.  
 **Fuera de alcance de implementación de este plan:** código final de la extensión/helper, administración del VPS de Rocket.Chat y el motor FastAPI de IA. La UI web estaba inicialmente fuera de alcance, pero el 2026-08-26 se autorizó continuar su implementación con el alcance verificable de Entrega 1: autenticación existente, perfiles asignados, turnos/breaks, semáforo y catálogo de perfiles sin secretos.
@@ -962,6 +964,10 @@ Context7 no estuvo disponible en esta sesión; se aplicó el fallback de la skil
 - [NestJS — Queues](https://docs.nestjs.com/techniques/queues): BullMQ persiste jobs en Redis y permite productores/consumidores distribuidos. Esto respalda sustituir timers/fire-and-forget en ASY-01/04.
 
 Estas referencias no sustituyen las integration tests con las versiones fijadas en `package.json` y PostgreSQL 16 del proyecto.
+
+## Plan específico: cierre del Chrome automatizado (2026-09-10)
+
+Plan terminado y listo para implementar: gestión web de credenciales, cierre/relevo, directorios por sesión y protección del formulario en [plan-cierre-chrome-automatizado-2026-09-10.md](plan-cierre-chrome-automatizado-2026-09-10.md). Secuencia CA-00a/CA-00b y CA-01 a CA-06; implementación y aceptación operativa pendientes. Incluye formulario confirmado por el usuario y acceso de dueño/ADMIN, director y coordinador según alcance, sin conceder rotación de clave maestra. No sustituye los gates globales ni declara retirado el flujo anterior.
 
 ## 14. Criterio de cierre global
 

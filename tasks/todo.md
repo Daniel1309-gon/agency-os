@@ -12,6 +12,8 @@ Plan detallado: [`tasks/plan.md`](plan.md). Marcar una tarea solo cuando sus cri
 
 ## Alcance activo — Entrega 1
 
+Secuencia de cierre detallada y checklist E1-00…E1-19: [Plan de cierre de Entrega 1 — 2026-09-08](plan-cierre-entrega-1-2026-09-08.md). Comenzar por reconciliar estas casillas con evidencia; INT-01 conserva su gate físico independiente.
+
 El camino crítico actual es la Entrega 1 de `agency-os-propuesta-comercial-v3.md`:
 autenticación/RBAC/IP, vault, perfiles/asignaciones, sesiones por turno, breaks, semáforo y
 bot/estado de Rocket.Chat. Tableau, ETL, nómina, icebreakers avanzados, cafetería completa y
@@ -59,14 +61,14 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **OPS-03** Máquina de sesión, CAS, reaper y gracia 0. Subavance verificado: `profile_sessions.version` con `CHECK > 0`, PATCH y cierre explícito con CAS atómico, incremento de versión en handoff/end/reaper, transición `ACTIVE→STALE` por heartbeat vencido y cierre posterior CAS de `STALE`; el reaper mantiene el cierre por expiración de asignación y el relevo usa `SHIFT_ENDED` en el borde exacto. El binding server-side de `chromeProfileDir` ahora exige coincidencia exacta con `tt_profiles`, falla cerrado sin configuración, protege grant/reclamación del vault y bloquea cambios mientras haya sesión viva; evidencia en `backend/src/modules/assignments/assignments.service.ts`, `backend/src/modules/profiles/profiles.service.ts`, `backend/src/modules/vault/vault.service.ts`, `backend/src/test/integration/assignments.int.spec.ts`, `backend/src/test/integration/vault.int.spec.ts` y [ADR 0008](../docs/decisions/0008-chrome-profile-binding.md). Pendientes: reaper durable/leases, prueba dedicada de dos instancias y gate E2E físico de cookies por estación.
 - [ ] **OPS-04** Proyección de perfiles/estados/errores. Subavance verificado: `GET /agent/profiles/assigned` proyecta la última sesión no cerrada de la asignación vigente, incluye `version`, `STALE` y código de error sin secretos; la web permite reabrir una sesión `ERROR/STALE`. Pendiente snapshot + eventos WS monotónicos y razón/telemetría completa.
 - [x] **WEB-01** Frontend verificable de Entrega 1: panel de perfiles asignados, turno/breaks, semáforo scoped en tiempo real y catálogo de perfiles sin secretos. Evidencia: `web-app/src/components/OperatorProfiles/OperatorProfiles.tsx`, `web-app/src/components/OperatorShift/OperatorShiftPanel.tsx`, `web-app/src/components/TeamOverview/TeamOverview.tsx`, `web-app/src/components/ProfileCatalog/ProfileCatalog.tsx`, `tasks/evidence/frontend-delivery-1-2026-08-26.md`, `pnpm ci:quality`, `pnpm --filter @agency-os/api test:integration`.
-- [ ] **OPS-05** Materialización de turnos :05, overrides y cruce de mes. Subavance verificado en commits `5a50083`, `d4b2240`, `ca68098` y `d290271`: cierre exacto en `06:05/14:05/22:05`, finalización de breaks, materialización desde plantillas activas, jornada nocturna Bogotá→UTC e idempotencia respaldada por la restricción de no solapamiento; evidencia en `backend/src/modules/jobs/jobs.service.ts`, `backend/src/modules/jobs/shift-schedule.ts`, `backend/src/modules/jobs/shift-schedule.spec.ts`, `backend/src/test/integration/shifts-and-crews.int.spec.ts` y [CI run 32673995788](https://github.com/Daniel1309-gon/agency-os/actions/runs/32673995788). Pendiente completar overrides dentro del flujo materializado, relevos/sesiones y aceptación del cierre de mes.
+- [ ] **OPS-05** Materialización de turnos :05, overrides y cruce de mes. Subavance verificado en commits `5a50083`, `d4b2240`, `ca68098` y `d290271`: cierre exacto en `06:05/14:05/22:05`, finalización de breaks, materialización desde plantillas activas, jornada nocturna Bogotá→UTC e idempotencia respaldada por la restricción de no solapamiento; evidencia en `backend/src/modules/jobs/jobs.service.ts`, `backend/src/modules/jobs/shift-schedule.ts`, `backend/src/modules/jobs/shift-schedule.spec.ts`, `backend/src/test/integration/shifts-and-crews.int.spec.ts` y [CI run 32673995788](https://github.com/Daniel1309-gon/agency-os/actions/runs/32673995788). Subavances 2026-09-09: `materializeShiftBacklog()` recupera hoy y el día de negocio previo, incluso en frontera mensual; `checkpoint2-restart.int.spec.ts` verifica relevo contiguo seguido de cierre tardío; el turno, break y tiempo efectivo respetan `upper(scheduled_range)` y no la hora de recuperación; ver [evidencia E1-04b](evidence/e1-04b-cierre-relevo-2026-09-09.md). E1-04b sigue abierto hasta verificar un reinicio real de API/worker con el scheduler arrancando y completar overrides/aceptación del cierre de mes.
 - [ ] **OPS-06** Descansos, aviso durable y semáforo. BLOCKED parcial: OQ-03.
 - [x] **OPS-07** Tiempo efectivo por intervalos y scope de crew. Formula pura versionada en [`effective-time.port.ts`](../backend/src/modules/shifts/effective-time.port.ts), una sola copia usada por el cierre manual y el automatico; reporte paginado con scope de cuadrilla y totales. Decision y consecuencias en [ADR 0011](../docs/decisions/0011-effective-time-formula.md). Evidencia: [`ops-07-effective-time-2026-09-08.md`](evidence/ops-07-effective-time-2026-09-08.md).
 - [x] **Checkpoint 2:** recorrido 06:05→break→relevo 14:05 con concurrencia y reinicio. El recorrido, el relevo sin 409 espurio, el aviso durable de break y la concurrencia quedaron demostrados el 2026-09-07. Las dos brechas se cerraron el 2026-09-08: el tiempo efectivo con OPS-07 y el reinicio de API con `checkpoint2-restart.int.spec.ts`, que destruye pool, Redis y servicios a mitad del recorrido y lo termina desde un proceso nuevo. Evidencia: [`checkpoints-1-3-2026-09-07.md`](evidence/checkpoints-1-3-2026-09-07.md), [`ops-07-effective-time-2026-09-08.md`](evidence/ops-07-effective-time-2026-09-08.md), [`checkpoint-2-restart-2026-09-08.md`](evidence/checkpoint-2-restart-2026-09-08.md).
 
 ## Fase 3 — jobs y realtime
 
-- [ ] **ASY-01** Proceso worker durable y scheduler persistente (BullMQ sigue siendo una opción, no una dependencia asumida).
+- [ ] **ASY-01** Proceso worker durable y scheduler persistente (BullMQ sigue siendo una opción, no una dependencia asumida). Subavance E1-04a: `job_runs` + claim/lease/fencing en `DurableJobRepository`; falta integrar ejecución, reintentos observables y prueba real con dos workers.
 - [ ] **ASY-02** Relay outbox y dispatchers idempotentes.
 - [ ] **ASY-03** WebSocket Redis HA, rooms y reconnect. Baseline OQ-12 resuelta; falta ejecutar la prueba cruzada en HA.
 - [ ] **ASY-04** Scheduler, leases, retries, DLQ y métricas.
@@ -144,6 +146,19 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **OQ-11** Gates Feature #9/FR-39.
 - [x] **OQ-12** Topología HA/storage/RPO/RTO/proxies. Baseline resuelta en [ADR 0009](../docs/decisions/0009-rbac-and-production-topology.md); QUA-03 conserva el gate de failover/restore real.
 - [ ] **OQ-13** Máximo de perfiles por PC/operador.
+
+## Cierre Chrome automatizado — plan 2026-09-10
+
+Detalle y criterios: [plan específico](plan-cierre-chrome-automatizado-2026-09-10.md). Planificación terminada; todas las tareas de implementación pendientes. Ejecutar en el orden listado y verificar el recorrido formulario → vault → nueva apertura antes del piloto.
+
+- [ ] **CA-00a** Permisos de credenciales por rol/alcance, separados de rotación de clave maestra.
+- [ ] **CA-00b** Configurar/actualizar credenciales desde Perfiles y verificar nueva apertura.
+- [ ] **CA-01** Renovación de autorización y confirmación de cierre por estación.
+- [ ] **CA-02** Cierre local por vencimiento/revocación y terminación ante crash.
+- [ ] **CA-03** Directorio por sesión, limpieza segura y reapertura idempotente.
+- [ ] **CA-04** Ocultamiento del ojo, no guardar contraseñas y errores sanitizados.
+- [ ] **CA-05** Estado visible coherente, cierre manual y recuperación.
+- [ ] **CA-06** Ensayo Windows/TalkyTimes, evidencia y retirada del recorrido anterior.
 
 ## Primera secuencia recomendada de PRs
 
