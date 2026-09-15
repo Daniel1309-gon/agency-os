@@ -1,25 +1,37 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { assignmentHistoryResponseSchema, managedUserSchema, profileListResponseSchema, type AssignmentRecord, type ManagedUser, type ProfileRecord, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
-import { canManage, errorMessage, formatRange, parseRange, toIsoDateTime, toLocalDateTime } from './management-view';
+import { buildAssignmentWindows, canManage, errorMessage, formatRange, parseRange, toLocalDateTime, type AssignmentScheduleInput } from './management-view';
 
 interface AssignmentManagementProps {
   accessToken: string | null;
   user: UserSummary;
 }
 
-interface AssignmentForm {
+interface AssignmentForm extends AssignmentScheduleInput {
   profileId: string;
   operatorId: string;
-  validFrom: string;
-  validTo: string;
 }
 
-function localPlusHours(hours: number): string {
-  return toLocalDateTime(new Date(Date.now() + hours * 60 * 60 * 1000));
+const WEEKDAYS = [
+  { value: 1, label: 'Lunes' },
+  { value: 2, label: 'Martes' },
+  { value: 3, label: 'Miércoles' },
+  { value: 4, label: 'Jueves' },
+  { value: 5, label: 'Viernes' },
+  { value: 6, label: 'Sábado' },
+  { value: 0, label: 'Domingo' },
+];
+
+function localDate(value: Date = new Date()): string {
+  return toLocalDateTime(value).slice(0, 10);
 }
 
-const emptyForm: AssignmentForm = { profileId: '', operatorId: '', validFrom: toLocalDateTime(new Date()), validTo: localPlusHours(8) };
+function localTime(value: Date): string {
+  return toLocalDateTime(value).slice(11, 16);
+}
+
+const emptyForm: AssignmentForm = { profileId: '', operatorId: '', fromDate: localDate(), toDate: localDate(), weekdays: [1], dailyFrom: '06:05', dailyTo: '14:05' };
 
 export function AssignmentManagement({ accessToken, user }: AssignmentManagementProps) {
   const [assignments, setAssignments] = useState<AssignmentRecord[]>([]);
@@ -68,7 +80,7 @@ export function AssignmentManagement({ accessToken, user }: AssignmentManagement
   function openCreate() {
     const firstOperator = operators[0]?.id ?? '';
     const firstProfile = profiles.find((item) => item.status === 'ACTIVE')?.id ?? '';
-    setForm({ ...emptyForm, operatorId: firstOperator, profileId: firstProfile, validFrom: toLocalDateTime(new Date()), validTo: localPlusHours(8) });
+    setForm({ ...emptyForm, operatorId: firstOperator, profileId: firstProfile });
     setError(null);
     setNotice(null);
     setIsFormOpen(true);
@@ -77,7 +89,9 @@ export function AssignmentManagement({ accessToken, user }: AssignmentManagement
   function openHandoff(item: AssignmentRecord) {
     const range = parseRange(item.validRange);
     const nextOperator = operators.find((operator) => operator.id !== item.operatorId)?.id ?? operators[0]?.id ?? '';
-    setForm({ profileId: item.profileId, operatorId: nextOperator, validFrom: range ? toLocalDateTime(range.to) : toLocalDateTime(new Date()), validTo: range ? toLocalDateTime(new Date(new Date(range.to).getTime() + 8 * 60 * 60 * 1000)) : localPlusHours(8) });
+    const handoffAt = range ? new Date(range.to) : new Date();
+    const handoffEnd = new Date(handoffAt.getTime() + 8 * 60 * 60 * 1000);
+    setForm({ profileId: item.profileId, operatorId: nextOperator, fromDate: localDate(handoffAt), toDate: localDate(handoffAt), weekdays: [handoffAt.getDay()], dailyFrom: localTime(handoffAt), dailyTo: localTime(handoffEnd) });
     setError(null);
     setNotice(`Relevo preparado para ${profileById.get(item.profileId)?.displayName ?? 'el perfil'}. Verifica el operador y las fechas antes de guardar.`);
     setIsFormOpen(true);
@@ -89,12 +103,14 @@ export function AssignmentManagement({ accessToken, user }: AssignmentManagement
     setError(null);
     setNotice(null);
     try {
-      await apiClient.request('/assignments', { method: 'POST', body: JSON.stringify({ profileId: form.profileId, operatorId: form.operatorId, validFrom: toIsoDateTime(form.validFrom), validTo: toIsoDateTime(form.validTo) }) });
-      setNotice('Asignación creada. Si inicia exactamente cuando termina la anterior, el backend registra el relevo y cierra la sesión saliente.');
+      const windows = buildAssignmentWindows(form);
+      await apiClient.request('/assignments', { method: 'POST', body: JSON.stringify({ profileId: form.profileId, operatorId: form.operatorId, windows }) });
+      setNotice(`${windows.length} tramo${windows.length === 1 ? '' : 's'} creado${windows.length === 1 ? '' : 's'}. Si el primero inicia exactamente cuando termina la asignación anterior, el backend registra el relevo y cierra la sesión saliente.`);
       setIsFormOpen(false);
       await loadAssignments();
     } catch (nextError) {
-      setError(nextError instanceof ApiError ? nextError.message : errorMessage(nextError, 'No pudimos guardar la asignación.'));
+      const message = nextError instanceof ApiError ? nextError.message : errorMessage(nextError, 'No pudimos guardar la asignación.');
+      setError(message);
     } finally {
       setIsSaving(false);
     }
@@ -130,9 +146,13 @@ export function AssignmentManagement({ accessToken, user }: AssignmentManagement
         <div className="management-form__grid">
           <label><span>Perfil</span><select required value={form.profileId} onChange={(event) => updateField('profileId', event.target.value)}><option value="">Selecciona un perfil</option>{profiles.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
           <label><span>Operador</span><select required value={form.operatorId} onChange={(event) => updateField('operatorId', event.target.value)}><option value="">Selecciona un operador</option>{operators.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
-          <label><span>Inicio del tramo</span><input required type="datetime-local" value={form.validFrom} onChange={(event) => updateField('validFrom', event.target.value)} /></label>
-          <label><span>Fin del tramo</span><input required type="datetime-local" value={form.validTo} onChange={(event) => updateField('validTo', event.target.value)} /></label>
+          <label><span>Período desde</span><input required type="date" value={form.fromDate} onChange={(event) => updateField('fromDate', event.target.value)} /></label>
+          <label><span>Período hasta</span><input required type="date" value={form.toDate} onChange={(event) => updateField('toDate', event.target.value)} /></label>
+          <fieldset className="management-form__wide management-weekdays"><legend>Días de la semana</legend><div className="management-weekdays__options">{WEEKDAYS.map((day) => <label className="management-day-option" key={day.value}><input type="checkbox" checked={form.weekdays.includes(day.value)} onChange={(event) => setForm((current) => ({ ...current, weekdays: event.target.checked ? [...current.weekdays, day.value] : current.weekdays.filter((value) => value !== day.value) }))} /><span>{day.label}</span></label>)}</div></fieldset>
+          <label><span>Hora de inicio diaria</span><input required type="time" value={form.dailyFrom} onChange={(event) => updateField('dailyFrom', event.target.value)} /></label>
+          <label><span>Hora de fin diaria</span><input required type="time" value={form.dailyTo} onChange={(event) => updateField('dailyTo', event.target.value)} /></label>
         </div>
+        <p className="management-form__hint">Se crea un tramo por cada día seleccionado dentro del período. Las horas se interpretan en America/Bogota; si la hora final es menor, el tramo cruza la medianoche.</p>
         <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSaving}>{isSaving ? 'Guardando…' : 'Guardar asignación'} <span aria-hidden="true">↗</span></button></div>
       </form>}
 
