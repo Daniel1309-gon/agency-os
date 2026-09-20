@@ -323,7 +323,7 @@ describe('VaultService.credential-management authorization', () => {
     const h = harness();
     const actor = { id: OPERATOR, role: 'OPERADOR' };
 
-    await expect(h.service.rotate(PROFILE, { username: 'perfil@talky.test', secret: 'nueva' }, actor)).rejects.toThrow(ForbiddenException);
+    await expect(h.service.rotate(PROFILE, { username: 'perfil@talky.test', secret: 'nueva', profileVersion: 0 }, actor)).rejects.toThrow(ForbiddenException);
     await expect(h.service.meta(PROFILE, actor)).rejects.toThrow(ForbiddenException);
   });
 });
