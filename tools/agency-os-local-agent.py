@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["selenium>=4.20"]
+# dependencies = ["selenium>=4.20", "certifi>=2024.2.2"]
 # ///
 """Agente local: entrega temporal del vault y ciclo de vida de Chrome."""
 
@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import threading
 import time
@@ -20,7 +21,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import (
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    OpenerDirector,
+    Request,
+    build_opener,
+    urlopen,
+)
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
@@ -111,15 +119,66 @@ class ApiFailure(RuntimeError):
         super().__init__(f"API request failed: {status}")
 
 
-def api_json(api_base: str, path: str, method: str, token: str, body: dict[str, object]) -> dict[str, object]:
+class NoRedirectHandler(HTTPRedirectHandler):
+    """Nunca reenvía una petición (ni el token de dispositivo) a otro destino."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def default_https_context() -> ssl.SSLContext:
+    """Contexto por defecto con un bundle de CAs actualizado.
+
+    En Windows, OpenSSL toma el almacén del sistema, que puede conservar
+    certificados intermedios vencidos (por ejemplo el ISRG Root X2 cruzado de
+    Let's Encrypt) y hacer fallar cadenas válidas. `certifi` evita ese problema
+    sin desactivar la verificación. Si no está disponible, se usa el store del
+    sistema.
+    """
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def build_http_opener(
+    client_cert: Path | None = None,
+    client_key: Path | None = None,
+    ca_file: Path | None = None,
+) -> OpenerDirector:
+    """Opener HTTPS con validación de servidor y, si se pide, certificado de cliente.
+
+    `ssl.create_default_context()` conserva la verificación de certificado y
+    hostname del servidor. El certificado y la clave deben ir juntos.
+    """
+    if (client_cert is None) != (client_key is None):
+        raise ValueError("client certificate and key must be provided together")
+    handlers: list[object] = [NoRedirectHandler()]
+    if client_cert is not None or ca_file is not None:
+        context = ssl.create_default_context(cafile=str(ca_file)) if ca_file is not None else default_https_context()
+        if client_cert is not None and client_key is not None:
+            context.load_cert_chain(certfile=str(client_cert), keyfile=str(client_key))
+        handlers.append(HTTPSHandler(context=context))
+    return build_opener(*handlers)
+
+
+def api_json(api_base: str, path: str, method: str, token: str, body: dict[str, object], opener: OpenerDirector | None = None) -> dict[str, object]:
     request = Request(
         f"{api_base.rstrip('/')}{path}",
         data=json.dumps(body).encode("utf-8"),
         method=method,
-        headers={"content-type": "application/json", "x-device-token": token},
+        headers={
+            "content-type": "application/json",
+            "x-device-token": token,
+            # Cloudflare bloquea clientes sin firma de navegador (error 1010);
+            # el agente se identifica con su propio nombre.
+            "user-agent": "AgencyOS-Local-Agent/0.1",
+        },
     )
     try:
-        with urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
+        open_request = opener.open if opener is not None else urlopen
+        with open_request(request, timeout=API_TIMEOUT_SECONDS) as response:
             data = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise ApiFailure(exc.code) from None
@@ -160,10 +219,11 @@ class Runtime:
 
 
 class Agent:
-    def __init__(self, api_base: str, token_file: Path, slot_root: Path):
+    def __init__(self, api_base: str, token_file: Path, slot_root: Path, http_opener: OpenerDirector | None = None):
         self.api_base = api_base.rstrip("/")
         self.token_file = token_file.resolve()
         self.slot_root = slot_root.resolve()
+        self.http_opener = http_opener
         self.runtimes: dict[str, Runtime] = {}
         self.starting: set[str] = set()
         self.lock = threading.RLock()
@@ -203,7 +263,7 @@ class Agent:
             stage = "credential"
             try:
                 session_dir = self.session_dir(session_id, str(session["chromeProfileDir"]))
-                credential = api_json(self.api_base, "/station/credential-claims", "POST", token, {"profileId": profile_id, "sessionId": session_id})
+                credential = api_json(self.api_base, "/station/credential-claims", "POST", token, {"profileId": profile_id, "sessionId": session_id}, self.http_opener)
                 username = credential.get("username")
                 secret = credential.get("secret")
                 session_version = credential.get("sessionVersion")
@@ -236,11 +296,11 @@ class Agent:
                 finally:
                     secret = ""
                 stage = "session"
-                active = api_json(self.api_base, f"/station/sessions/{session_id}", "PATCH", token, {"status": "ACTIVE", "version": session_version})
+                active = api_json(self.api_base, f"/station/sessions/{session_id}", "PATCH", token, {"status": "ACTIVE", "version": session_version}, self.http_opener)
                 active_version = active.get("version")
                 if not isinstance(active_version, int) or isinstance(active_version, bool) or active_version < 1:
                     raise RuntimeError("session response is invalid")
-                permit = api_json(self.api_base, f"/station/sessions/{session_id}/heartbeat", "POST", token, {"version": active_version})
+                permit = api_json(self.api_base, f"/station/sessions/{session_id}/heartbeat", "POST", token, {"version": active_version}, self.http_opener)
                 if permit.get("decision") != "CONTINUE" or not isinstance(permit.get("version"), int):
                     raise ApiFailure(403)
                 runtime = Runtime(session_id, profile_id, driver, session_dir, int(permit["version"]), self.permit_deadline(permit), threading.Event())
@@ -296,7 +356,7 @@ class Agent:
         while not runtime.stop.wait(HEARTBEAT_SECONDS):
             started = time.monotonic()
             try:
-                response = api_json(self.api_base, f"/station/sessions/{runtime.session_id}/heartbeat", "POST", self.token(), {"version": runtime.version})
+                response = api_json(self.api_base, f"/station/sessions/{runtime.session_id}/heartbeat", "POST", self.token(), {"version": runtime.version}, self.http_opener)
                 elapsed = time.monotonic() - started
                 if response.get("decision") != "CONTINUE" or not isinstance(response.get("version"), int):
                     self.close_runtime(runtime.session_id, confirm=False)
@@ -335,7 +395,7 @@ class Agent:
         with self.lock:
             runtime = self.runtimes.get(session_id)
         if runtime is None:
-            api_json(self.api_base, f"/station/sessions/{session_id}/close", "POST", self.token(), {"version": version})
+            api_json(self.api_base, f"/station/sessions/{session_id}/close", "POST", self.token(), {"version": version}, self.http_opener)
             return
         # La versión de la web puede quedar atrasada por los heartbeats. El
         # agente conserva la versión autoritativa de su sesión local.
@@ -356,7 +416,7 @@ class Agent:
             self.cleanup(runtime.user_data_dir)
             if confirm:
                 try:
-                    api_json(self.api_base, f"/station/sessions/{session_id}/close", "POST", self.token(), {"version": runtime.version})
+                    api_json(self.api_base, f"/station/sessions/{session_id}/close", "POST", self.token(), {"version": runtime.version}, self.http_opener)
                     confirmed = True
                 except (ApiFailure, RuntimeError, OSError):
                     pass
@@ -396,7 +456,7 @@ class Agent:
 
     def _mark_error(self, session_id: str, token: str, version: int, code: str, detail: str) -> None:
         try:
-            api_json(self.api_base, f"/station/sessions/{session_id}", "PATCH", token, {"status": "ERROR", "version": version, "errorCode": code, "errorDetail": detail})
+            api_json(self.api_base, f"/station/sessions/{session_id}", "PATCH", token, {"status": "ERROR", "version": version, "errorCode": code, "errorDetail": detail}, self.http_opener)
         except (ApiFailure, RuntimeError, OSError):
             pass
 
@@ -498,6 +558,8 @@ def main() -> None:
     parser.add_argument("--api-base-url", default="http://127.0.0.1:3000/api/v1")
     parser.add_argument("--web-origin", default="http://localhost:5173")
     parser.add_argument("--device-token-file", type=Path, required=False)
+    parser.add_argument("--client-cert-file", type=Path, help="Certificado de cliente mTLS (PEM)")
+    parser.add_argument("--client-key-file", type=Path, help="Clave privada del certificado de cliente (PEM)")
     parser.add_argument("--slot-root", type=Path, default=ROOT / ".local" / "agency-os-slots")
     parser.add_argument("--port", type=int, default=45831)
     parser.add_argument("--self-test", action="store_true")
@@ -518,6 +580,12 @@ def main() -> None:
             pass
         else:
             raise AssertionError("boolean session version accepted")
+        try:
+            build_http_opener(Path("solo-cert.pem"), None)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("partial mTLS configuration accepted")
         stale_close = Agent("http://127.0.0.1:3000/api/v1", Path(".local/token"), Path(".local/slots"))
         runtime = Runtime("123e4567-e89b-12d3-a456-426614174001", "123e4567-e89b-12d3-a456-426614174000", object(), Path(".local/slots/session"), 2, time.monotonic(), threading.Event())
         stale_close.runtimes[runtime.session_id] = runtime
@@ -527,8 +595,19 @@ def main() -> None:
         return
     if not args.device_token_file:
         parser.error("--device-token-file es obligatorio")
+    if (args.client_cert_file is None) != (args.client_key_file is None):
+        parser.error("--client-cert-file y --client-key-file deben usarse juntos")
+    opener = None
+    if args.client_cert_file is not None and args.client_key_file is not None:
+        for path, label in ((args.client_cert_file, "certificado"), (args.client_key_file, "clave")):
+            if not path.is_file():
+                parser.error(f"El archivo de {label} de cliente no existe: {path}")
+        try:
+            opener = build_http_opener(args.client_cert_file, args.client_key_file)
+        except (ssl.SSLError, OSError, ValueError):
+            parser.error("El certificado y la clave de cliente no forman un par válido")
     args.slot_root.mkdir(parents=True, exist_ok=True)
-    agent = Agent(args.api_base_url, args.device_token_file, args.slot_root)
+    agent = Agent(args.api_base_url, args.device_token_file, args.slot_root, opener)
     server = Server(("127.0.0.1", args.port), agent, args.web_origin)
     print(f"Agency OS local agent listening on 127.0.0.1:{args.port}")
     try:

@@ -40,6 +40,14 @@
     "stack:e2e:provision": "node --env-file=.local/station-e2e/station.env tools/provision-station-e2e.mjs",
     "stack:e2e:rocketchat-check": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml --profile rocketchat-check run --rm rocketchat-check",
     "stack:e2e:down": "docker compose --env-file .local/station-e2e/station.env -f compose.station-e2e.yml down",
+    "stack:mtls:config": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml config --quiet",
+    "stack:mtls:build": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml build",
+    "stack:mtls:up": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml up -d --wait",
+    "stack:mtls:provision": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml --profile ops run --rm pilot-ops",
+    "stack:mtls:allowlist": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml run --rm bootstrap-ip",
+    "stack:mtls:tunnel:up": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml --profile tunnel up -d cloudflared",
+    "stack:mtls:tunnel:down": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml --profile tunnel stop cloudflared",
+    "stack:mtls:down": "docker compose --env-file .local/mtls-pilot/pilot.env -f compose.mtls-pilot.yml --profile tunnel down",
     "station:bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File deploy/station-e2e/build-bundle.ps1"
   },
   "engines": {
