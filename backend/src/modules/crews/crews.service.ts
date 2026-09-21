@@ -31,6 +31,15 @@ export class CrewsService {
     return this.db.db.select().from(crews).where(scope).orderBy(asc(crews.name));
   }
 
+  async listMembers(crewId: string, actor: ScopeActor) {
+    if (!isGlobal(actor) && actor.role !== 'COORDINADOR') throw new ForbiddenException('Crew membership is outside the actor scope');
+    await this.assertManagedCrew(crewId, actor);
+    return this.db.db.select({ id: crewMembers.id, crewId: crewMembers.crewId, userId: crewMembers.userId, validRange: crewMembers.validRange })
+      .from(crewMembers)
+      .where(and(eq(crewMembers.crewId, crewId), sql`${crewMembers.validRange} @> now()`))
+      .orderBy(asc(crewMembers.userId));
+  }
+
   async create(input: CrewInput, actor: ScopeActor) {
     if (!isGlobal(actor) && actor.role !== 'COORDINADOR') throw new ForbiddenException('Crew management is outside the actor scope');
     if (actor.role === 'COORDINADOR' && input.coordinatorId && input.coordinatorId !== actor.sub) {

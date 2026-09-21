@@ -45,6 +45,12 @@ test('catalogs every HTTP route with its complete policy dimensions', () => {
   assert.doesNotThrow(() => assertRouteContractCoverage(document, routeContracts));
 });
 
+test('crew member listing requires read permission and management roles', () => {
+  const policy = document.paths['/api/v1/crews/{id}/members'].get['x-agency-policy'];
+  assert.deepEqual(policy.actors, ['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR']);
+  assert.deepEqual(policy.access.permissions, ['crews.read']);
+});
+
 test('rejects a new route that has no explicit contract entry', () => {
   const canaryDocument = structuredClone(document);
   canaryDocument.paths['/api/v1/canary'] = {

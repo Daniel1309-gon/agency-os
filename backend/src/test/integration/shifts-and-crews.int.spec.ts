@@ -388,6 +388,25 @@ describe('JobsService', () => {
 });
 
 describe('CrewsService', () => {
+  it('lists only current members within the actor scope and reflects removal', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const principal = { sub: actor.id, role: 'ADMIN' };
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const outsider = await createUser(ctx, { role: 'COORDINADOR' });
+    const operator = await createUser(ctx);
+    const crew = await crews.create({ name: 'Members', coordinatorId: coordinator.id }, principal);
+    await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(-180), validTo: isoOffset(-120) }, principal);
+    const current = await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(60) }, principal);
+    await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(120), validTo: isoOffset(180) }, principal);
+    for (const viewer of [principal, { sub: actor.id, role: 'DIRECTOR_OPERATIVO' }, { sub: coordinator.id, role: 'COORDINADOR' }]) {
+      expect(await crews.listMembers(crew.id, viewer)).toEqual([current]);
+    }
+    await expect(crews.listMembers(crew.id, { sub: outsider.id, role: 'COORDINADOR' })).rejects.toThrow('outside the actor scope');
+    await expect(crews.listMembers(crew.id, { sub: operator.id, role: 'OPERADOR' })).rejects.toThrow('outside the actor scope');
+    await crews.remove(crew.id, operator.id, principal);
+    expect(await crews.listMembers(crew.id, principal)).toEqual([]);
+  });
+
   it('turns an overlapping crew membership into a 409', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const principal = { sub: actor.id, role: 'ADMIN' };

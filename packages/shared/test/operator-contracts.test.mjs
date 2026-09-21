@@ -14,6 +14,8 @@ import {
   sessionPatchSchema,
   managedUserSchema,
   assignmentHistoryResponseSchema,
+  crewMemberRecordSchema,
+  crewRecordSchema,
   shiftTemplateRecordSchema,
   shiftOverrideRecordSchema,
   managedDeviceSchema,
@@ -50,7 +52,7 @@ test('operator session contracts accept the supported payloads', () => {
   assert.equal(sessionCloseSchema.safeParse({ version: 1 }).success, true);
   assert.equal(sessionCloseSchema.safeParse({}).success, false);
 
-  assert.equal(prepareSessionMessageSchema.safeParse({
+  const prepareMessage = {
     action: 'prepareSession',
     accessToken: 'access-token',
     profileId,
@@ -58,7 +60,12 @@ test('operator session contracts accept the supported payloads', () => {
     chromeProfileDir: 'Profile 7',
     launchUrl: 'https://talkytimes.com/auth/login',
     version: 1,
-  }).success, true);
+  };
+  assert.deepEqual(prepareSessionMessageSchema.parse(prepareMessage), prepareMessage);
+  assert.deepEqual(prepareSessionMessageSchema.parse({ ...prepareMessage, secret: 'forbidden' }), prepareMessage);
+  for (const launchUrl of ['http://talkytimes.com/auth/login', 'https://example.com/auth/login']) {
+    assert.equal(prepareSessionMessageSchema.safeParse({ ...prepareMessage, launchUrl }).success, false, launchUrl);
+  }
 });
 
 test('operator metrics contract bounds batches and rejects administrative fields', () => {
@@ -73,12 +80,14 @@ test('operator metrics contract bounds batches and rejects administrative fields
 
   assert.equal(metricBatchSchema.safeParse({ events: [event] }).success, true);
   assert.equal(metricBatchSchema.safeParse({ events: [] }).success, false);
+  assert.equal(metricBatchSchema.safeParse({ events: Array(500).fill(event) }).success, true);
+  assert.equal(metricBatchSchema.safeParse({ events: Array(501).fill(event) }).success, false);
   assert.equal(metricBatchSchema.safeParse({
     events: [{ ...event, operatorId: sessionId }],
   }).success, false);
 });
 
-test('operator response contracts reject secrets and administrative compensation data', () => {
+test('operator responses reject extra root fields and strip extra session fields', () => {
   const assignedProfile = {
     assignmentId,
     profileId,
@@ -99,6 +108,10 @@ test('operator response contracts reject secrets and administrative compensation
   };
 
   assert.equal(assignedProfileSchema.safeParse(assignedProfile).success, true);
+  assert.deepEqual(assignedProfileSchema.parse({
+    ...assignedProfile,
+    session: { ...assignedProfile.session, token: 'forbidden', commissionRate: '0.50' },
+  }), assignedProfile);
   assert.equal(assignedProfileSchema.safeParse({
     ...assignedProfile,
     credentialCiphertext: 'forbidden',
@@ -158,6 +171,9 @@ test('profile catalog contracts expose metadata without credentials', () => {
     chromeProfileDir: 'Profile 7',
     notes: null,
     version: 1,
+    credentialVersion: null,
+    credentialRotatedAt: null,
+    credentialRotatedBy: null,
     createdAt: '2026-08-21T08:00:00.000Z',
     updatedAt: '2026-08-21T08:00:00.000Z',
   };
@@ -190,6 +206,28 @@ test('management contracts expose scoped records without credential material', (
   assert.equal(managedUserSchema.safeParse(user).success, true);
   assert.equal(managedUserSchema.safeParse({ ...user, passwordHash: 'forbidden' }).success, false);
   assert.equal(assignmentHistoryResponseSchema.safeParse({ items: [], page: 1, pageSize: 100, total: 0 }).success, true);
+  const crew = {
+    id: '77777777-7777-4777-8777-777777777777',
+    name: 'Cuadrilla Tarde',
+    coordinatorId: null,
+    isActive: true,
+    createdAt: '2026-08-21T08:00:00.000Z',
+    updatedAt: '2026-08-21T08:00:00.000Z',
+    createdBy: user.id,
+    updatedBy: user.id,
+  };
+  assert.deepEqual(crewRecordSchema.parse(crew), crew);
+  assert.equal(crewRecordSchema.safeParse({ ...crew, createdBy: null, updatedBy: null }).success, true);
+  assert.equal(crewRecordSchema.safeParse({ ...crew, passwordHash: 'forbidden' }).success, false);
+  const member = {
+    id: '66666666-6666-4666-8666-666666666666',
+    crewId: '77777777-7777-4777-8777-777777777777',
+    userId: user.id,
+    validRange: '["2026-08-04 13:05:00+00","2026-08-04 21:05:00+00")',
+  };
+  assert.deepEqual(crewMemberRecordSchema.parse(member), member);
+  assert.equal(crewMemberRecordSchema.safeParse({ ...member, userId: 'invalid-id' }).success, false);
+  assert.equal(crewMemberRecordSchema.safeParse({ ...member, passwordHash: 'forbidden' }).success, false);
   assert.equal(shiftTemplateRecordSchema.safeParse({
     id: '88888888-8888-4888-8888-888888888888',
     name: 'Turno mañana',
@@ -250,6 +288,14 @@ test('security contracts expose operational metadata without secrets', () => {
   assert.equal(managedDeviceSchema.safeParse({ ...device, tokenHash: 'forbidden' }).success, false);
   assert.equal(auditRecordSchema.safeParse(audit).success, true);
   assert.equal(auditRecordSchema.safeParse({ ...audit, metadata: { password: 'forbidden' } }).success, false);
+  for (const metadata of [
+    { changes: { password: 'forbidden' } },
+    { changes: [{ access_token: 'forbidden' }] },
+    { changes: [{ 'Refresh-Token': 'forbidden' }] },
+  ]) {
+    assert.equal(auditRecordSchema.safeParse({ ...audit, metadata }).success, false, JSON.stringify(metadata));
+  }
+  assert.equal(auditRecordSchema.safeParse({ ...audit, metadata: { changes: [{ userId: audit.actorUserId }] } }).success, true);
   assert.equal(auditLogResponseSchema.safeParse({ data: [audit], pagination: { limit: 50, nextCursor: null } }).success, true);
   assert.equal(ipAllowlistRecordSchema.safeParse({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', label: 'Oficina', cidr: '10.20.30.0/24', scope: 'ALL', roleId: null, userId: null, isActive: true, expiresAt: null }).success, true);
   assert.equal(readinessResponseSchema.safeParse({ status: 'ok', checks: { postgres: true, redis: true } }).success, true);

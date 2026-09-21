@@ -2506,6 +2506,57 @@
       }
     },
     "/api/v1/crews/{id}/members": {
+      "get": {
+        "operationId": "CrewsController.members",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Crews"
+        ],
+        "x-agency-permissions": [
+          "crews.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "crews.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/crews/{id}/members",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      },
       "post": {
         "operationId": "CrewsController.add",
         "parameters": [

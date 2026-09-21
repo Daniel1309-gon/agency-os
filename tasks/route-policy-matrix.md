@@ -42,6 +42,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/competitions/{id}/leaderboard` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `GET /api/v1/crews` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: crews.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/crews` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: crews.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/crews/{id}/members` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: crews.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/crews/{id}/members` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: crews.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `DELETE /api/v1/crews/{id}/members/{userId}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: crews.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/devices` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |

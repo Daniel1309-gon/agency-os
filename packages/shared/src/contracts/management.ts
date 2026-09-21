@@ -67,6 +67,26 @@ export const shiftTemplateRecordSchema = z.object({
 }).strict();
 export type ShiftTemplateRecord = z.infer<typeof shiftTemplateRecordSchema>;
 
+export const crewRecordSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  coordinatorId: z.string().uuid().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  createdBy: z.string().uuid().nullable(),
+  updatedBy: z.string().uuid().nullable(),
+}).strict();
+export type CrewRecord = z.infer<typeof crewRecordSchema>;
+
+export const crewMemberRecordSchema = z.object({
+  id: z.string().uuid(),
+  crewId: z.string().uuid(),
+  userId: z.string().uuid(),
+  validRange: z.string(),
+}).strict();
+export type CrewMemberRecord = z.infer<typeof crewMemberRecordSchema>;
+
 export const createdShiftSchema = z.object({
   id: z.string().uuid(),
   operatorId: z.string().uuid(),

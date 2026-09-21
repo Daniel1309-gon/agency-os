@@ -182,6 +182,7 @@ export const routeContracts = [
 
   route('GET', '/api/v1/crews', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/crews', 'GLOBAL'),
+  route('GET', '/api/v1/crews/{id}/members', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/crews/{id}/members', 'RESOURCE'),
   route('DELETE', '/api/v1/crews/{id}/members/{userId}', 'RESOURCE'),
   route('GET', '/api/v1/operators/status', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
