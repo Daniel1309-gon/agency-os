@@ -154,12 +154,12 @@ describe('vault rotation', () => {
 
   it('updates the catalog login and vault username together with the expected profile version', async () => {
     const s = await scenario();
-    const rotated = await vault.rotate(s.profileId, { username: 'nuevo@talky.test', secret: 'la-nueva', profileVersion: 0 }, { id: s.adminId, role: 'ADMIN' });
+    const rotated = await vault.rotate(s.profileId, { username: 'nuevo@talky.test', secret: 'la-nueva', profileVersion: 1 }, { id: s.adminId, role: 'ADMIN' });
 
     expect(rotated.version).toBe(2);
     const [profile] = await ctx.db.select({ loginEmail: ttProfiles.loginEmail, version: ttProfiles.version }).from(ttProfiles).where(eq(ttProfiles.id, s.profileId));
     const [credential] = await ctx.db.select({ username: ttProfileCredentials.username }).from(ttProfileCredentials).where(and(eq(ttProfileCredentials.profileId, s.profileId), eq(ttProfileCredentials.isCurrent, true)));
-    expect(profile).toEqual({ loginEmail: 'nuevo@talky.test', version: 1 });
+    expect(profile).toEqual({ loginEmail: 'nuevo@talky.test', version: 2 });
     expect(credential).toEqual({ username: 'nuevo@talky.test' });
     await expect(vault.rotate(s.profileId, { username: 'otro@talky.test', secret: 'otra', profileVersion: 0 }, { id: s.adminId, role: 'ADMIN' })).rejects.toThrow(ConflictException);
   });
