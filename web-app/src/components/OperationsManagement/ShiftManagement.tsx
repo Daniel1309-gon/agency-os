@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { createdShiftSchema, managedUserSchema, shiftOverrideRecordSchema, shiftTemplateRecordSchema, type CreatedShift, type ManagedUser, type ShiftOverrideRecord, type ShiftTemplateRecord, type UserSummary } from '@agency-os/shared';
+import { Plus } from 'lucide-react';
+import { createdShiftSchema, crewRecordSchema, managedUserSchema, shiftOverrideRecordSchema, shiftTemplateRecordSchema, type CreatedShift, type CrewRecord, type ManagedUser, type ShiftOverrideRecord, type ShiftTemplateRecord, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
-import { canManage, errorMessage, formatRange, toIsoDateTime, toLocalDateTime } from './management-view';
+import { canManage, errorMessage, formatRange, localDateString, toIsoDateTime, toLocalDateTime } from './management-view';
+import { ShiftTemplateForm } from './ShiftTemplateForm';
 
 interface ShiftManagementProps {
   accessToken: string | null;
@@ -27,16 +29,11 @@ interface OverrideForm {
   reason: string;
 }
 
-function localDate(): string {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
 function localPlusHours(hours: number): string {
   return toLocalDateTime(new Date(Date.now() + hours * 60 * 60 * 1000));
 }
 
-const emptyShiftForm: ShiftForm = { operatorId: '', businessDate: localDate(), scheduledFrom: toLocalDateTime(new Date()), scheduledTo: localPlusHours(8), templateId: '', breakType: '', breakAt: '', notes: '' };
+const emptyShiftForm: ShiftForm = { operatorId: '', businessDate: localDateString(), scheduledFrom: toLocalDateTime(new Date()), scheduledTo: localPlusHours(8), templateId: '', breakType: '', breakAt: '', notes: '' };
 const emptyOverrideForm: OverrideForm = { operatorId: '', validFrom: toLocalDateTime(new Date()), validTo: localPlusHours(1), type: 'OVERTIME', reason: '' };
 
 function typeLabel(type: OverrideForm['type']): string {
@@ -48,6 +45,8 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
   const [templates, setTemplates] = useState<ShiftTemplateRecord[]>([]);
   const [createdShifts, setCreatedShifts] = useState<CreatedShift[]>([]);
   const [createdOverrides, setCreatedOverrides] = useState<ShiftOverrideRecord[]>([]);
+  const [crews, setCrews] = useState<CrewRecord[]>([]);
+  const [templateCrewId, setTemplateCrewId] = useState('');
   const [shiftForm, setShiftForm] = useState<ShiftForm>(emptyShiftForm);
   const [overrideForm, setOverrideForm] = useState<OverrideForm>(emptyOverrideForm);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,14 +65,18 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const [rawUsers, rawTemplates] = await Promise.all([
+      const [rawUsers, rawTemplates, rawCrews] = await Promise.all([
         apiClient.request<unknown>('/users'),
         apiClient.request<unknown>('/shift-templates'),
+        apiClient.request<unknown>('/crews'),
       ]);
       setUsers(managedUserSchema.array().parse(rawUsers));
       setTemplates(shiftTemplateRecordSchema.array().parse(rawTemplates));
+      const parsedCrews = crewRecordSchema.array().parse(rawCrews);
+      setCrews(parsedCrews);
+      setTemplateCrewId((current) => parsedCrews.some((crew) => crew.id === current) ? current : '');
     } catch (nextError) {
-      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar los operadores y plantillas.');
+      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar los operadores, plantillas y cuadrillas.');
     } finally {
       setIsLoading(false);
     }
@@ -143,13 +146,19 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
     }
   }
 
+  function handleTemplateCreated(created: ShiftTemplateRecord) {
+    setTemplates((current) => [created, ...current]);
+  }
+
   return (
     <section className="management-schedule motion-safe:timeline-view motion-safe:animate-fade-in-up motion-safe:animate-range-[entry_0%_contain_20%]" id="section-07" aria-labelledby="schedule-management-title">
       <div className="management-section-heading"><div><p className="panel-kicker">Cobertura operativa</p><h2 id="schedule-management-title">Turnos y overrides</h2><p>Programa jornadas y excepciones horarias con trazabilidad.</p></div><button className="quiet-button" type="button" onClick={() => void loadData()} disabled={isLoading}>Actualizar <span aria-hidden="true">↻</span></button></div>
       {error && <p className="form-notice form-notice--error" role="alert">{error}</p>}
       {notice && <p className="form-notice" role="status">{notice}</p>}
-      {isLoading && <p className="panel-state">Cargando operadores y plantillas…</p>}
+      {isLoading && <p className="panel-state">Cargando operadores, plantillas y cuadrillas…</p>}
       {!isLoading && <div className="management-schedule__grid">
+        {canManageShifts && <ShiftTemplateForm className="management-schedule__setup" crews={crews} crewId={templateCrewId} onSelectCrew={setTemplateCrewId} onCreated={handleTemplateCreated} />}
+
         <form className="panel management-form" onSubmit={(event) => void createShift(event)}>
           <div className="management-form__heading"><div><span className="panel-kicker">Nueva jornada</span><strong>Crear turno</strong></div><span className="management-form__hint">{templates.length} plantillas activas</span></div>
           <div className="management-form__grid">
@@ -162,7 +171,8 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
             <label><span>Hora de descanso</span><input type="datetime-local" value={shiftForm.breakAt} onChange={(event) => updateShiftField('breakAt', event.target.value)} /></label>
             <label className="management-form__wide"><span>Notas</span><textarea rows={2} maxLength={1000} value={shiftForm.notes} onChange={(event) => updateShiftField('notes', event.target.value)} /></label>
           </div>
-          {canManageShifts ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingShift}>{isSavingShift ? 'Creando…' : 'Crear turno'} <span aria-hidden="true">↗</span></button></div> : <p className="management-form__hint">Tu rol puede consultar la cobertura, pero no crear turnos.</p>}
+          {!templates.length && <p className="management-form__hint">Todavía no hay plantillas activas. {canManageShifts ? 'Crea la primera arriba y aparecerá en esta lista.' : 'Pide a un coordinador que cree una.'}</p>}
+          {canManageShifts ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingShift}>{isSavingShift ? 'Creando…' : 'Crear turno'} <Plus className="h-4 w-4" aria-hidden="true" /></button></div> : <p className="management-form__hint">Tu rol puede consultar la cobertura, pero no crear turnos.</p>}
         </form>
 
         <form className="panel management-form" onSubmit={(event) => void createOverride(event)}>
@@ -174,7 +184,7 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
             <label><span>Hasta</span><input required type="datetime-local" value={overrideForm.validTo} onChange={(event) => updateOverrideField('validTo', event.target.value)} /></label>
             <label className="management-form__wide"><span>Motivo</span><textarea required rows={3} maxLength={1000} value={overrideForm.reason} onChange={(event) => updateOverrideField('reason', event.target.value)} placeholder="Describe por qué se autoriza la excepción" /></label>
           </div>
-          {canApproveOverrides ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingOverride}>{isSavingOverride ? 'Creando…' : 'Crear override'} <span aria-hidden="true">↗</span></button></div> : <p className="management-form__hint">Tu rol no tiene permiso para aprobar overrides.</p>}
+          {canApproveOverrides ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingOverride}>{isSavingOverride ? 'Creando…' : 'Crear override'} <Plus className="h-4 w-4" aria-hidden="true" /></button></div> : <p className="management-form__hint">Tu rol no tiene permiso para aprobar overrides.</p>}
         </form>
       </div>}
 

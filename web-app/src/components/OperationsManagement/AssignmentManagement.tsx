@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { assignmentHistoryResponseSchema, managedUserSchema, profileListResponseSchema, type AssignmentRecord, type ManagedUser, type ProfileRecord, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
-import { buildAssignmentWindows, canManage, errorMessage, formatRange, groupAssignmentRecords, parseRange, toLocalDateTime, type AssignmentGroup, type AssignmentScheduleInput } from './management-view';
+import { buildAssignmentWindows, canManage, errorMessage, formatRange, groupAssignmentRecords, parseRange, toLocalDateTime, WEEKDAYS, type AssignmentGroup, type AssignmentScheduleInput } from './management-view';
 
 interface AssignmentManagementProps {
   accessToken: string | null;
@@ -13,16 +13,6 @@ interface AssignmentForm extends AssignmentScheduleInput {
   profileId: string;
   operatorId: string;
 }
-
-const WEEKDAYS = [
-  { value: 1, label: 'Lunes' },
-  { value: 2, label: 'Martes' },
-  { value: 3, label: 'Miércoles' },
-  { value: 4, label: 'Jueves' },
-  { value: 5, label: 'Viernes' },
-  { value: 6, label: 'Sábado' },
-  { value: 0, label: 'Domingo' },
-];
 
 function localDate(value: Date = new Date()): string {
   return toLocalDateTime(value).slice(0, 10);

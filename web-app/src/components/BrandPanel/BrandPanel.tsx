@@ -5,13 +5,12 @@ export function BrandPanel() {
     <section className="brand-panel" aria-labelledby="brand-title">
       <div className="brand-panel__topline">
         <div className="brand-lockup">
-          <BrandMark />
+          <BrandMark className="h-11 w-11" />
           <div>
             <p className="brand-name">Agency OS</p>
             <p className="brand-caption">Operations workspace</p>
           </div>
         </div>
-        <span className="panel-code">AO / 01</span>
       </div>
 
       <div className="signal-map" aria-hidden="true">
@@ -22,8 +21,6 @@ export function BrandPanel() {
         <span className="signal-node signal-node--one" />
         <span className="signal-node signal-node--two" />
         <span className="signal-node signal-node--three" />
-        <span className="signal-label signal-label--one">LIVE / 06:05</span>
-        <span className="signal-label signal-label--two">CONTROL LAYER</span>
       </div>
 
       <div className="brand-panel__message">

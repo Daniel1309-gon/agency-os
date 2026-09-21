@@ -9,6 +9,7 @@ import { OperatorCafeteriaPanel } from '../../components/OperatorCafeteriaPanel/
 import { OperatorProfiles } from '../../components/OperatorProfiles/OperatorProfiles';
 import { OperatorShiftPanel } from '../../components/OperatorShift/OperatorShiftPanel';
 import { AssignmentManagement } from '../../components/OperationsManagement/AssignmentManagement';
+import { CrewManagement } from '../../components/OperationsManagement/CrewManagement';
 import { ProfileManagement } from '../../components/OperationsManagement/ProfileManagement';
 import { ShiftManagement } from '../../components/OperationsManagement/ShiftManagement';
 import { UserManagement } from '../../components/OperationsManagement/UserManagement';
@@ -94,6 +95,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'users': return <UserManagement accessToken={accessToken} user={user} />;
     case 'profiles': return <ProfileManagement accessToken={accessToken} user={user} />;
     case 'assignments': return <AssignmentManagement accessToken={accessToken} user={user} onNavigate={onNavigate} />;
+    case 'crews': return <CrewManagement accessToken={accessToken} user={user} />;
     case 'shifts': return <ShiftManagement accessToken={accessToken} user={user} />;
     case 'metrics': return <ManagementOverview accessToken={accessToken} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;
@@ -119,11 +121,10 @@ export default function DashboardPage({ user, accessToken, pathname, onNavigate,
   }, [activeRoute.path]);
 
   return (
-    <AppShell role={role} user={user} navigation={navigation} activeRoute={activeRoute} onNavigate={onNavigate} onLogout={onLogout}>
+    <AppShell role={role} user={user} navigation={navigation} activeRoute={activeRoute} showDate={activeRoute.showDate} onNavigate={onNavigate} onLogout={onLogout}>
       <div className={`dashboard-content${activeRoute.longPage ? ' dashboard-content--long' : ''}`}>
         <header className="dashboard-header">
           <div><p className="dashboard-eyebrow">{activeRoute.kicker} <span>/</span> {roleLabels[role]}</p><h1 ref={titleRef} tabIndex={-1}>{activeRoute.title}</h1><p>{activeRoute.description}</p></div>
-          {activeRoute.showDate && <div className="dashboard-date"><span className="dashboard-date__dot" />{new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())}</div>}
         </header>
         <div className="workspace-page-content">
           <WorkspaceContent route={activeRoute} accessToken={accessToken} user={user} onNavigate={onNavigate} />

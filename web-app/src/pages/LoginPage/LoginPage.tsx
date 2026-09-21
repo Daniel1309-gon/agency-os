@@ -16,7 +16,7 @@ export default function LoginPage({ onAuthenticated, isSubmitting, error }: Logi
       <section className="form-panel" aria-labelledby="login-title">
         <div className="form-panel__inner">
           <div className="mobile-lockup">
-            <BrandMark />
+            <BrandMark className="h-9 w-9" />
             <span>Agency OS</span>
           </div>
 

@@ -1,34 +1,31 @@
 import type { ReactNode } from 'react';
 import type { UserSummary } from '@agency-os/shared';
 import { BrandMark } from '../BrandMark/BrandMark';
+import { MobileNav } from './MobileNav';
+import { UserMenu } from './UserMenu';
 import { roleLabels, type RoleCode } from '../../types/roles';
-import type { WorkspaceRoute } from '../../navigation/workspace-navigation';
+import { groupWorkspaceRoutes, isPlainLeftClick, type WorkspaceRoute } from '../../navigation/workspace-navigation';
 
 interface AppShellProps {
   role: RoleCode;
   user: UserSummary;
   navigation: readonly WorkspaceRoute[];
   activeRoute: WorkspaceRoute;
+  showDate?: boolean;
   onNavigate: (path: string) => void;
   onLogout: () => void;
   children: ReactNode;
 }
 
-function groupedRoutes(navigation: readonly WorkspaceRoute[]): Array<[string, WorkspaceRoute[]]> {
-  const groups = new Map<string, WorkspaceRoute[]>();
-  for (const route of navigation) groups.set(route.group, [...(groups.get(route.group) ?? []), route]);
-  return [...groups.entries()];
+function todayLabel(): string {
+  return new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date());
 }
 
-function shouldHandleLink(event: React.MouseEvent<HTMLAnchorElement>): boolean {
-  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
-}
-
-export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLogout, children }: AppShellProps) {
-  const groups = groupedRoutes(navigation);
+export function AppShell({ role, user, navigation, activeRoute, showDate, onNavigate, onLogout, children }: AppShellProps) {
+  const groups = groupWorkspaceRoutes(navigation);
 
   function handleLinkClick(event: React.MouseEvent<HTMLAnchorElement>, path: string) {
-    if (!shouldHandleLink(event)) return;
+    if (!isPlainLeftClick(event)) return;
     event.preventDefault();
     onNavigate(path);
   }
@@ -36,14 +33,18 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
   return (
     <div className="workspace-shell">
       <aside className="workspace-sidebar" aria-label="Navegación principal">
-        <div>
-          <div className="workspace-brand">
-            <BrandMark />
-            <div>
-              <p className="workspace-brand__name">Agency OS</p>
-              <p className="workspace-brand__caption">Zenith Ocean</p>
-            </div>
-          </div>
+        <div className="workspace-sidebar__body">
+          <a
+            href="/"
+            className="flex w-full items-center gap-2 rounded-xl px-1.5 py-1 text-left transition-all hover:bg-white/[0.06] active:scale-[0.99]"
+            onClick={(event) => handleLinkClick(event, '/')}
+          >
+            <BrandMark className="h-9 w-9" />
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="min-w-0 truncate text-sm font-semibold text-zinc-100">Agency OS</span>
+              <span className="rounded bg-zinc-800 px-1 py-0.5 text-[10px] font-medium text-zinc-400">TEAM</span>
+            </span>
+          </a>
 
           <div className="workspace-sidebar__role">
             <span className="sidebar-label">Sesión actual</span>
@@ -71,39 +72,26 @@ export function AppShell({ role, user, navigation, activeRoute, onNavigate, onLo
       </aside>
 
       <main className="workspace-main">
-        <div className="workspace-mobile-bar">
-          <div className="workspace-brand">
-            <BrandMark />
-            <div>
-              <p className="workspace-brand__name">Agency OS</p>
-              <p className="workspace-brand__caption">{roleLabels[role]}</p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="workspace-mobile-nav" aria-label="Secciones del workspace">
-          <label htmlFor="workspace-page-select">Sección actual</label>
-          <select id="workspace-page-select" value={activeRoute.path} onChange={(event) => onNavigate(event.target.value)}>
-            {groups.map(([group, routes]) => <optgroup label={group} key={group}>
-              {routes.map((route) => <option value={route.path} key={route.id}>{route.label}{route.pending ? ' · Pendiente' : ''}</option>)}
-            </optgroup>)}
-          </select>
-        </nav>
+        <MobileNav
+          navigation={navigation}
+          activeRoute={activeRoute}
+          onNavigate={onNavigate}
+          userMenu={<UserMenu user={user} role={role} onLogout={onLogout} variant="initials" />}
+        />
 
         <div className="workspace-topbar">
           <div className="workspace-breadcrumb"><span>Agency OS</span><b>/</b><span>{activeRoute.label}</span></div>
-          <details className="workspace-user-menu">
-            <summary className="workspace-identity" aria-label="Abrir menú de usuario">
-              <span className="workspace-identity__initials" aria-hidden="true">{user.fullName.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
-              <span>{user.fullName}</span>
-              <span className="workspace-identity__chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <div className="workspace-user-menu__panel">
-              <span className="workspace-user-menu__label">Sesión autenticada</span>
-              <strong>{roleLabels[role]}</strong>
-              <button type="button" onClick={onLogout}>Cerrar sesión <span aria-hidden="true">↗</span></button>
-            </div>
-          </details>
+
+          <div className="ml-auto flex items-center gap-3 self-end sm:self-auto">
+            {showDate && (
+              <div className="hidden items-center gap-2 text-xs font-medium text-zinc-500 sm:flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                <span>{todayLabel()}</span>
+              </div>
+            )}
+
+            <UserMenu user={user} role={role} onLogout={onLogout} />
+          </div>
         </div>
 
         {children}

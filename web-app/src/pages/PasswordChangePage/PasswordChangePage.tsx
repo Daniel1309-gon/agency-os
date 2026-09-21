@@ -37,7 +37,7 @@ export default function PasswordChangePage({ onSubmit, error }: PasswordChangePa
       <section className="form-panel" aria-labelledby="password-title">
         <div className="form-panel__inner">
           <div className="mobile-lockup">
-            <BrandMark />
+            <BrandMark className="h-9 w-9" />
             <span>Agency OS</span>
           </div>
           <div className="form-heading">

@@ -8,6 +8,7 @@ export type WorkspacePageId =
   | 'users'
   | 'profiles'
   | 'assignments'
+  | 'crews'
   | 'shifts'
   | 'metrics'
   | 'security'
@@ -43,6 +44,7 @@ const coordinationRoutes: readonly WorkspaceRoute[] = [
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Consulta las personas y los roles dentro de tu alcance.', permission: 'users.read' },
   { id: 'profiles', path: '/app/perfiles', label: 'Perfiles', group: 'Operación', kicker: 'Catálogo TalkyTimes', title: 'Perfiles TalkyTimes', description: 'Administra metadatos y vínculos nativos de Chrome.', permission: 'profiles.read', longPage: true },
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read', longPage: true },
+  { id: 'crews', path: '/app/cuadrillas', label: 'Cuadrillas', group: 'Operación', kicker: 'Agrupación de operadores', title: 'Cuadrillas', description: 'Agrupa operadores, define su coordinador y administra la vigencia de cada miembro.', permission: 'crews.read' },
   { id: 'shifts', path: '/app/turnos', label: 'Turnos', group: 'Operación', kicker: 'Cobertura operativa', title: 'Turnos y overrides', description: 'Programa jornadas y excepciones horarias con trazabilidad.', permission: 'shifts.read', longPage: true },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read', longPage: true },
 ];
@@ -52,6 +54,7 @@ const managementRoutes: readonly WorkspaceRoute[] = [
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Administra los accesos y roles de Agency OS.', permission: 'users.read' },
   { id: 'profiles', path: '/app/perfiles', label: 'Perfiles', group: 'Operación', kicker: 'Catálogo TalkyTimes', title: 'Perfiles TalkyTimes', description: 'Administra metadatos y vínculos nativos de Chrome.', permission: 'profiles.read' },
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read' },
+  { id: 'crews', path: '/app/cuadrillas', label: 'Cuadrillas', group: 'Operación', kicker: 'Agrupación de operadores', title: 'Cuadrillas', description: 'Agrupa operadores, define su coordinador y administra la vigencia de cada miembro.', permission: 'crews.read' },
   { id: 'shifts', path: '/app/turnos', label: 'Turnos', group: 'Operación', kicker: 'Cobertura operativa', title: 'Turnos y overrides', description: 'Programa jornadas y excepciones horarias con trazabilidad.', permission: 'shifts.read' },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read' },
 ];
@@ -96,4 +99,24 @@ export function defaultWorkspaceRoute(role: RoleCode, permissions: readonly stri
 
 export function resolveWorkspaceRoute(role: RoleCode, permissions: readonly string[], pathname: string): WorkspaceRoute {
   return getWorkspaceRoutes(role, permissions).find((route) => route.path === pathname) ?? defaultWorkspaceRoute(role, permissions);
+}
+
+/** Agrupa conservando el orden de declaración, que es el orden del navbar. */
+export function groupWorkspaceRoutes(navigation: readonly WorkspaceRoute[]): Array<[string, WorkspaceRoute[]]> {
+  const groups = new Map<string, WorkspaceRoute[]>();
+  for (const route of navigation) groups.set(route.group, [...(groups.get(route.group) ?? []), route]);
+  return [...groups.entries()];
+}
+
+/** Clic primario sin modificadores: el resto se deja al navegador (pestaña nueva, etc.). */
+export interface PlainClickEvent {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+export function isPlainLeftClick(event: PlainClickEvent): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }

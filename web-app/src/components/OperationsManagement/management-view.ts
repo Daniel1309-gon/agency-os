@@ -22,15 +22,40 @@ function parseCalendarDate(value: string): Date {
 }
 
 function parseClock(value: string): number {
-  const match = /^(\d{2}):(\d{2})$/.exec(value);
-  const minutes = match ? Number(match[1]) * 60 + Number(match[2]) : Number.NaN;
-  if (!match || minutes > 1439) throw new Error('La hora del tramo no es válida.');
+  const minutes = clockMinutes(value, false);
+  if (minutes === null) throw new Error('La hora del tramo no es válida.');
   return minutes;
 }
 
 function calendarDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
+
+/** Minutos desde medianoche, o null si la hora no se puede interpretar. */
+export function clockMinutes(value: string, allowSeconds = true): number | null {
+  const pattern = allowSeconds ? /^(\d{2}):(\d{2})(?::\d{2})?$/ : /^(\d{2}):(\d{2})$/;
+  const match = pattern.exec(value);
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return minutes > 1439 ? null : minutes;
+}
+
+/** Fecha de hoy en horario local, como la esperan los inputs `type="date"`. */
+export function localDateString(date: Date = new Date()): string {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** Orden de presentación lunes → domingo. La API usa 0 para domingo. */
+export const WEEKDAYS = [
+  { value: 1, label: 'Lunes' },
+  { value: 2, label: 'Martes' },
+  { value: 3, label: 'Miércoles' },
+  { value: 4, label: 'Jueves' },
+  { value: 5, label: 'Viernes' },
+  { value: 6, label: 'Sábado' },
+  { value: 0, label: 'Domingo' },
+] as const;
 
 /** Expands Bogota wall-clock recurrence into the concrete UTC windows the API stores. */
 export function buildAssignmentWindows(input: AssignmentScheduleInput): AssignmentWindow[] {
@@ -156,4 +181,159 @@ export function canManageUser(user: UserSummary, permission: string): boolean {
 
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+export interface ShiftTemplateFormValues {
+  name: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: string;
+  validFrom: string;
+  validTo: string;
+  weekdays: number[];
+  crewId?: string;
+}
+
+export interface ShiftTemplatePayload {
+  name: string;
+  startTime: string;
+  endTime: string;
+  crossesMidnight: boolean;
+  weekdays: number[];
+  breakMinutes: number;
+  validFrom: string;
+  validTo?: string;
+  crewId?: string;
+}
+
+/**
+ * Arma el cuerpo de `POST /shift-templates`. Valida en el cliente lo que el
+ * servidor no valida: la API acepta `validTo` anterior a `validFrom`, horas
+ * incoherentes y devuelve 500 en vez de 400 por una hora malformada.
+ * `crossesMidnight` se deduce de las horas en vez de preguntarlo.
+ */
+export function buildShiftTemplatePayload(values: ShiftTemplateFormValues): ShiftTemplatePayload {
+  const name = values.name.trim();
+  if (!name) throw new Error('El nombre de la plantilla es obligatorio.');
+  if (name.length > 160) throw new Error('El nombre no puede superar 160 caracteres.');
+
+  const startMinutes = clockMinutes(values.startTime, false);
+  const endMinutes = clockMinutes(values.endTime, false);
+  if (startMinutes === null || endMinutes === null) throw new Error('La hora de inicio y fin no son válidas.');
+  if (startMinutes === endMinutes) throw new Error('La hora de inicio y fin deben ser distintas.');
+
+  const weekdays = [...new Set(values.weekdays)].sort((left, right) => left - right);
+  if (!weekdays.length) throw new Error('Selecciona al menos un día de la semana.');
+  if (weekdays.some((weekday) => !Number.isInteger(weekday) || weekday < 0 || weekday > 6)) throw new Error('El día de la semana no es válido.');
+
+  const breakMinutes = values.breakMinutes.trim() === '' ? 0 : Number(values.breakMinutes);
+  if (!Number.isInteger(breakMinutes) || breakMinutes < 0 || breakMinutes > 480) throw new Error('El descanso debe ser un número entero entre 0 y 480 minutos.');
+
+  const validFrom = parseCalendarDate(values.validFrom);
+  if (values.validTo && parseCalendarDate(values.validTo).getTime() < validFrom.getTime()) throw new Error('La vigencia no puede terminar antes de empezar.');
+
+  const payload: ShiftTemplatePayload = {
+    name,
+    startTime: values.startTime,
+    endTime: values.endTime,
+    crossesMidnight: endMinutes < startMinutes,
+    weekdays,
+    breakMinutes,
+    validFrom: values.validFrom,
+  };
+  if (values.validTo) payload.validTo = values.validTo;
+  if (values.crewId) payload.crewId = values.crewId;
+  return payload;
+}
+
+const WEEKDAY_SHORT: Record<number, string> = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
+
+export function weekdaySummary(weekdays: number[]): string {
+  const unique = [...new Set(weekdays)].sort((left, right) => left - right);
+  if (!unique.length) return 'Sin días';
+  if (unique.length === 7) return 'Todos los días';
+  if (unique.length === 5 && unique.every((day) => day >= 1 && day <= 5)) return 'Lunes a viernes';
+  if (unique.length === 6 && unique.every((day) => day >= 1 && day <= 6)) return 'Lunes a sábado';
+  return WEEKDAYS.filter((day) => unique.includes(day.value)).map((day) => WEEKDAY_SHORT[day.value]).join(' · ');
+}
+
+/** "22:05–06:05 (+1 día)" — recorta los segundos que agrega la API. */
+export function shiftTimeLabel(startTime: string, endTime: string, crossesMidnight: boolean): string {
+  const short = (value: string) => value.slice(0, 5);
+  return `${short(startTime)}–${short(endTime)}${crossesMidnight ? ' (+1 día)' : ''}`;
+}
+
+/** true cuando la hora final queda antes que la inicial. Tolera valores a medio escribir. */
+export function crossesMidnightFrom(startTime: string, endTime: string): boolean {
+  const start = clockMinutes(startTime);
+  const end = clockMinutes(endTime);
+  return start !== null && end !== null && end < start;
+}
+
+const BOGOTA_OFFSET = '-05:00';
+
+export interface CrewFormValues {
+  name: string;
+  coordinatorId: string;
+}
+
+export interface CrewPayload {
+  name: string;
+  coordinatorId?: string;
+}
+
+/**
+ * Cuerpo de `POST /crews`. `coordinatorId` se omite cuando el actor es
+ * coordinador: el servidor lo asigna solo y rechaza a cualquier otro.
+ */
+export function buildCrewPayload(values: CrewFormValues): CrewPayload {
+  const name = values.name.trim();
+  if (!name) throw new Error('El nombre de la cuadrilla es obligatorio.');
+  if (name.length > 160) throw new Error('El nombre no puede superar 160 caracteres.');
+  const payload: CrewPayload = { name };
+  if (values.coordinatorId) payload.coordinatorId = values.coordinatorId;
+  return payload;
+}
+
+export interface CrewMemberFormValues {
+  userId: string;
+  validFrom: string;
+  validTo: string;
+}
+
+export interface CrewMemberPayload {
+  userId: string;
+  validFrom: string;
+  validTo: string;
+}
+
+/** Colombia no tiene DST: la fecha se interpreta como medianoche de Bogotá. */
+export function bogotaDayStart(date: string): string {
+  return new Date(`${calendarDate(parseCalendarDate(date))}T00:00:00${BOGOTA_OFFSET}`).toISOString();
+}
+
+/**
+ * Cuerpo de `POST /crews/{id}/members`. La API guarda `[from, to)`, así que la
+ * fecha "hasta" que elige la persona se manda como el inicio del día siguiente:
+ * si no, el último día elegido quedaría fuera de la vigencia.
+ */
+export function buildCrewMemberPayload(values: CrewMemberFormValues): CrewMemberPayload {
+  if (!values.userId) throw new Error('Selecciona un operador.');
+  const validFrom = bogotaDayStart(values.validFrom);
+  const validTo = bogotaDayStart(calendarDate(new Date(parseCalendarDate(values.validTo).getTime() + 86_400_000)));
+  if (new Date(validFrom).getTime() >= new Date(validTo).getTime()) throw new Error('La vigencia debe terminar el mismo día o después de empezar.');
+  return { userId: values.userId, validFrom, validTo };
+}
+
+/**
+ * "16 sept 2026 — 16 dic 2026" para las confirmaciones de la sesión. La API
+ * guarda `[from, to)` en UTC, así que se muestra el último día incluido: sin
+ * eso, restarle un día al fin exclusivo parecería un error de la aplicación.
+ */
+export function daySpanLabel(range: string | null): string {
+  const parsed = parseRange(range);
+  if (!parsed) return 'Vigencia no disponible';
+  const bogotaDay = (value: Date) => value.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', year: 'numeric' });
+  const lastIncludedDay = new Date(new Date(parsed.to).getTime() - 60_000);
+  return `${bogotaDay(new Date(parsed.from))} — ${bogotaDay(lastIncludedDay)}`;
 }
