@@ -12,3 +12,6 @@ chat/
 .local/
 .claude/
 .go-cache/
+tools/__pycache__/
+.playwright-mcp/
+frontend-login.png
