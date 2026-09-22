@@ -1,4 +1,10 @@
-{$DOMAIN} {
+# Producción: HTTP interno únicamente. Cloudflare Tunnel es la única entrada
+# pública y termina HTTPS + mTLS de zona; Caddy, API, PostgreSQL y Redis no
+# publican puertos al exterior.
+# trusted_proxies: cloudflared es el único salto que puede aportar la IP real
+# del cliente. El backend confía en la cadena Caddy (172.28.0.11) → cloudflared
+# (172.28.0.10) y rechaza cualquier cabecera aportada directamente.
+http://{$DOMAIN} {
   encode zstd gzip
 
   header {
@@ -9,13 +15,27 @@
   }
 
   @api path /api/*
-  reverse_proxy @api api:3000
+  reverse_proxy @api api:3000 {
+    trusted_proxies 172.28.0.10
+  }
 
   @health path /health/*
-  reverse_proxy @health api:3000
+  reverse_proxy @health api:3000 {
+    trusted_proxies 172.28.0.10
+  }
 
   @socket path /socket.io/*
-  reverse_proxy @socket api:3000
+  reverse_proxy @socket api:3000 {
+    trusted_proxies 172.28.0.10
+  }
+
+  @ping path /healthz
+  respond @ping "ok" 200
 
   reverse_proxy web:80
+}
+
+# Cualquier otro hostname queda fuera.
+http://:80 {
+  respond "not found" 404
 }
