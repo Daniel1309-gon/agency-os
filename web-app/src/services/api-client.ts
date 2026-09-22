@@ -149,7 +149,7 @@ export class ApiClient {
       try {
         return await this.execute<T>(path, { ...options, skipRefresh: true }, true);
       } catch (retryError) {
-        if (retryError instanceof ApiError && (retryError.status === 401 || retryError.status === 403)) this.endSession();
+        if (retryError instanceof ApiError && retryError.status === 401) this.endSession();
         throw retryError;
       }
     }
