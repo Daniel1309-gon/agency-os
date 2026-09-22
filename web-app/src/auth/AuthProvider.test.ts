@@ -4,7 +4,7 @@ import { AuthProvider } from './AuthProvider';
 
 // Exercise the provider callbacks without adding a DOM dependency. Browser QA
 // covers rendering; these slots capture the state produced by each async flow.
-const state = vi.hoisted(() => ({ values: [] as unknown[] }));
+const state = vi.hoisted(() => ({ values: [] as unknown[], effects: [] as Array<() => unknown> }));
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof import('react')>(),
   useState: (initial: unknown) => {
@@ -14,16 +14,28 @@ vi.mock('react', async (importOriginal) => ({
   useRef: (current: unknown) => ({ current }),
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
-  useEffect: () => undefined,
+  useEffect: (effect: () => unknown) => { state.effects.push(effect); },
 }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
   state.values = [];
+  state.effects = [];
   apiClient.setAccessToken(null);
 });
 
 describe('login session state', () => {
+  it('becomes anonymous when the API reports an expired session', () => {
+    apiClient.setAccessToken('old');
+    AuthProvider({ children: null });
+    const unsubscribe = state.effects[0]() as () => void;
+    apiClient.endSession();
+    expect(state.values[0]).toBeNull();
+    expect(state.values[1]).toBe('anonymous');
+    expect(apiClient.getAccessToken()).toBeNull();
+    unsubscribe();
+  });
+
   it.each([401, 403, 429, 500, 'network'])('keeps the login available when login fails with %s', async (failure) => {
     const error = typeof failure === 'number'
       ? new ApiError(failure, { code: 'LOGIN_FAILED', message: 'Login rejected' })

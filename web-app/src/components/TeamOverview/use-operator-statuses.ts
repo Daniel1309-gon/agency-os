@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { operatorStatusSnapshotSchema, type OperatorStatusSnapshot } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
+import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
 import { mergeOperatorStatuses } from './operator-status-view';
 
 interface OperatorStatusesState {
@@ -46,11 +47,18 @@ export function useOperatorStatuses(accessToken: string | null): OperatorStatuse
 
     void refresh();
     const socket: Socket = io(`${socketOrigin()}/operations`, {
-      auth: { token: accessToken },
+      // El token se resuelve en cada intento: el servidor cierra el socket cada
+      // 45-60 s para revalidar y la reconexion usa el JWT vigente.
+      auth: (done) => done({ token: apiClient.getAccessToken() ?? '' }),
       transports: ['websocket'],
       autoConnect: false,
+      reconnection: false,
     });
     let disposed = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // El api-client deduplica la renovacion: con el token vigente es un 200 barato.
+    const renewSession = () => apiClient.request('/auth/me').then(() => undefined);
     const onSnapshot = (payload: unknown) => {
       const parsed = operatorStatusSnapshotSchema.array().safeParse(payload);
       if (parsed.success) setStatuses(parsed.data);
@@ -60,9 +68,27 @@ export function useOperatorStatuses(accessToken: string | null): OperatorStatuse
       if (parsed.success) setStatuses((current) => mergeOperatorStatuses(current, [parsed.data]));
     };
 
-    socket.on('connect', () => setIsRealtime(true));
-    socket.on('disconnect', () => setIsRealtime(false));
-    socket.on('connect_error', () => setIsRealtime(false));
+    const queueReconnect = (reason: string) => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = scheduleServerCloseReconnect({
+        socket, reason, isDisposed: () => disposed, renewSession,
+        onSessionExpired: () => apiClient.endSession(), attempt: reconnectAttempt++,
+      });
+    };
+    socket.on('connect', () => {
+      reconnectAttempt = 0;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      setIsRealtime(true);
+    });
+    socket.on('disconnect', (reason) => {
+      setIsRealtime(false);
+      queueReconnect(reason);
+    });
+    socket.on('connect_error', () => {
+      setIsRealtime(false);
+      queueReconnect('connect_error');
+    });
     socket.on('operators.snapshot', onSnapshot);
     socket.on('operator.status.changed', onChanged);
     queueMicrotask(() => {
@@ -71,6 +97,7 @@ export function useOperatorStatuses(accessToken: string | null): OperatorStatuse
 
     return () => {
       disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       socket.off('operators.snapshot', onSnapshot);
       socket.off('operator.status.changed', onChanged);
       socket.disconnect();
