@@ -107,9 +107,8 @@ Esta sección prevalece sobre las descripciones anteriores de SEC-05, C1 y E en 
 | C1, sesión y puente | `IMPLEMENTADO`: 401/403 de renovación detiene el socket y pasa la UI a anónimo; red/5xx/429 usa backoff con jitter hasta 15 s. El bridge Redis emite con `server.local.to(...)`; dos APIs entregan exactamente un evento por cliente y la suscripción inicial fallida reintenta con log | Prueba de carga de 30 sockets durante 30 min en el VPS |
 | E, backup y restore | `ARTEFACTOS LISTOS`: el dump generado por `backup-postgres.sh` conservó GRANT y DEFAULT ACL en un restore PostgreSQL 16; cada dump y globals tiene su `.sha256` con igual Object Lock en `frequent/` y `daily/`; el manifiesto B2 es solo puntero | Object Lock y restore del vault/KEK reales en VPS/B2 |
 | Retención de `job_runs` | `DEUDA ACEPTADA`: crece aprox. 7.200 filas/día; la migración `0008` niega `DELETE` al worker a propósito | Definir plazo y limpieza mediante función `SECURITY DEFINER` acotada; no ampliar grants del worker en E1 |
-| Auditoría de dependencias de producción | `SEGUIMIENTO`: `pnpm audit --prod` reporta dos advisories moderados de Fastify (GHSA-w2qp-rph6-63g4 / CVE-2026-18504 y GHSA-3m5p-2c4r-xxw2 / CVE-2026-16732), en `5.11.3` vía `@nestjs/platform-fastify` y `5.12.0` directo (4 instancias vulnerables). Ambos son dependencias runtime. No se halló uso de schema Fastify con body primitivo de raíz; `trustProxy` acepta CIDR explícitos o `false`, no el modo numérico afectado. | Actualizar Fastify a `>=5.12.1` y repetir auditoría antes del despliegue de producción; no bloquea los gates actuales |
+| Auditoría de dependencias de producción | `CERRADO`: los dos advisories moderados de Fastify (GHSA-w2qp-rph6-63g4 / CVE-2026-18504 y GHSA-3m5p-2c4r-xxw2 / CVE-2026-16732) se corrigieron subiendo Fastify a `5.12.5`: dependencia directa `^5.12.5` y override `'@nestjs/platform-fastify>fastify': 5.12.5`, porque el adaptador de Nest 11 (hasta 11.2.5) fija `5.11.3` exacto. `pnpm audit --prod`: sin vulnerabilidades conocidas. | Quitar el override al migrar a `@nestjs/platform-fastify` 12, que ya trae `5.12.5` |
 
-Gates 2026-09-22: `pnpm ci:verify` verde (205 unitarios backend, 251 integraciones, 66 web),
-`pnpm test:contracts` 10/10, `pnpm test:requirements` 34/34. La auditoría con umbral `high`
-pasó; el triage de `pnpm audit --prod` queda registrado arriba y requiere Fastify `>=5.12.1`
-antes del despliegue.
+Gates 2026-09-22 (con Fastify 5.12.5): `pnpm ci:verify` verde (205 unitarios backend,
+251 integraciones, 67 web), `pnpm test:contracts` 10/10, `pnpm test:requirements` 34/34 y
+`pnpm audit --prod` sin vulnerabilidades conocidas.
