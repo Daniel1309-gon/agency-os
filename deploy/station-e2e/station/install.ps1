@@ -17,9 +17,9 @@ $DataRoot = 'C:\ProgramData\AgencyOS'
 $HelperPath = Join-Path $ProgramRoot 'agency-os-helper.exe'
 $NativeHostName = 'com.agencyos.helper'
 $NativeManifestPath = Join-Path $ProgramRoot "$NativeHostName.json"
-$TokenPath = Join-Path $DataRoot 'device-token.txt'
 $StatePath = Join-Path $DataRoot 'install-state.json'
 $CodePath = Join-Path $DataRoot 'enrollment-code.tmp'
+$FingerprintPath = Join-Path $PSScriptRoot 'station-fingerprint.txt'
 $ForcelistValueName = '1001'
 $ForcelistValue = "$ExtensionId;https://app.agency-os.test/extension/update.xml"
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -72,20 +72,20 @@ try {
   Write-Utf8NoBom $CodePath $PlainEnrollmentCode
   & icacls.exe $CodePath /inheritance:r /grant:r "$($identity.Name):F" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'No se pudo restringir el archivo temporal de enrolamiento.' }
-  $EnrollmentOutput = & $HelperPath enroll --api-base-url 'https://api.agency-os.test/api/v1' --code-file $CodePath --hostname $env:COMPUTERNAME --label "Estación E2E $env:COMPUTERNAME" --token-file $TokenPath 2>&1
+  $StationFingerprint = (Get-Content -LiteralPath $FingerprintPath -Raw).Trim()
+  if ($StationFingerprint -notmatch '^[0-9a-f]{64}$') { throw 'La identidad de ensayo de la estación es inválida.' }
+  $EnrollmentOutput = & $HelperPath enroll --api-base-url 'https://api.agency-os.test/api/v1' --code-file $CodePath --hostname $env:COMPUTERNAME --label "Estación E2E $env:COMPUTERNAME" --cert-fingerprint $StationFingerprint 2>&1
   if ($LASTEXITCODE -ne 0) { throw 'El helper rechazó el enrolamiento.' }
 } finally {
   $PlainEnrollmentCode = $null
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
   Remove-Item -LiteralPath $CodePath -Force -ErrorAction SilentlyContinue
 }
-& icacls.exe $TokenPath /inheritance:r /grant:r "$($identity.Name):F" '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'No se pudieron restringir las ACL del token del dispositivo.' }
 $EnrollmentText = ($EnrollmentOutput | Out-String)
 if ($EnrollmentText -notmatch 'Device ([0-9a-fA-F-]{36}) enrolled') { throw 'El helper no devolvió un identificador de dispositivo válido.' }
 $DeviceId = $Matches[1]
 
-& (Join-Path $PSScriptRoot 'install-managed-policy.ps1') -ExtensionId $ExtensionId -ApiBaseUrl 'https://api.agency-os.test/api/v1' -WebAppOrigin 'https://app.agency-os.test' -DeviceTokenFile $TokenPath -NativeHostName $NativeHostName | Out-Null
+& (Join-Path $PSScriptRoot 'install-managed-policy.ps1') -ExtensionId $ExtensionId -ApiBaseUrl 'https://api.agency-os.test/api/v1' -WebAppOrigin 'https://app.agency-os.test' -NativeHostName $NativeHostName | Out-Null
 
 $State = [ordered]@{
   schemaVersion = 1
@@ -105,5 +105,5 @@ Write-Utf8NoBom $StatePath (($State | ConvertTo-Json -Depth 4) + "`n")
 $null = Invoke-WebRequest -UseBasicParsing -Uri 'https://app.agency-os.test/healthz' -TimeoutSec 15
 $null = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.agency-os.test/health/ready' -TimeoutSec 15
 Write-Output 'Estación instalada. Reinicie Chrome y valide chrome://policy bajo este mismo usuario dedicado.'
-Write-Output 'El código y el token no se imprimieron; no pulse Log in durante el ensayo ficticio.'
+Write-Output 'El código no se imprimió; la identidad es el certificado de ensayo del bundle. No pulse Log in durante el ensayo ficticio.'
 

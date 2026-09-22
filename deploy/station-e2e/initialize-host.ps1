@@ -145,11 +145,15 @@ subjectAltName = @alt_names
 Invoke-OpenSsl @('verify', '-CAfile', $CaCertificate, $ServerCertificate)
 
 $RelativeLocal = '.local/station-e2e'
+# Identidad de ensayo de la estacion: el backend la usa solo porque el stack
+# corre con NODE_ENV=test y la bandera explicita DEV_CLIENT_CERT_FINGERPRINT.
+$StationFingerprint = -join ((1..64) | ForEach-Object { '0123456789abcdef'[(Get-Random -Maximum 16)] })
 $EnvironmentLines = @(
   "SERVER_IP=$ServerIp",
   "STATION_IP_CIDR=$StationIpCidr",
   "EXTENSION_ID=$ExtensionId",
   "VITE_EXTENSION_ID=$ExtensionId",
+  "STATION_E2E_STATION_FINGERPRINT=$StationFingerprint",
   'STATION_E2E_API_BASE_URL=https://api.agency-os.test/api/v1',
   "STATION_E2E_SECRETS_DIR=$RelativeLocal/secrets",
   "STATION_E2E_PKI_DIR=$RelativeLocal/pki",
