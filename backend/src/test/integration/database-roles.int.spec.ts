@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
-import { createTestContext, destroyTestContext, type TestContext } from '../support/harness.js';
+import { createTestContext, createUser, destroyTestContext, type TestContext } from '../support/harness.js';
 
 const ROLE_NAMES = ['agency_owner', 'agency_app', 'agency_worker', 'agency_readonly'] as const;
 
@@ -94,6 +94,14 @@ describe('PostgreSQL deployment roles', () => {
       workerOutboxUpdate: boolean;
       workerOutboxDelete: boolean;
       workerUsersRead: boolean;
+      workerSettingsRead: boolean;
+      workerTemplatesRead: boolean;
+      workerOverridesRead: boolean;
+      workerRolesRead: boolean;
+      workerCrewMembersRead: boolean;
+      workerShiftsInsert: boolean;
+      workerShiftsDelete: boolean;
+      workerAuditExecute: boolean;
       workerPayrollRead: boolean;
       workerCredentialsRead: boolean;
     }>(`
@@ -108,6 +116,14 @@ describe('PostgreSQL deployment roles', () => {
         has_table_privilege('agency_worker', 'public.outbox_events', 'UPDATE') AS "workerOutboxUpdate",
         has_table_privilege('agency_worker', 'public.outbox_events', 'DELETE') AS "workerOutboxDelete",
         has_table_privilege('agency_worker', 'public.users', 'SELECT') AS "workerUsersRead",
+        has_table_privilege('agency_worker', 'public.app_settings', 'SELECT') AS "workerSettingsRead",
+        has_table_privilege('agency_worker', 'public.shift_templates', 'SELECT') AS "workerTemplatesRead",
+        has_table_privilege('agency_worker', 'public.shift_overrides', 'SELECT') AS "workerOverridesRead",
+        has_table_privilege('agency_worker', 'public.roles', 'SELECT') AS "workerRolesRead",
+        has_table_privilege('agency_worker', 'public.crew_members', 'SELECT') AS "workerCrewMembersRead",
+        has_table_privilege('agency_worker', 'public.shifts', 'INSERT') AS "workerShiftsInsert",
+        has_table_privilege('agency_worker', 'public.shifts', 'DELETE') AS "workerShiftsDelete",
+        has_function_privilege('agency_worker', 'public.audit_log_maintain(int, int)', 'EXECUTE') AS "workerAuditExecute",
         has_table_privilege('agency_worker', 'public.payroll_lines', 'SELECT') AS "workerPayrollRead",
         has_table_privilege('agency_worker', 'public.tt_profile_credentials', 'SELECT') AS "workerCredentialsRead"
     `);
@@ -123,9 +139,35 @@ describe('PostgreSQL deployment roles', () => {
       workerOutboxUpdate: true,
       workerOutboxDelete: false,
       workerUsersRead: true,
+      workerSettingsRead: true,
+      workerTemplatesRead: true,
+      workerOverridesRead: true,
+      workerRolesRead: true,
+      workerCrewMembersRead: true,
+      workerShiftsInsert: true,
+      workerShiftsDelete: false,
+      workerAuditExecute: true,
       workerPayrollRead: false,
       workerCredentialsRead: false,
     });
+  });
+
+  it('lets the worker role run the scheduler statements without reading secrets', async () => {
+    const operator = await createUser(ctx);
+
+    await expect(asRole('agency_worker', (client) => client.query('SELECT id FROM shift_templates LIMIT 1'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query('SELECT key FROM app_settings LIMIT 1'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query('SELECT id FROM shift_overrides LIMIT 1'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query('SELECT id FROM roles LIMIT 1'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query('SELECT user_id FROM crew_members LIMIT 1'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query('SELECT audit_log_maintain(2, 0)'))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query(
+      "INSERT INTO shifts (operator_id, business_date, status) VALUES ($1, '2026-09-22', 'SCHEDULED')",
+      [operator.id],
+    ))).resolves.toBeDefined();
+
+    await expect(asRole('agency_worker', (client) => client.query('SELECT secret_ciphertext FROM tt_profile_credentials'))).rejects.toMatchObject({ code: '42501' });
+    await expect(asRole('agency_worker', (client) => client.query('DELETE FROM shifts'))).rejects.toMatchObject({ code: '42501' });
   });
 
   it('allows authorized roles to compare citext identity columns', async () => {
