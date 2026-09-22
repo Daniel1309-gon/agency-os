@@ -1,8 +1,16 @@
 name: agency-os
 
+# Límite de logs en todos los servicios: el VPS tiene disco finito.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agency}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -20,6 +28,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    logging: *default-logging
     volumes:
       - redisdata:/data
     networks:
@@ -32,19 +41,21 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ${AGENCY_OS_API_IMAGE:?set AGENCY_OS_API_IMAGE}
+    logging: *default-logging
     env_file:
       - ./deploy/production/.env.production
     environment:
       NODE_ENV: production
       PORT: 3000
       REDIS_URL: redis://redis:6379
+      # El scheduler corre una sola vez: en el worker dedicado.
+      JOBS_ENABLED: "false"
       # API uses DATABASE_APP_URL. DATABASE_URL remains only for the ops container.
       DATABASE_URL: postgresql://agency@postgres:5432/agency_os
       POSTGRES_PASSWORD: ""
       DATABASE_RUNTIME_PASSWORD: ""
+      DATABASE_WORKER_PASSWORD: ""
       BOOTSTRAP_ADMIN_PASSWORD: ""
     depends_on:
       postgres:
@@ -63,13 +74,8 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: .
-      dockerfile: web-app/Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?set VITE_API_BASE_URL}
-        VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:?set VITE_EXTENSION_ID}
-        VITE_LOCAL_AGENT_URL: ${VITE_LOCAL_AGENT_URL:-http://127.0.0.1:45831}
+    image: ${AGENCY_OS_WEB_IMAGE:?set AGENCY_OS_WEB_IMAGE}
+    logging: *default-logging
     depends_on:
       api:
         condition: service_healthy
@@ -84,11 +90,9 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    logging: *default-logging
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
     volumes:
       - ./deploy/production/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -99,14 +103,81 @@ services:
       web:
         condition: service_healthy
     networks:
-      - edge
+      edge:
+        ipv4_address: 172.28.0.11
+    restart: unless-stopped
+
+  # Única entrada pública: el túnel habla con Caddy por HTTP interno. Cloudflare
+  # aplica WAF + mTLS de zona y reescribe la cabecera de certificado.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.0
+    logging: *default-logging
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      caddy:
+        condition: service_started
+    networks:
+      edge:
+        ipv4_address: 172.28.0.10
+    restart: unless-stopped
+
+  worker:
+    image: ${AGENCY_OS_API_IMAGE:?set AGENCY_OS_API_IMAGE}
+    logging: *default-logging
+    env_file:
+      - ./deploy/production/.env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_RUNTIME_ROLE: worker
+      REDIS_URL: redis://redis:6379
+      JOBS_ENABLED: "true"
+      DATABASE_URL: postgresql://agency@postgres:5432/agency_os
+      POSTGRES_PASSWORD: ""
+      DATABASE_RUNTIME_PASSWORD: ""
+      DATABASE_WORKER_PASSWORD: ""
+      BOOTSTRAP_ADMIN_PASSWORD: ""
+    command: ["node", "dist/worker-main.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      # egress: Rocket.Chat y otras salidas; internal: Postgres/Redis aislados.
+      - internal
+      - egress
+    restart: unless-stopped
+
+  # Dumps cada 30 min, cifrados antes de salir del VPS y subidos a B2 con
+  # Object Lock. Corre aparte de la API para no compartir destino de fallo.
+  backup:
+    profiles: ["backup"]
+    image: ${AGENCY_OS_BACKUP_IMAGE:?set AGENCY_OS_BACKUP_IMAGE}
+    logging: *default-logging
+    env_file:
+      - ./deploy/production/.env.production
+    environment:
+      BACKUP_WORKDIR: /var/lib/agency-os-backup
+      FREQUENT_RETENTION_HOURS: "24"
+      DAILY_RETENTION_DAYS: "30"
+      MAX_AGE_MINUTES: "45"
+    volumes:
+      - backup_status:/var/lib/agency-os-backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      # egress: subida a B2 y heartbeat; internal: solo Postgres.
+      - internal
+      - egress
     restart: unless-stopped
 
   ops:
     profiles: ["ops"]
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ${AGENCY_OS_API_IMAGE:?set AGENCY_OS_API_IMAGE}
+    logging: *default-logging
     env_file:
       - ./deploy/production/.env.production
     depends_on:
@@ -121,6 +192,7 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  backup_status:
 
 networks:
   edge:
@@ -132,3 +204,9 @@ networks:
     ipam:
       config:
         - subnet: 172.29.0.0/24
+  # Salida a Internet para worker (Rocket.Chat) y backup (B2, heartbeat).
+  # No da acceso a Postgres/Redis: esos solo están en `internal`.
+  egress:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
