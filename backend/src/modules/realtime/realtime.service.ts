@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional, type LoggerService, type OnModuleDestroy } from '@nestjs/common';
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { Server } from 'socket.io';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { RedisService } from '../../common/redis/redis.service.js';
 import { breaks, cafeteriaOrderItems, cafeteriaOrders, crewMembers, crews, operatorCurrentStatus, profileSessions, roles, shifts, users } from '../../database/schema/index.js';
 
 export interface OperatorStatusSnapshot {
@@ -36,13 +37,63 @@ export interface CafeteriaOrderSnapshot {
 }
 
 @Injectable()
-export class RealtimeService {
+export class RealtimeService implements OnModuleDestroy {
+  private static readonly BRIDGE_CHANNEL = 'agency:realtime:bridge';
+  private readonly logger: LoggerService = new Logger(RealtimeService.name);
   private server?: Server;
+  private bridgeRetry?: ReturnType<typeof setTimeout>;
+  private bridgeAttempts = 0;
+  private destroyed = false;
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   attach(server: Server): void {
     this.server = server;
+    void this.subscribeBridge();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.destroyed = true;
+    if (this.bridgeRetry) clearTimeout(this.bridgeRetry);
+  }
+
+  private async subscribeBridge(): Promise<void> {
+    if (!this.redis || this.destroyed) return;
+    try {
+      await this.redis.subscribe(RealtimeService.BRIDGE_CHANNEL, (message) => {
+        void this.onBridgeMessage(message).catch(() => this.logger.error('Falló un evento del puente realtime'));
+      });
+      this.bridgeAttempts = 0;
+    } catch {
+      const delay = Math.min(60_000, 5_000 * 2 ** Math.min(this.bridgeAttempts++, 4));
+      this.logger.error(`Falló la suscripción al puente realtime; reintento en ${delay} ms`);
+      if (!this.destroyed) {
+        this.bridgeRetry = setTimeout(() => {
+          this.bridgeRetry = undefined;
+          void this.subscribeBridge();
+        }, delay);
+      }
+    }
+  }
+
+  /**
+   * Corta los sockets afectados por una revocacion. El plan pide cierre objetivo
+   * en cinco segundos en condiciones normales; con el adaptador Redis la orden
+   * cruza instancias.
+   */
+  disconnectUser(userId: string): void {
+    this.server?.in(`user:${userId}`).disconnectSockets(true);
+  }
+
+  disconnectDevice(deviceId: string): void {
+    this.server?.in(`device:${deviceId}`).disconnectSockets(true);
+  }
+
+  disconnectRole(roleCode: string): void {
+    this.server?.in(`role:${roleCode}`).disconnectSockets(true);
   }
 
   async snapshotFor(user: Pick<AccessTokenClaims, 'sub' | 'role'>): Promise<OperatorStatusSnapshot[]> {
@@ -70,15 +121,46 @@ export class RealtimeService {
 
   async publishCafeteriaOrderChanged(orderId: string, eventName = 'cafeteria.order.changed'): Promise<void> {
     await this.db.afterCommit(async () => {
-      if (!this.server) return;
+      if (!this.server) {
+        await this.publishBridge({ target: 'cafeteria', orderId, eventName });
+        return;
+      }
       const order = await this.orderSnapshot(orderId);
       if (!order) return;
       this.server.to(['role:CAFETERIA', `user:${order.operatorId}`]).emit(eventName, order);
     });
   }
 
-  private async emitOperatorChanged(operatorId: string): Promise<void> {
+  private async publishBridge(event: { target: 'operator'; operatorId: string } | { target: 'cafeteria'; orderId: string; eventName: string }): Promise<void> {
+    await this.redis?.publish(RealtimeService.BRIDGE_CHANNEL, JSON.stringify(event)).catch(() => undefined);
+  }
+
+  private async onBridgeMessage(message: string): Promise<void> {
     if (!this.server) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(message);
+    } catch {
+      return;
+    }
+    if (typeof parsed !== 'object' || parsed === null) return;
+    const event = parsed as { target?: string; operatorId?: string; orderId?: string; eventName?: string };
+    if (event.target === 'operator' && typeof event.operatorId === 'string') {
+      await this.emitOperatorChanged(event.operatorId, true);
+      return;
+    }
+    if (event.target === 'cafeteria' && typeof event.orderId === 'string') {
+      const order = await this.orderSnapshot(event.orderId);
+      if (!order) return;
+      this.server.local.to(['role:CAFETERIA', `user:${order.operatorId}`]).emit(event.eventName ?? 'cafeteria.order.changed', order);
+    }
+  }
+
+  private async emitOperatorChanged(operatorId: string, local = false): Promise<void> {
+    if (!this.server) {
+      await this.publishBridge({ target: 'operator', operatorId });
+      return;
+    }
     const status = (await this.snapshotAll()).find((row) => row.operatorId === operatorId);
     if (!status) return;
     const memberships = await this.db.db
@@ -91,7 +173,7 @@ export class RealtimeService {
       `user:${operatorId}`,
       ...memberships.map((row) => `crew:${row.crewId}`),
     ];
-    this.server.to(rooms).emit('operator.status.changed', status);
+    (local ? this.server.local : this.server).to(rooms).emit('operator.status.changed', status);
   }
 
   async snapshotAll(): Promise<OperatorStatusSnapshot[]> {

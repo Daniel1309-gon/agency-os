@@ -5,9 +5,11 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { io as createClient, type Socket as ClientSocket } from 'socket.io-client';
 import { signAccessToken } from '../../common/auth/crypto.js';
 import { RedisIoAdapter } from '../../modules/realtime/redis-io.adapter.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { ipAllowlist, shifts } from '../../database/schema/index.js';
 import {
   TEST_JWT_SECRET,
+  createDevice,
   createTestContext,
   createUser,
   destroyTestContext,
@@ -55,17 +57,27 @@ function waitForSnapshot(socket: ClientSocket): Promise<OperatorSnapshot[]> {
   });
 }
 
-function connect(url: string): { socket: ClientSocket; snapshot: Promise<OperatorSnapshot[]> } {
+function connect(url: string, token = adminToken, extraHeaders: Record<string, string> = {}): { socket: ClientSocket; snapshot: Promise<OperatorSnapshot[]> } {
   const socket = createClient(`${url}/operations`, {
     autoConnect: false,
     forceNew: true,
     transports: ['websocket'],
-    auth: { token: adminToken },
-    extraHeaders: { origin: 'http://localhost:5173' },
+    auth: { token },
+    extraHeaders: { origin: 'http://localhost:5173', ...extraHeaders },
   });
   const snapshot = waitForSnapshot(socket);
   socket.connect();
   return { socket, snapshot };
+}
+
+function waitForDisconnect(socket: ClientSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for server-side disconnect')), 5_000);
+    socket.once('disconnect', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
 }
 
 beforeAll(async () => {
@@ -75,8 +87,8 @@ beforeAll(async () => {
   const admin = await createUser(ctx, { role: 'ADMIN' });
   const operator = await createUser(ctx, { role: 'OPERADOR' });
   operatorId = operator.id;
-  adminToken = signAccessToken({ sub: admin.id, role: 'ADMIN', permissions: ['operators.monitor'] }, TEST_JWT_SECRET, 60);
-  operatorToken = signAccessToken({ sub: operator.id, role: 'OPERADOR', permissions: [] }, TEST_JWT_SECRET, 60);
+  adminToken = signAccessToken({ sub: admin.id, role: 'ADMIN', permissions: ['operators.monitor', 'users.disable', 'devices.manage'], av: 1 }, TEST_JWT_SECRET, 60);
+  operatorToken = signAccessToken({ sub: operator.id, role: 'OPERADOR', permissions: [], av: 1 }, TEST_JWT_SECRET, 60);
   await ctx.db.insert(ipAllowlist).values({ label: 'Two-instance acceptance', cidr: '127.0.0.1/32', scope: 'ALL', createdBy: admin.id });
   const now = new Date();
   await ctx.db.insert(shifts).values({
@@ -132,5 +144,79 @@ describe('two-instance realtime semaphore', () => {
     const reconnected = connect(await second.getUrl());
     client = reconnected.socket;
     await expect(reconnected.snapshot).resolves.toEqual([expect.objectContaining({ operatorId, status: 'ALERT' })]);
+  });
+
+  it('rejects a token whose authorization version is stale', async () => {
+    const staleToken = signAccessToken({ sub: operatorId, role: 'OPERADOR', permissions: [], av: 0 }, TEST_JWT_SECRET, 60);
+    const socket = createClient(`${await second.getUrl()}/operations`, {
+      autoConnect: false,
+      forceNew: true,
+      transports: ['websocket'],
+      auth: { token: staleToken },
+      extraHeaders: { origin: 'http://localhost:5173' },
+    });
+    const closed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Stale authorization version stayed connected')), 3_000);
+      const finish = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      socket.once('connect_error', finish);
+      socket.once('disconnect', finish);
+    });
+    socket.connect();
+    await expect(closed).resolves.toBeUndefined();
+    socket.close();
+  });
+
+  it('closes the operator socket when the user is disabled from another instance', async () => {
+    const connected = connect(await second.getUrl(), operatorToken);
+    client = connected.socket;
+    await connected.snapshot;
+    const closed = waitForDisconnect(client);
+
+    const response = await first.inject({
+      method: 'POST',
+      url: `/api/v1/users/${operatorId}/disable`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(response.statusCode).toBe(201);
+    await expect(closed).resolves.toBeUndefined();
+  });
+
+  it('delivers events published by a server-less worker through the Redis bridge', async () => {
+    // Cada API recibe el bridge, pero su emisión debe quedarse en sus propios sockets.
+    const worker = new RealtimeService(ctx.database, ctx.redis);
+    const connectedFirst = connect(await first.getUrl());
+    const connectedSecond = connect(await second.getUrl());
+    client = connectedSecond.socket;
+    await Promise.all([connectedFirst.snapshot, connectedSecond.snapshot]);
+    const firstEvents: OperatorSnapshot[] = [];
+    const secondEvents: OperatorSnapshot[] = [];
+    connectedFirst.socket.on('operator.status.changed', (event: OperatorSnapshot) => firstEvents.push(event));
+    connectedSecond.socket.on('operator.status.changed', (event: OperatorSnapshot) => secondEvents.push(event));
+    await worker.publishOperatorChanged(operatorId);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(firstEvents).toEqual([expect.objectContaining({ operatorId, status: expect.any(String) })]);
+    expect(secondEvents).toEqual([expect.objectContaining({ operatorId, status: expect.any(String) })]);
+    connectedFirst.socket.close();
+    client.close();
+  });
+
+  it('closes sockets bound to a revoked device', async () => {
+    const device = await createDevice(ctx);
+    const connected = connect(await second.getUrl(), adminToken, { 'client-cert': device.header });
+    client = connected.socket;
+    await connected.snapshot;
+    const closed = waitForDisconnect(client);
+
+    const response = await first.inject({
+      method: 'POST',
+      url: `/api/v1/devices/${device.id}/revoke`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { reason: 'E2E_REVOKE' },
+    });
+    expect(response.statusCode).toBe(201);
+    await expect(closed).resolves.toBeUndefined();
   });
 });
