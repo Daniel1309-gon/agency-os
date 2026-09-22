@@ -51,7 +51,7 @@ foreach ($file in @('agency-os-helper.exe', "$($State.nativeHostName).json")) {
   if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
 }
 if ((Test-Path -LiteralPath $ProgramRoot) -and -not (Get-ChildItem -LiteralPath $ProgramRoot -Force)) { Remove-Item -LiteralPath $ProgramRoot -Force }
-foreach ($file in @('device-token.txt', 'install-state.json')) {
+foreach ($file in @('install-state.json')) {
   $target = Join-Path $DataRoot $file
   if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
 }

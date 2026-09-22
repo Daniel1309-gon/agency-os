@@ -22,6 +22,9 @@ x-api-environment: &api-environment
   VAULT_KEK_FILE: /run/secrets/vault_kek
   CORS_ORIGINS: https://app.agency-os.test
   TRUSTED_PROXY_CIDRS: 172.30.0.10/32
+  # Identidad de ensayo: el stack corre en NODE_ENV=test y el gateway local no
+  # reenvia cabeceras de certificado. En produccion esta bandera esta prohibida.
+  DEV_CLIENT_CERT_FINGERPRINT: ${STATION_E2E_STATION_FINGERPRINT:-}
   REQUIRE_SHIFT_FOR_AUTH: "true"
   EXTENSION_ID: ${EXTENSION_ID:?Set EXTENSION_ID in station.env}
   ROCKETCHAT_BASE_URL: https://chat.globalcompany.company

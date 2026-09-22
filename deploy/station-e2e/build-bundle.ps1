@@ -13,6 +13,12 @@ if (-not $ExtensionId -and (Test-Path -LiteralPath $StationEnvPath -PathType Lea
   if ($ConfiguredExtension) { $ExtensionId = $ConfiguredExtension.Substring('EXTENSION_ID='.Length).Trim() }
 }
 if ($ExtensionId -notmatch '^[a-p]{32}$') { throw 'Indique -ExtensionId o inicialice .local/station-e2e/station.env.' }
+$StationFingerprint = ''
+if (Test-Path -LiteralPath $StationEnvPath -PathType Leaf) {
+  $ConfiguredFingerprint = Get-Content -LiteralPath $StationEnvPath | Where-Object { $_ -match '^STATION_E2E_STATION_FINGERPRINT=' } | Select-Object -First 1
+  if ($ConfiguredFingerprint) { $StationFingerprint = $ConfiguredFingerprint.Substring('STATION_E2E_STATION_FINGERPRINT='.Length).Trim() }
+}
+if ($StationFingerprint -notmatch '^[0-9a-f]{64}$') { throw 'Inicialice el host E2E para generar la identidad de ensayo de la estación.' }
 $BundleRoot = Join-Path $LocalRoot 'bundles'
 $Stage = Join-Path $BundleRoot "agency-os-station-$BundleVersion"
 $ZipPath = "$Stage.zip"
@@ -63,6 +69,7 @@ foreach ($name in @('preflight.ps1', 'install.ps1', 'uninstall.ps1', 'RUNBOOK.md
 }
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'extension\scripts\install-managed-policy.ps1') -Destination (Join-Path $Stage 'install-managed-policy.ps1')
 Copy-Item -LiteralPath $CaPath -Destination (Join-Path $Stage 'agency-os-station-e2e-ca.crt')
+[IO.File]::WriteAllText((Join-Path $Stage 'station-fingerprint.txt'), ($StationFingerprint + "`n"), [Text.UTF8Encoding]::new($false))
 
 $CommitSha = (& git -C $ProjectRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $CommitSha -notmatch '^[0-9a-f]{40}$') { throw 'No se pudo determinar el commit SHA.' }
