@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 
 import { DatabaseService } from '../../database/database.service.js';
 import {
@@ -117,13 +117,13 @@ export class DrizzleVaultRepository implements VaultRepository {
       .then((rows) => rows[0]);
   }
 
-  async findApprovedDevice(tokenHash: string, deviceId?: string): Promise<VaultDevice | undefined> {
+  async findApprovedDevice(deviceId: string): Promise<VaultDevice | undefined> {
     return this.database.db.query.devices.findFirst({
       where: and(
-        eq(devices.tokenHash, tokenHash),
-        deviceId ? eq(devices.id, deviceId) : undefined,
+        eq(devices.id, deviceId),
         eq(devices.status, 'APPROVED'),
-        sql`${devices.tokenExpiresAt} > now()`,
+        isNull(devices.revokedAt),
+        or(isNull(devices.certNotAfter), gt(devices.certNotAfter, new Date())),
       ),
       columns: { id: true },
     });
@@ -161,14 +161,14 @@ export class DrizzleVaultRepository implements VaultRepository {
     sessionId: string;
     profileId: string;
     operatorId: string;
-    deviceId?: string;
+    deviceId: string;
   }): Promise<VaultLaunchingSession | undefined> {
     return this.database.db.query.profileSessions.findFirst({
       where: and(
         eq(profileSessions.id, input.sessionId),
         eq(profileSessions.profileId, input.profileId),
         eq(profileSessions.operatorId, input.operatorId),
-        input.deviceId ? eq(profileSessions.deviceId, input.deviceId) : undefined,
+        eq(profileSessions.deviceId, input.deviceId),
         eq(profileSessions.status, 'LAUNCHING'),
       ),
       columns: { assignmentId: true, deviceId: true },
@@ -178,12 +178,14 @@ export class DrizzleVaultRepository implements VaultRepository {
   async findPreparedHandoffSession(input: {
     sessionId: string;
     profileId: string;
+    deviceId: string;
     notBefore: Date;
   }): Promise<VaultPreparedHandoffSession | undefined> {
     return this.database.db.query.profileSessions.findFirst({
       where: and(
         eq(profileSessions.id, input.sessionId),
         eq(profileSessions.profileId, input.profileId),
+        eq(profileSessions.deviceId, input.deviceId),
         eq(profileSessions.status, 'LAUNCHING'),
         sql`${profileSessions.startedAt} >= ${input.notBefore}`,
       ),
@@ -208,34 +210,6 @@ export class DrizzleVaultRepository implements VaultRepository {
       ))
       .limit(1)
       .then((rows) => rows[0]);
-  }
-
-  async claimLaunchingSession(input: {
-    sessionId: string;
-    profileId: string;
-    operatorId: string;
-    deviceId: string;
-    claimedAt: Date;
-  }): Promise<boolean> {
-    const [claimed] = await this.database.db
-      .update(profileSessions)
-      .set({ deviceId: input.deviceId, lastHeartbeatAt: input.claimedAt })
-      .where(and(
-        eq(profileSessions.id, input.sessionId),
-        eq(profileSessions.profileId, input.profileId),
-        eq(profileSessions.operatorId, input.operatorId),
-        eq(profileSessions.status, 'LAUNCHING'),
-        isNull(profileSessions.deviceId),
-        sql`exists (
-          select 1 from tt_profiles profile
-          where profile.id = ${profileSessions.profileId}
-            and profile.status = 'ACTIVE'
-            and profile.deleted_at is null
-            and profile.chrome_profile_dir = ${profileSessions.chromeProfileDir}
-        )`,
-      ))
-      .returning({ id: profileSessions.id });
-    return Boolean(claimed);
   }
 
   async recordCredentialAccess(record: VaultAccessRecord): Promise<void> {

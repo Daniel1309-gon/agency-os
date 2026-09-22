@@ -2,7 +2,8 @@ import { Body, Controller, Get, Headers, Post, Req, Res, UsePipes } from '@nestj
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service.js';
-import { Authenticated, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import { Authenticated, CurrentDevice, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
+import type { DevicePrincipal } from '../../common/auth/auth.types.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { AuthService } from './auth.service.js';
@@ -28,8 +29,8 @@ export class AuthController {
   @Public()
   @Post('login')
   @UsePipes(new ZodValidationPipe(loginSchema))
-  async login(@Body() body: LoginInput, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    const result = await this.auth.login(body, req.ip, req.headers['user-agent']);
+  async login(@Body() body: LoginInput, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply, @CurrentDevice() device?: DevicePrincipal) {
+    const result = await this.auth.login(body, req.ip, req.headers['user-agent'], device ? { id: device.id, fingerprint: device.fingerprint } : undefined);
     setRefreshCookie(reply, result.refreshToken, refreshCookieMaxAge(this.config), this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }
@@ -37,10 +38,10 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @UsePipes(new ZodValidationPipe(refreshSchema))
-  async refresh(@Body() body: RefreshInput, @Headers('cookie') cookie: string | undefined, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+  async refresh(@Body() body: RefreshInput, @Headers('cookie') cookie: string | undefined, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply, @CurrentDevice() device?: DevicePrincipal) {
     const token = body.refreshToken ?? cookieValue(cookie, 'agency_refresh');
     if (!token) throw new UnauthorizedException('Refresh token required');
-    const result = await this.auth.refresh(token, req.ip, req.headers['user-agent']);
+    const result = await this.auth.refresh(token, req.ip, req.headers['user-agent'], device?.id);
     setRefreshCookie(reply, result.refreshToken, refreshCookieMaxAge(this.config), this.config.get('NODE_ENV') === 'production');
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user };
   }

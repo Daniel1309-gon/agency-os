@@ -5,6 +5,7 @@ import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { appSettings, auditLog, featureFlags, ipAllowlist, operatorCompensation, permissions, roles, users } from '../../database/schema/index.js';
 import { hashPassword } from '../../common/auth/crypto.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
 import { ConfigService } from '../../config/config.service.js';
 import type { CompensationInput, FeatureFlagInput, IpAllowlistInput, SettingInput, UserCreateInput, UserPatchInput } from './admin.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
@@ -34,6 +35,7 @@ export class AdminService {
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
+    private readonly authVersion: AuthVersionService,
   ) {}
 
   async listUsers(actor: Pick<AccessTokenClaims, 'sub' | 'role'>) {
@@ -75,10 +77,11 @@ export class AdminService {
     const [row] = await this.db.db.update(users).set({ fullName: input.fullName, phone: input.phone, roleId, rocketchatUserId: input.rocketchatUserId, rocketchatDirectRoomId: input.rocketchatDirectRoomId, updatedBy: actorId, updatedAt: new Date(), version: sql`${users.version} + 1` }).where(and(eq(users.id, id), isNull(users.deletedAt))).returning({ id: users.id, email: users.email, fullName: users.fullName, roleId: users.roleId });
     if (!row) throw new NotFoundException('User not found');
     await this.auditService.record({ actorType: 'USER', actorUserId: actorId, action: 'user.updated', entityType: 'user', entityId: row.id, result: 'SUCCESS', metadata: { userId: row.id, role: input.roleCode } });
+    await this.authVersion.bump(row.id);
     return row;
   }
 
-  async disableUser(id: string, actorId: string) { const [row] = await this.db.db.update(users).set({ status: 'DISABLED', updatedAt: new Date() }).where(and(eq(users.id, id), isNull(users.deletedAt))).returning({ id: users.id, status: users.status }); if (!row) throw new NotFoundException('User not found'); await this.auditService.record({ actorType: 'USER', actorUserId: actorId, action: 'user.disabled', entityType: 'user', entityId: row.id, result: 'SUCCESS', metadata: { userId: row.id } }); return row; }
+  async disableUser(id: string, actorId: string) { const [row] = await this.db.db.update(users).set({ status: 'DISABLED', updatedAt: new Date() }).where(and(eq(users.id, id), isNull(users.deletedAt))).returning({ id: users.id, status: users.status }); if (!row) throw new NotFoundException('User not found'); await this.auditService.record({ actorType: 'USER', actorUserId: actorId, action: 'user.disabled', entityType: 'user', entityId: row.id, result: 'SUCCESS', metadata: { userId: row.id } }); await this.authVersion.bump(row.id); return row; }
 
   async listCompensation(operatorId: string) {
     return this.db.db.select({ id: operatorCompensation.id, operatorId: operatorCompensation.operatorId, commissionRate: operatorCompensation.commissionRate, pointsToCopRate: operatorCompensation.pointsToCopRate, monthlyGoalPoints: operatorCompensation.monthlyGoalPoints, maxConcurrentProfiles: operatorCompensation.maxConcurrentProfiles, validRange: operatorCompensation.validRange, note: operatorCompensation.note, createdBy: operatorCompensation.createdBy, createdAt: operatorCompensation.createdAt }).from(operatorCompensation).where(eq(operatorCompensation.operatorId, operatorId)).orderBy(desc(operatorCompensation.createdAt));

@@ -83,7 +83,7 @@ test('models station-only routes without pretending they use an operator JWT', (
     assert.deepEqual(stationPolicy.actors, ['STATION']);
     assert.equal(stationPolicy.access.authenticated, false);
     assert.equal(stationPolicy.access.station, true);
-    assert.deepEqual(stationOperation.security, [{ deviceToken: [] }]);
+    assert.deepEqual(stationOperation.security, []);
   }
 });
 

@@ -8,9 +8,9 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { devices, ipAllowlist, roles, users } from '../../database/schema/index.js';
+import { ipAllowlist, roles, users } from '../../database/schema/index.js';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
-import { hashToken, verifyAccessToken } from './crypto.js';
+import { verifyAccessToken } from './crypto.js';
 import { IS_PUBLIC_KEY, REQUIRED_PERMISSIONS_KEY, REQUIRED_ROLES_KEY, setAuthenticatedUser, SKIP_IP_ALLOWLIST_KEY, STATION_AUTH_KEY } from './decorators.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -71,9 +71,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
     setAuthenticatedUser(request, claims);
-    const [active] = await this.db.db.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(and(eq(users.id, claims.sub), eq(users.status, 'ACTIVE'), isNull(users.deletedAt), eq(roles.code, claims.role))).limit(1);
+    const [active] = await this.db.db.select({ id: users.id, authVersion: users.authVersion }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(and(eq(users.id, claims.sub), eq(users.status, 'ACTIVE'), isNull(users.deletedAt), eq(roles.code, claims.role))).limit(1);
     if (!active) {
       await recordDenied(this.audit, request, 'auth.token.denied', { denyReason: 'INACTIVE_USER' });
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    if (active.authVersion !== claims.av) {
+      await recordDenied(this.audit, request, 'auth.token.denied', { denyReason: 'STALE_AUTH_VERSION' });
       throw new UnauthorizedException('Invalid or expired token');
     }
     return true;
@@ -120,45 +124,17 @@ export class RolesGuard implements CanActivate {
 }
 
 @Injectable()
-export class DeviceTokenGuard implements CanActivate {
-  constructor(private readonly db: DatabaseService, private readonly audit: AuditService, private readonly reflector: Reflector) {}
+export class StationDeviceGuard implements CanActivate {
+  constructor(private readonly audit: AuditService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const header = request.headers['x-device-token'];
-    const token = Array.isArray(header) ? header[0] : header;
-    if (!token) {
-      await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'MISSING_TOKEN' });
-      throw new ForbiddenException('Device token required');
+    if (request.device?.kind !== 'STATION') {
+      await recordDenied(this.audit, request, 'device.access.denied', {
+        denyReason: request.device ? 'NOT_A_STATION' : 'MISSING_DEVICE',
+      });
+      throw new ForbiddenException('An approved station device is required');
     }
-    const isStation = this.reflector.getAllAndOverride<boolean>(STATION_AUTH_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (!request.user && !isStation) {
-      await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'MISSING_USER' });
-      throw new ForbiddenException('Authenticated operator required');
-    }
-    if (token.length > 128) {
-      await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'INVALID_OR_EXPIRED' });
-      throw new ForbiddenException('Device token is invalid or expired');
-    }
-    const device = await this.db.db.query.devices.findFirst({
-      where: and(
-        eq(devices.tokenHash, hashToken(token)),
-        eq(devices.status, 'APPROVED'),
-        sql`${devices.tokenExpiresAt} > now()`,
-      ),
-    });
-    if (!device || !device.tokenExpiresAt || device.tokenExpiresAt.getTime() <= Date.now()) {
-      await recordDenied(this.audit, request, 'device.access.denied', { denyReason: 'INVALID_OR_EXPIRED' });
-      throw new ForbiddenException('Device token is invalid or expired');
-    }
-    request.device = {
-      id: device.id,
-      label: device.label,
-      tokenExpiresAt: device.tokenExpiresAt,
-    };
     return true;
   }
 }
@@ -170,6 +146,10 @@ export class IpAllowlistGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     if (this.reflector.getAllAndOverride<boolean>(SKIP_IP_ALLOWLIST_KEY, [context.getHandler(), context.getClass()])) return true;
+    // Plan §2 B2: el acceso mTLS ya no depende de la IP de oficina. La IP se
+    // conserva para auditoria, para rutas publicas (login/refresh/enroll) y
+    // contra abuso. El dispositivo lo resolvio ClientCertGuard, que corre antes.
+    if (request.device) return true;
     const active = await this.db.db.select({ id: ipAllowlist.id }).from(ipAllowlist).where(and(eq(ipAllowlist.isActive, true), or(isNull(ipAllowlist.expiresAt), sql`${ipAllowlist.expiresAt} > now()`))).limit(1);
     if (!active.length) {
       await recordDenied(this.audit, request, 'ip_allowlist.denied', { denyReason: 'NOT_CONFIGURED' });

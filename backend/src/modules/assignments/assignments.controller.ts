@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions, RequireRoles, RequireShift, StationAuthenticated } from '../../common/auth/decorators.js';
-import { RequireDevice } from '../../common/auth/device.decorator.js';
+import { Body, Controller, Get, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
+import { CurrentDevice, CurrentUser, RequirePermissions, RequireRoles, RequireShift, StationAuthenticated } from '../../common/auth/decorators.js';
+import { RequireStationDevice } from '../../common/auth/device.decorator.js';
+import type { DevicePrincipal } from '../../common/auth/auth.types.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { ProfilesService } from '../profiles/profiles.service.js';
@@ -38,53 +39,58 @@ export class AgentSessionsController {
   assigned(@CurrentUser() user: AccessTokenClaims) { return this.profiles.assignedTo(user.sub); }
 
   @Post('sessions/prepare')
+  @RequireStationDevice()
   @RequirePermissions('profiles.read')
   @UsePipes(new ZodValidationPipe(sessionCreateSchema))
-  prepare(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims) { return this.assignments.prepareSession(body, user.sub); }
+  prepare(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.prepareSession(body, user.sub, device.id);
+  }
 
   @Post('sessions')
-  @RequireDevice()
+  @RequireStationDevice()
   @UsePipes(new ZodValidationPipe(sessionCreateSchema))
-  open(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.openSession(body, user.sub, token); }
+  open(@Body() body: SessionCreateInput, @CurrentUser() user: AccessTokenClaims, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.openSession(body, user.sub, device.id);
+  }
 
   @Patch('sessions/:id')
-  @RequireDevice()
+  @RequireStationDevice()
   @UsePipes(new ZodValidationPipe(sessionPatchSchema))
-  update(@Param('id') id: string, @Body() body: SessionPatchInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.updateSession(id, body, user.sub, token); }
+  update(@Param('id') id: string, @Body() body: SessionPatchInput, @CurrentUser() user: AccessTokenClaims, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.updateSession(id, body, user.sub, device.id);
+  }
 
   @Post('sessions/:id/close')
-  @RequireDevice()
+  @RequireStationDevice()
   @UsePipes(new ZodValidationPipe(sessionCloseSchema))
-  close(@Param('id') id: string, @Body() body: SessionCloseInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-device-token') token: string) { return this.assignments.closeSession(id, body.version, user.sub, token); }
+  close(@Param('id') id: string, @Body() body: SessionCloseInput, @CurrentUser() user: AccessTokenClaims, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.closeSession(id, body.version, user.sub, device.id);
+  }
 }
 
 @Controller('station/sessions')
-@RequireDevice()
+@RequireStationDevice()
 export class StationSessionsController {
   constructor(private readonly assignments: AssignmentsService) {}
 
   @Patch(':id')
   @StationAuthenticated()
   @UsePipes(new ZodValidationPipe(stationSessionPatchSchema))
-  update(
-    @Param('id') id: string,
-    @Body() body: StationSessionPatchInput,
-    @Headers('x-device-token') token: string,
-  ) {
-    return this.assignments.updateStationSession(id, body, token);
+  update(@Param('id') id: string, @Body() body: StationSessionPatchInput, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.updateStationSession(id, body, device.id);
   }
 
   @Post(':id/heartbeat')
   @StationAuthenticated()
   @UsePipes(new ZodValidationPipe(stationSessionHeartbeatSchema))
-  heartbeat(@Param('id') id: string, @Body() body: StationSessionHeartbeatInput, @Headers('x-device-token') token: string) {
-    return this.assignments.heartbeatStationSession(id, body.version, token);
+  heartbeat(@Param('id') id: string, @Body() body: StationSessionHeartbeatInput, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.heartbeatStationSession(id, body.version, device.id);
   }
 
   @Post(':id/close')
   @StationAuthenticated()
   @UsePipes(new ZodValidationPipe(sessionCloseSchema))
-  close(@Param('id') id: string, @Body() body: SessionCloseInput, @Headers('x-device-token') token: string) {
-    return this.assignments.closeStationSession(id, body.version, token);
+  close(@Param('id') id: string, @Body() body: SessionCloseInput, @CurrentDevice() device: DevicePrincipal) {
+    return this.assignments.closeStationSession(id, body.version, device.id);
   }
 }

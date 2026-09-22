@@ -84,28 +84,29 @@ async function main() {
     });
   }
 
-  // Dispositivo de ensayo con token exclusivo; queda solo en el host.
+  // Dispositivo de ensayo identificado por la huella del certificado mTLS.
   const deviceLabel = 'mtls-pilot-pc01';
+  const fingerprint = (process.env.PILOT_DEVICE_FINGERPRINT || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error('PILOT_DEVICE_FINGERPRINT must be the lowercase SHA-256 fingerprint of the pilot certificate');
   const devices = await call('GET', '/devices', { token: accessToken });
-  let device = Array.isArray(devices.data) ? devices.data.find((candidate) => candidate.label === deviceLabel) : undefined;
-  let deviceToken;
+  const device = Array.isArray(devices.data) ? devices.data.find((candidate) => candidate.label === deviceLabel) : undefined;
+  let deviceId;
   if (!device) {
-    const created = await call('POST', '/devices', { token: accessToken, body: { hostname: 'mtls-pilot-pc01', label: deviceLabel } });
+    const created = await call('POST', '/devices', { token: accessToken, body: { hostname: 'mtls-pilot-pc01', label: deviceLabel, deviceKind: 'STATION' } });
     const enrollmentCode = created.data?.enrollmentCode;
     if (typeof enrollmentCode !== 'string') throw new Error('Device enrollment code was not returned');
-    const enrolled = await call('POST', '/devices/enroll', { body: { code: enrollmentCode, hostname: 'mtls-pilot-pc01', label: deviceLabel } });
-    deviceToken = enrolled.data?.deviceToken;
-    device = enrolled.data;
+    const enrolled = await call('POST', '/devices/enroll', { body: { code: enrollmentCode, hostname: 'mtls-pilot-pc01', label: deviceLabel, certFingerprint: fingerprint } });
+    deviceId = enrolled.data?.deviceId;
   } else {
-    const rotated = await call('POST', `/devices/${device.id}/rotate`, { token: accessToken });
-    deviceToken = rotated.data?.deviceToken;
+    await call('POST', `/devices/${device.id}/certificate`, { token: accessToken, body: { certFingerprint: fingerprint } });
+    deviceId = device.id;
   }
-  if (typeof deviceToken !== 'string' || !deviceToken) throw new Error('Device token was not issued');
+  if (typeof deviceId !== 'string' || !deviceId) throw new Error('Device was not enrolled');
 
   // Material exclusivo del host, nunca del repositorio.
   const agentRoot = resolve(AGENT_DIR);
   await mkdir(agentRoot, { recursive: true });
-  await writeFile(resolve(agentRoot, 'device-token.txt'), deviceToken, { encoding: 'utf8', mode: 0o600 });
+  await writeFile(resolve(agentRoot, 'device-fingerprint.txt'), fingerprint, { encoding: 'utf8', mode: 0o600 });
   await writeFile(resolve(agentRoot, 'operator-credentials.txt'), `email=${DEMO_OPERATOR_EMAIL}\npassword=${operatorPassword}\n`, { encoding: 'utf8', mode: 0o600 });
   await writeFile(resolve(agentRoot, 'launch-info.json'), JSON.stringify({
     profileId: profile.id,
@@ -116,8 +117,8 @@ async function main() {
     agentPort: 45832,
   }, null, 2), { encoding: 'utf8', mode: 0o600 });
 
-  console.log(`Pilot provisioned: operator=${DEMO_OPERATOR_EMAIL}, profile=${profile.displayName}, device=${device.id ?? device.deviceId}`);
-  console.log(`Agent material written under ${agentRoot} (token, operator credentials, launch info).`);
+  console.log(`Pilot provisioned: operator=${DEMO_OPERATOR_EMAIL}, profile=${profile.displayName}, device=${deviceId}`);
+  console.log(`Agent material written under ${agentRoot} (fingerprint, operator credentials, launch info).`);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';

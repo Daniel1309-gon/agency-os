@@ -260,13 +260,14 @@ test('security contracts expose operational metadata without secrets', () => {
     hostname: 'OFFICE-01',
     label: 'Puesto principal',
     status: 'APPROVED',
+    deviceKind: 'STATION',
+    certFingerprint: 'a'.repeat(64),
+    certNotAfter: '2027-08-21T08:00:00.000Z',
     extensionVersion: '1.0.0',
     helperVersion: '1.0.0',
     osVersion: 'Windows 11',
     lastSeenAt: '2026-08-21T08:00:00.000Z',
     lastIp: '10.20.30.40',
-    tokenIssuedAt: '2026-08-21T08:00:00.000Z',
-    tokenExpiresAt: '2026-11-19T08:00:00.000Z',
     revokedAt: null,
     revokedReason: null,
   };
@@ -286,6 +287,7 @@ test('security contracts expose operational metadata without secrets', () => {
   };
   assert.equal(managedDeviceSchema.safeParse(device).success, true);
   assert.equal(managedDeviceSchema.safeParse({ ...device, tokenHash: 'forbidden' }).success, false);
+  assert.equal(managedDeviceSchema.safeParse({ ...device, certFingerprint: 'not-a-fingerprint' }).success, false);
   assert.equal(auditRecordSchema.safeParse(audit).success, true);
   assert.equal(auditRecordSchema.safeParse({ ...audit, metadata: { password: 'forbidden' } }).success, false);
   for (const metadata of [

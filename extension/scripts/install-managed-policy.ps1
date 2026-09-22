@@ -10,10 +10,6 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$WebAppOrigin,
 
-  [Parameter(Mandatory = $true)]
-  [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
-  [string]$DeviceTokenFile,
-
   [ValidatePattern('^[a-z0-9._-]+$')]
   [string]$NativeHostName = 'com.agencyos.helper'
 )
@@ -39,15 +35,14 @@ function Assert-SecureUrl([string]$Value, [string]$Name, [string]$ExpectedPath) 
 
 $normalizedApiBaseUrl = Assert-SecureUrl $ApiBaseUrl 'ApiBaseUrl' '/api/v1'
 $normalizedWebAppOrigin = Assert-SecureUrl $WebAppOrigin 'WebAppOrigin' '/'
-$deviceToken = (Get-Content -LiteralPath $DeviceTokenFile -Raw).Trim()
-if ([string]::IsNullOrWhiteSpace($deviceToken)) { throw 'El archivo de token de estación está vacío.' }
 
 $policyPath = "HKLM:\Software\Policies\Google\Chrome\3rdparty\Extensions\$ExtensionId\policy"
 New-Item -Path $policyPath -Force | Out-Null
 New-ItemProperty -LiteralPath $policyPath -Name 'apiBaseUrl' -PropertyType String -Value $normalizedApiBaseUrl -Force | Out-Null
 New-ItemProperty -LiteralPath $policyPath -Name 'webAppOrigin' -PropertyType String -Value $normalizedWebAppOrigin -Force | Out-Null
-New-ItemProperty -LiteralPath $policyPath -Name 'deviceToken' -PropertyType String -Value $deviceToken -Force | Out-Null
 New-ItemProperty -LiteralPath $policyPath -Name 'nativeHostName' -PropertyType String -Value $NativeHostName -Force | Out-Null
 
+# La identidad del equipo ya no es un token: es el certificado mTLS emitido
+# para esa PC y registrado por huella en Agency OS. No hay secreto que instalar.
 Write-Output "Política administrada instalada para la extensión $ExtensionId en HKLM."
-Write-Output 'El token no se imprimió.'
+Write-Output 'La identidad del equipo la aporta el certificado cliente; no se instala ningún token.'

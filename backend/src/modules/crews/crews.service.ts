@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { crewMembers, crews, roles, users } from '../../database/schema/index.js';
@@ -15,6 +16,7 @@ export class CrewsService {
   constructor(
     private readonly db: DatabaseService,
     private readonly audit: AuditService,
+    private readonly authVersion: AuthVersionService,
   ) {}
 
   async list(actor: ScopeActor) {
@@ -62,6 +64,7 @@ export class CrewsService {
     try {
       const [row] = await this.db.db.insert(crewMembers).values({ crewId, userId: input.userId, validRange: `[${input.validFrom},${input.validTo})` }).returning();
       await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'crew.member_added', entityType: 'crew_member', entityId: row.id, result: 'SUCCESS', metadata: { crewId, operatorId: input.userId } });
+      await this.authVersion.bump(input.userId);
       return row;
     } catch (error) {
       if (isPgError(error, PG_EXCLUSION_VIOLATION)) throw new ConflictException('Operator already belongs to a crew in this window');
@@ -77,6 +80,7 @@ export class CrewsService {
       .returning({ id: crewMembers.id });
     if (!row) throw new NotFoundException('Crew member not found');
     await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'crew.member_removed', entityType: 'crew_member', entityId: row.id, result: 'SUCCESS', metadata: { crewId, operatorId: userId } });
+    await this.authVersion.bump(userId);
     return row;
   }
 

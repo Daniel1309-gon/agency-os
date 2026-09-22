@@ -9,8 +9,9 @@ go build -o agency-os-helper.exe ./cmd/agency-os-helper
 go test ./...
 ```
 
-El enrolamiento se realiza con un código de un solo uso emitido por un administrador. El token se
-escribe en un archivo de provisión para la política administrada y nunca se imprime:
+El enrolamiento se realiza con un código de un solo uso emitido por un administrador y el
+certificado emitido para esa PC. La identidad registrada es la huella SHA-256 del certificado; no se
+emite ni se escribe ningún secreto:
 
 ```powershell
 ./agency-os-helper.exe enroll `
@@ -18,11 +19,11 @@ escribe en un archivo de provisión para la política administrada y nunca se im
   --code CODE_FROM_ADMIN `
   --hostname PC-OFICINA-01 `
   --label "Estación oficina 01" `
-  --token-file C:\ProgramData\AgencyOS\device-token.txt
+  --cert-file C:\ProgramData\AgencyOS\device.crt
 ```
 
 Después del enrolamiento, el instalador registra `native-host-manifest.template.json` usando
 `scripts/install-native-host.ps1`, sustituyendo el ID real de la extensión. La política empresarial
-de Chrome sigue siendo la responsable de provisionar `apiBaseUrl`, `webAppOrigin`, `deviceToken` y
-el nombre del host. El token identifica una estación compartida aprobada; no se vincula a un
-operador concreto. El acceso humano se decide por IP permitida, JWT, turno y asignación vigente.
+de Chrome sigue siendo la responsable de provisionar `apiBaseUrl`, `webAppOrigin` y el nombre del
+host. El certificado identifica una estación compartida aprobada; no se vincula a un operador
+concreto. El acceso humano se decide por JWT, turno y asignación vigente.

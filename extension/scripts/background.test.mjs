@@ -29,7 +29,6 @@ function harness(fetchHandler = async () => response({})) {
   const config = {
     apiBaseUrl: 'http://localhost:3000/api/v1',
     webAppOrigin: 'http://localhost:5173',
-    deviceToken: 'managed-device-token',
     nativeHostName: 'com.agencyos.helper',
   };
   const chrome = {
@@ -100,7 +99,7 @@ test('the control profile launches Chrome without persisting or forwarding the o
   });
 });
 
-test('a fresh target profile claims the credential with its managed device token and no JWT', async () => {
+test('a fresh target profile claims the credential with its client certificate and no JWT', async () => {
   const h = harness(async () => response({
     username: 'perfil@talky.test',
     secret: 'credential-from-vault',
@@ -120,7 +119,6 @@ test('a fresh target profile claims the credential with its managed device token
   assert.equal(h.fetches.length, 1);
   assert.equal(h.fetches[0].url, 'http://localhost:3000/api/v1/station/credential-claims');
   assert.equal('authorization' in h.fetches[0].options.headers, false);
-  assert.equal(h.fetches[0].options.headers['x-device-token'], 'managed-device-token');
   assert.deepEqual(JSON.parse(h.fetches[0].options.body), { profileId: PROFILE, sessionId: SESSION });
   assert.equal(JSON.stringify(h.session).includes('credential-from-vault'), false);
   assert.equal(JSON.stringify(h.session).includes('operator-jwt'), false);

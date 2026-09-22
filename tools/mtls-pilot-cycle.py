@@ -4,8 +4,7 @@
 # ///
 """Ejercita el ciclo operativo completo del piloto a través de Cloudflare.
 
-Canje, estado, heartbeat y cierre con certificado de cliente y token de
-dispositivo reales. No imprime secretos de perfil.
+Canje, estado, heartbeat y cierre con certificado de cliente y certificado de cliente real. No imprime secretos de perfil.
 
 Uso:
   uv run tools/mtls-pilot-cycle.py [--profile-name "Alma Demo"]
@@ -48,13 +47,10 @@ def main() -> int:
     host = args.web_origin.removeprefix("https://").rstrip("/")
     base = f"https://{host}/api/v1"
     opener = agent.build_http_opener(args.mtls_dir / f"{args.cert_name}.crt", args.mtls_dir / f"{args.cert_name}.key")
-    device_token = (args.agent_dir / "device-token.txt").read_text(encoding="utf8").strip()
     operator_password = (args.secrets_dir / "demo_user_password").read_text(encoding="utf8").strip()
 
     def call(path: str, body: dict[str, object] | None, jwt: str | None = None, method: str = "POST", device: bool = False):
         headers = {"content-type": "application/json", "user-agent": UA}
-        if device:
-            headers["x-device-token"] = device_token
         if jwt:
             headers["authorization"] = f"Bearer {jwt}"
         request = Request(f"{base}{path}", data=json.dumps(body).encode() if body is not None else None, headers=headers, method=method)

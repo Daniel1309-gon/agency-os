@@ -622,17 +622,12 @@
         "bearerFormat": "JWT",
         "scheme": "bearer",
         "type": "http"
-      },
-      "deviceToken": {
-        "in": "header",
-        "name": "x-device-token",
-        "type": "apiKey"
       }
     }
   },
   "info": {
     "contact": {},
-    "description": "API operacional de Agency OS",
+    "description": "API operacional de Agency OS. Toda peticion viaja sobre mTLS de zona y el backend resuelve la identidad del equipo desde el certificado cliente.",
     "title": "Agency OS API",
     "version": "1.0.0"
   },
@@ -641,16 +636,7 @@
     "/api/v1/agent/devices/heartbeat": {
       "post": {
         "operationId": "AgentDevicesController.heartbeat",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "201": {
             "description": ""
@@ -665,6 +651,7 @@
           "AgentDevices"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": true,
@@ -727,6 +714,7 @@
           "Metrics"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": true,
@@ -811,16 +799,7 @@
     "/api/v1/agent/session/credential-grant": {
       "post": {
         "operationId": "AgentVaultController.grant",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "201": {
             "description": ""
@@ -835,6 +814,7 @@
           "AgentVault"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-permissions": [
           "vault.credential.issue"
         ],
@@ -869,16 +849,7 @@
     "/api/v1/agent/session/credential-redeem": {
       "post": {
         "operationId": "AgentVaultController.redeem",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "201": {
             "description": ""
@@ -893,6 +864,7 @@
           "AgentVault"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-permissions": [
           "vault.credential.issue"
         ],
@@ -927,16 +899,7 @@
     "/api/v1/agent/sessions": {
       "post": {
         "operationId": "AgentSessionsController.open",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -961,6 +924,7 @@
           "AgentSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": true,
@@ -998,14 +962,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
@@ -1032,6 +988,7 @@
           "AgentSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": true,
@@ -1069,14 +1026,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
@@ -1103,6 +1052,7 @@
           "AgentSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": true,
@@ -1156,6 +1106,8 @@
         "tags": [
           "AgentSessions"
         ],
+        "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-permissions": [
           "profiles.read"
         ],
@@ -1173,7 +1125,7 @@
           "actors": [
             "OPERADOR"
           ],
-          "device": false,
+          "device": true,
           "idempotency": "NOT_APPLICABLE",
           "method": "POST",
           "pagination": "NOT_APPLICABLE",
@@ -2803,6 +2755,57 @@
         }
       }
     },
+    "/api/v1/devices/{id}/certificate": {
+      "post": {
+        "operationId": "DevicesController.registerCertificate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Devices"
+        ],
+        "x-agency-permissions": [
+          "devices.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "devices.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/devices/{id}/certificate",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/devices/{id}/revoke": {
       "post": {
         "operationId": "DevicesController.revoke",
@@ -2849,57 +2852,6 @@
           "method": "POST",
           "pagination": "NOT_APPLICABLE",
           "path": "/api/v1/devices/{id}/revoke",
-          "scope": "RESOURCE",
-          "shift": false
-        }
-      }
-    },
-    "/api/v1/devices/{id}/rotate": {
-      "post": {
-        "operationId": "DevicesController.rotate",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "accessToken": []
-          }
-        ],
-        "tags": [
-          "Devices"
-        ],
-        "x-agency-permissions": [
-          "devices.manage"
-        ],
-        "x-agency-policy": {
-          "access": {
-            "authenticated": true,
-            "permissions": [
-              "devices.manage"
-            ],
-            "public": false,
-            "roles": []
-          },
-          "actors": [
-            "ADMIN"
-          ],
-          "device": false,
-          "idempotency": "NOT_APPLICABLE",
-          "method": "POST",
-          "pagination": "NOT_APPLICABLE",
-          "path": "/api/v1/devices/{id}/rotate",
           "scope": "RESOURCE",
           "shift": false
         }
@@ -6253,30 +6205,18 @@
     "/api/v1/station/credential-claims": {
       "post": {
         "operationId": "StationVaultController.handoff",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "201": {
             "description": ""
           }
         },
-        "security": [
-          {
-            "deviceToken": []
-          }
-        ],
+        "security": [],
         "tags": [
           "StationVault"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": false,
@@ -6310,14 +6250,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -6325,15 +6257,12 @@
             "description": ""
           }
         },
-        "security": [
-          {
-            "deviceToken": []
-          }
-        ],
+        "security": [],
         "tags": [
           "StationSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": false,
@@ -6367,14 +6296,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
@@ -6392,15 +6313,12 @@
             "description": ""
           }
         },
-        "security": [
-          {
-            "deviceToken": []
-          }
-        ],
+        "security": [],
         "tags": [
           "StationSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": false,
@@ -6434,14 +6352,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "x-device-token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
@@ -6459,15 +6369,12 @@
             "description": ""
           }
         },
-        "security": [
-          {
-            "deviceToken": []
-          }
-        ],
+        "security": [],
         "tags": [
           "StationSessions"
         ],
         "x-agency-device": true,
+        "x-agency-device-kind": "STATION",
         "x-agency-policy": {
           "access": {
             "authenticated": false,

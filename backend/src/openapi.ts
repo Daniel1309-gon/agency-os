@@ -41,15 +41,11 @@ export function configureApiRouting(app: NestFastifyApplication): void {
 export function buildOpenApiDocument(app: NestFastifyApplication): OpenAPIObject {
   const config = new DocumentBuilder()
     .setTitle('Agency OS API')
-    .setDescription('API operacional de Agency OS')
+    .setDescription('API operacional de Agency OS. Toda peticion viaja sobre mTLS de zona y el backend resuelve la identidad del equipo desde el certificado cliente.')
     .setVersion('1.0.0')
     .addBearerAuth(
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'accessToken',
-    )
-    .addApiKey(
-      { type: 'apiKey', in: 'header', name: 'x-device-token' },
-      'deviceToken',
     )
     .build();
   const document = SwaggerModule.createDocument(app, config, {

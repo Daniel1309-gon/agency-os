@@ -6,10 +6,13 @@ import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { AuthService } from '../../modules/auth/auth.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { loginAttempts, refreshTokens, shifts, users } from '../../database/schema/index.js';
 import { hashToken, randomToken, verifyAccessToken } from '../../common/auth/crypto.js';
 import {
   TEST_JWT_SECRET,
+  createDevice,
   createTestContext,
   createUser,
   destroyTestContext,
@@ -23,7 +26,7 @@ let auth: AuthService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuditService(ctx.database));
+  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -51,7 +54,7 @@ describe('AuthService.login', () => {
     const previous = process.env.REQUIRE_SHIFT_FOR_AUTH;
     process.env.REQUIRE_SHIFT_FOR_AUTH = 'true';
     try {
-      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database), new AuditService(ctx.database));
+      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database));
       const user = await createUser(ctx);
 
       await expect(strictAuth.login({ email: user.email, password: user.password }, fromIp(40))).rejects.toThrow(ForbiddenException);
@@ -149,6 +152,39 @@ describe('AuthService.login', () => {
     await expect(auth.login({ email: other.email, password: other.password }, fromIp(15))).resolves.toBeDefined();
   });
 
+  it('lets a shared office certificate start thirty logins in the same window', async () => {
+    // 30 operadores en la misma PC y la misma IP publica: el limite por cuenta
+    // sigue en 5, pero el certificado de la estacion admite 30 y la IP 300.
+    const station = await createDevice(ctx);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const operator = await createUser(ctx, { email: `turno-${attempt}@agency.test` });
+      await expect(auth.login(
+        { email: operator.email, password: operator.password },
+        fromIp(80),
+        undefined,
+        { id: station.id, fingerprint: station.fingerprint },
+      )).resolves.toBeDefined();
+    }
+
+    const extra = await createUser(ctx, { email: 'turno-extra@agency.test' });
+    await expect(auth.login(
+      { email: extra.email, password: extra.password },
+      fromIp(80),
+      undefined,
+      { id: station.id, fingerprint: station.fingerprint },
+    )).rejects.toMatchObject({ status: 429 });
+
+    // Una estacion distinta no hereda el castigo del certificado anterior.
+    const nextStation = await createDevice(ctx);
+    const nextOperator = await createUser(ctx, { email: 'turno-siguiente@agency.test' });
+    await expect(auth.login(
+      { email: nextOperator.email, password: nextOperator.password },
+      fromIp(81),
+      undefined,
+      { id: nextStation.id, fingerprint: nextStation.fingerprint },
+    )).resolves.toBeDefined();
+  });
+
   it('refuses a disabled or soft-deleted user without saying why', async () => {
     const disabled = await createUser(ctx, { status: 'DISABLED' });
     await expect(auth.login({ email: disabled.email, password: disabled.password }, fromIp(11))).rejects.toThrow(
@@ -243,6 +279,16 @@ describe('AuthService refresh rotation', () => {
     expect(live).toHaveLength(0);
   });
 
+  it('refuses to rotate a device-bound token from another approved device', async () => {
+    const user = await createUser(ctx);
+    const deviceA = await createDevice(ctx, { operatorId: user.id });
+    const deviceB = await createDevice(ctx, { operatorId: user.id });
+    const tokens = await auth.login({ email: user.email, password: user.password }, fromIp(23), 'vitest', { id: deviceA.id, fingerprint: deviceA.fingerprint });
+
+    await expect(auth.refresh(tokens.refreshToken, fromIp(24), 'vitest', deviceB.id)).rejects.toThrow(UnauthorizedException);
+    await expect(auth.refresh(tokens.refreshToken, fromIp(24), 'vitest', deviceA.id)).resolves.toMatchObject({ accessToken: expect.any(String) });
+  });
+
   it('rejects an unknown or expired refresh token', async () => {
     const user = await createUser(ctx);
     const tokens = await auth.login({ email: user.email, password: user.password }, fromIp(22));
@@ -253,9 +299,9 @@ describe('AuthService refresh rotation', () => {
     await expect(auth.refresh(tokens.refreshToken)).rejects.toThrow(UnauthorizedException);
   });
 
-  it('rate limits refresh attempts by account across distributed IPs through Redis', async () => {
+  it('rate limits refresh attempts per session across distributed IPs through Redis', async () => {
     const user = await createUser(ctx);
-    const rawTokens = Array.from({ length: 31 }, () => randomToken());
+    const rawTokens = Array.from({ length: 61 }, () => randomToken());
     await ctx.db.insert(refreshTokens).values(rawTokens.map((rawToken) => ({
       userId: user.id,
       tokenHash: hashToken(rawToken),
@@ -263,10 +309,10 @@ describe('AuthService refresh rotation', () => {
       expiresAt: new Date(Date.now() + 86_400_000),
     })));
 
-    for (const [index, rawToken] of rawTokens.slice(0, 30).entries()) {
+    for (const [index, rawToken] of rawTokens.slice(0, 60).entries()) {
       await expect(auth.refresh(rawToken, fromIp(26 + index))).resolves.toBeDefined();
     }
-    await expect(auth.refresh(rawTokens[30], fromIp(56))).rejects.toMatchObject({ status: 429 });
+    await expect(auth.refresh(rawTokens[60], fromIp(56))).rejects.toMatchObject({ status: 429 });
   });
 
   it('stops refreshing once the user is no longer active', async () => {

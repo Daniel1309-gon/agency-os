@@ -10,7 +10,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
-import { hashToken } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { VaultCryptoService } from './vault.crypto.js';
 import { VAULT_REPOSITORY, type VaultRepository, type VaultScopeActor } from './vault.repository.port.js';
@@ -18,12 +17,12 @@ import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInp
 
 interface RequestContext {
   userId: string;
-  deviceToken: string;
+  deviceId: string;
   ip?: string;
 }
 
 interface StationContext {
-  deviceToken: string;
+  deviceId: string;
   ip?: string;
 }
 
@@ -86,8 +85,10 @@ export class VaultService {
   }
 
   async grant(input: CredentialGrantInput, context: RequestContext): Promise<{ grantId: string; expiresAt: Date }> {
-    const device = await this.repository.findApprovedDevice(hashToken(context.deviceToken));
-    if (!device) throw new ForbiddenException('Device is not approved');
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) {
+      await this.deny(input.profileId, context, 'DEVICE_NOT_APPROVED');
+      throw new ForbiddenException('Device is not approved');
+    }
     if (!(await this.repository.activeProfileExists(input.profileId))) {
       await this.deny(input.profileId, context, 'PROFILE_INACTIVE');
       throw new ForbiddenException('Profile is inactive');
@@ -96,6 +97,7 @@ export class VaultService {
       sessionId: input.sessionId,
       profileId: input.profileId,
       operatorId: context.userId,
+      deviceId: context.deviceId,
     });
     const assignment = session
       ? await this.repository.findActiveAssignment({
@@ -112,23 +114,6 @@ export class VaultService {
       await this.deny(input.profileId, context, 'CHROME_PROFILE_MISMATCH');
       throw new ForbiddenException('Session Chrome profile does not match the profile binding');
     }
-    if (session.deviceId && session.deviceId !== device.id) {
-      await this.deny(input.profileId, context, 'SESSION_DEVICE_MISMATCH');
-      throw new ForbiddenException('Session was claimed by another station');
-    }
-    if (!session.deviceId) {
-      const claimed = await this.repository.claimLaunchingSession({
-        sessionId: input.sessionId,
-        profileId: input.profileId,
-        operatorId: context.userId,
-        deviceId: device.id,
-        claimedAt: new Date(),
-      });
-      if (!claimed) {
-        await this.deny(input.profileId, context, 'SESSION_DEVICE_MISMATCH');
-        throw new ForbiddenException('Session was claimed by another station');
-      }
-    }
     const rateKey = `vault:grant-rate:${context.userId}:${input.profileId}`;
     if ((await this.redis.incrWithExpiry(rateKey, 3600)) > 30) {
       await this.deny(input.profileId, context, 'RATE_LIMITED');
@@ -136,9 +121,9 @@ export class VaultService {
     }
     const grantId = randomUUID();
     const expiresAt = new Date(Date.now() + 60_000);
-    await this.redis.setEx(`vault:grant:${grantId}`, 60, JSON.stringify({ grantId, profileId: input.profileId, sessionId: input.sessionId, userId: context.userId, deviceId: device.id, assignmentId: assignment.id }));
-    await this.repository.recordCredentialAccess({ profileId: input.profileId, userId: context.userId, deviceId: device.id, assignmentId: assignment.id, purpose: 'LOGIN_INJECTION', granted: true, grantJti: grantId, ip: context.ip });
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: device.id, action: 'vault.credential.issued', entityType: 'profile', entityId: input.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: input.profileId, assignmentId: assignment.id, sessionId: input.sessionId, deviceId: device.id, grantId } });
+    await this.redis.setEx(`vault:grant:${grantId}`, 60, JSON.stringify({ grantId, profileId: input.profileId, sessionId: input.sessionId, userId: context.userId, deviceId: context.deviceId, assignmentId: assignment.id }));
+    await this.repository.recordCredentialAccess({ profileId: input.profileId, userId: context.userId, deviceId: context.deviceId, assignmentId: assignment.id, purpose: 'LOGIN_INJECTION', granted: true, grantJti: grantId, ip: context.ip });
+    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.issued', entityType: 'profile', entityId: input.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: input.profileId, assignmentId: assignment.id, sessionId: input.sessionId, deviceId: context.deviceId, grantId } });
     return { grantId, expiresAt };
   }
 
@@ -152,8 +137,8 @@ export class VaultService {
     }
     const grant = JSON.parse(raw) as { profileId: string; sessionId: string; userId: string; deviceId: string; assignmentId: string };
     if (grant.userId !== context.userId) throw new ForbiddenException('Grant is not assigned to this operator');
-    const device = await this.repository.findApprovedDevice(hashToken(context.deviceToken), grant.deviceId);
-    if (!device) throw new ForbiddenException('Device is not approved');
+    if (grant.deviceId !== context.deviceId) throw new ForbiddenException('Grant is not assigned to this device');
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) throw new ForbiddenException('Device is not approved');
     const session = await this.repository.findLaunchingSession({
       sessionId: grant.sessionId,
       profileId: grant.profileId,
@@ -176,7 +161,7 @@ export class VaultService {
     if (!credential) throw new NotFoundException('Credential unavailable');
     const secret = await this.crypto.decrypt({ ciphertext: credential.ciphertext, nonce: credential.nonce, tag: credential.tag, keyVersion: credential.keyVersion, aadContext: credential.aadContext });
     await this.repository.markGrantConsumed(input.grantId, new Date());
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: device.id, action: 'vault.credential.redeemed', entityType: 'profile', entityId: grant.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: grant.profileId, sessionId: grant.sessionId, deviceId: device.id, grantId: input.grantId } });
+    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: grant.deviceId, action: 'vault.credential.redeemed', entityType: 'profile', entityId: grant.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: grant.profileId, sessionId: grant.sessionId, deviceId: grant.deviceId, grantId: input.grantId } });
     return { username: credential.username, secret };
   }
 
@@ -184,18 +169,17 @@ export class VaultService {
     input: CredentialGrantInput,
     context: StationContext,
   ): Promise<{ username: string; secret: string; sessionVersion: number }> {
-    const device = await this.repository.findApprovedDevice(hashToken(context.deviceToken));
-    if (!device) throw new ForbiddenException('Device is not approved');
-
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) throw new ForbiddenException('Device is not approved');
     const prepared = await this.repository.findPreparedHandoffSession({
       sessionId: input.sessionId,
       profileId: input.profileId,
+      deviceId: context.deviceId,
       notBefore: new Date(Date.now() - 60_000),
     });
     if (!prepared) {
       await this.audit.record({
         actorType: 'DEVICE',
-        actorDeviceId: device.id,
+        actorDeviceId: context.deviceId,
         action: 'vault.credential.handoff',
         entityType: 'profile',
         entityId: input.profileId,
@@ -212,7 +196,7 @@ export class VaultService {
       await this.audit.record({
         actorType: 'DEVICE',
         actorUserId: prepared.operatorId,
-        actorDeviceId: device.id,
+        actorDeviceId: context.deviceId,
         action: 'vault.credential.handoff',
         entityType: 'profile',
         entityId: input.profileId,

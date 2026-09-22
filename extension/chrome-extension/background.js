@@ -1,8 +1,8 @@
 const SESSION_KEY = 'agencySessionContext';
 
 async function managedConfiguration() {
-  const config = await chrome.storage.managed.get(['apiBaseUrl', 'webAppOrigin', 'deviceToken', 'nativeHostName']);
-  if (!config.apiBaseUrl || !config.webAppOrigin || !config.deviceToken) {
+  const config = await chrome.storage.managed.get(['apiBaseUrl', 'webAppOrigin', 'nativeHostName']);
+  if (!config.apiBaseUrl || !config.webAppOrigin) {
     throw new Error('La política administrada de Agency OS está incompleta');
   }
   const api = new URL(config.apiBaseUrl);
@@ -12,7 +12,6 @@ async function managedConfiguration() {
   return {
     apiBaseUrl: api.href.replace(/\/$/, ''),
     webAppOrigin: webApp.origin,
-    deviceToken: config.deviceToken,
     nativeHostName: config.nativeHostName || 'com.agencyos.helper',
   };
 }
@@ -24,7 +23,6 @@ async function apiRequest(path, options, config, accessToken) {
     credentials: 'omit',
     headers: {
       'content-type': 'application/json',
-      'x-device-token': config.deviceToken,
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...(options.headers || {}),
     },

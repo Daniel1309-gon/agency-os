@@ -35,7 +35,6 @@ interface Scenario {
   profileId: string;
   sessionId: string;
   assignmentId: string;
-  deviceToken: string;
   deviceId: string;
 }
 
@@ -58,7 +57,7 @@ afterEach(() => {
 });
 
 /** Operador en turno, con dispositivo aprobado, asignacion vigente y sesion viva. */
-async function scenario(options: { profileStatus?: string; sessionStatus?: string; sessionDeviceId?: string | null } = {}): Promise<Scenario> {
+async function scenario(options: { profileStatus?: string; sessionStatus?: string } = {}): Promise<Scenario> {
   const admin = await createUser(ctx, { role: 'ADMIN' });
   const operator = await createUser(ctx);
   const other = await createUser(ctx);
@@ -81,7 +80,7 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
     .values({
       profileId: profile.id,
       operatorId: operator.id,
-      deviceId: options.sessionDeviceId === undefined ? device.id : options.sessionDeviceId,
+      deviceId: device.id,
       assignmentId: assignment.id,
       chromeProfileDir: 'Profile 3',
       status: options.sessionStatus ?? 'LAUNCHING',
@@ -97,12 +96,11 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
     profileId: profile.id,
     sessionId: session.id,
     assignmentId: assignment.id,
-    deviceToken: device.token,
     deviceId: device.id,
   };
 }
 
-const contextFor = (s: Scenario) => ({ userId: s.operatorId, deviceToken: s.deviceToken, ip: '10.20.30.40' });
+const contextFor = (s: Scenario) => ({ userId: s.operatorId, deviceId: s.deviceId, ip: '10.20.30.40' });
 
 describe('vault rotation', () => {
   it('stores the secret encrypted and never in clear text', async () => {
@@ -205,11 +203,11 @@ describe('grant and redeem, end to end', () => {
     const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
 
     await expect(
-      vault.redeem({ grantId }, { userId: s.otherOperatorId, deviceToken: s.deviceToken }),
+      vault.redeem({ grantId }, { userId: s.otherOperatorId, deviceId: s.deviceId }),
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('does not let a revoked device redeem', async () => {
+  it('does not let a revoked device redeem a grant', async () => {
     const s = await scenario();
     const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
     await ctx.pool.query('UPDATE devices SET status = $1 WHERE id = $2', ['REVOKED', s.deviceId]);
@@ -228,28 +226,22 @@ describe('grant and redeem, end to end', () => {
 });
 
 describe('station credential handoff, end to end', () => {
-  it('claims a web-prepared session and delivers the credential once without an operator JWT', async () => {
-    const s = await scenario({ sessionDeviceId: null });
+  it('delivers the credential once for the station that prepared the session', async () => {
+    const s = await scenario();
 
     await expect(vault.handoff(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+      { deviceId: s.deviceId, ip: '10.20.30.40' },
     )).resolves.toEqual({ username: 'perfil@talky.test', secret: SECRET, sessionVersion: 1 });
 
-    const [claimed] = await ctx.db
-      .select({ deviceId: profileSessions.deviceId })
-      .from(profileSessions)
-      .where(eq(profileSessions.id, s.sessionId));
-    expect(claimed.deviceId).toBe(s.deviceId);
-
     await expect(vault.handoff(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+      { deviceId: s.deviceId, ip: '10.20.30.40' },
     )).rejects.toThrow(ConflictException);
   });
 
   it('rejects a prepared session after the 60-second station handoff window', async () => {
-    const s = await scenario({ sessionDeviceId: null });
+    const s = await scenario();
     await ctx.db
       .update(profileSessions)
       .set({ startedAt: new Date(Date.now() - 61_000) })
@@ -257,7 +249,17 @@ describe('station credential handoff, end to end', () => {
 
     await expect(vault.handoff(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { deviceToken: s.deviceToken, ip: '10.20.30.40' },
+      { deviceId: s.deviceId, ip: '10.20.30.40' },
+    )).rejects.toThrow(ForbiddenException);
+  });
+
+  it('rejects a handoff from a station different than the one that prepared the session', async () => {
+    const s = await scenario();
+    const otherStation = await createDevice(ctx, { operatorId: s.otherOperatorId });
+
+    await expect(vault.handoff(
+      { profileId: s.profileId, sessionId: s.sessionId },
+      { deviceId: otherStation.id, ip: '10.20.30.40' },
     )).rejects.toThrow(ForbiddenException);
   });
 });
@@ -303,20 +305,17 @@ describe('grant denials are recorded with their reason', () => {
     );
   });
 
-  it('lets any approved office station claim a web-prepared session', async () => {
-    const s = await scenario({ sessionDeviceId: null });
+  it('denies a grant requested from a station different than the prepared one', async () => {
+    const s = await scenario();
     const sharedStation = await createDevice(ctx, { operatorId: s.otherOperatorId });
 
     await expect(vault.grant(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { userId: s.operatorId, deviceToken: sharedStation.token, ip: '10.20.30.40' },
-    )).resolves.toMatchObject({ grantId: expect.any(String) });
-
-    const [claimed] = await ctx.db
-      .select({ deviceId: profileSessions.deviceId })
-      .from(profileSessions)
-      .where(eq(profileSessions.id, s.sessionId));
-    expect(claimed.deviceId).toBe(sharedStation.id);
+      { userId: s.operatorId, deviceId: sharedStation.id, ip: '10.20.30.40' },
+    )).rejects.toThrow(ForbiddenException);
+    expect(
+      (await ctx.db.select({ denyReason: credentialAccessLog.denyReason }).from(credentialAccessLog).where(eq(credentialAccessLog.granted, false)))[0],
+    ).toEqual({ denyReason: 'NO_ASSIGNMENT' });
   });
 
   it('rejects a session whose stored Chrome directory no longer matches the profile binding', async () => {
@@ -328,20 +327,20 @@ describe('grant denials are recorded with their reason', () => {
     );
   });
 
-  it('rejects a second station after the prepared session has been claimed', async () => {
-    const s = await scenario({ sessionDeviceId: null });
+  it('rejects a second station against a session bound to the first one', async () => {
+    const s = await scenario();
     const firstStation = await createDevice(ctx);
     const secondStation = await createDevice(ctx);
 
     await vault.grant(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { userId: s.operatorId, deviceToken: firstStation.token, ip: '10.20.30.40' },
-    );
+      { userId: s.operatorId, deviceId: firstStation.id, ip: '10.20.30.40' },
+    ).catch(() => undefined);
 
     await expect(vault.grant(
       { profileId: s.profileId, sessionId: s.sessionId },
-      { userId: s.operatorId, deviceToken: secondStation.token, ip: '10.20.30.40' },
-    )).rejects.toThrow('Session was claimed by another station');
+      { userId: s.operatorId, deviceId: secondStation.id, ip: '10.20.30.40' },
+    )).rejects.toThrow(ForbiddenException);
   });
 
   it('rate limits after 30 grants in the hour and records RATE_LIMITED', async () => {

@@ -9,10 +9,6 @@
       "type": "string",
       "description": "Origin exacto autorizado para preparar sesiones de la extensión."
     },
-    "deviceToken": {
-      "type": "string",
-      "description": "Token revocable del dispositivo, provisionado mediante política empresarial."
-    },
     "nativeHostName": {
       "type": "string",
       "description": "Nombre registrado del host Native Messaging de Agency OS.",

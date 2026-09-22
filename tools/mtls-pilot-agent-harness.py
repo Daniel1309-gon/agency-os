@@ -4,7 +4,7 @@
 # ///
 """Arranca el agente local del piloto con Chrome apuntando al arnés de TalkyTimes.
 
-Igual que el agente real (mTLS + token de dispositivo), pero Chrome resuelve
+Igual que el agente real (mTLS), pero Chrome resuelve
 `talkytimes.com` al arnés local. Es una sustitución exclusiva de la prueba: el
 agente de producción no lleva estos ajustes.
 
@@ -46,8 +46,7 @@ def main() -> int:
 
     cert_file = args.mtls_dir / f"{args.cert_name}.crt"
     key_file = args.mtls_dir / f"{args.cert_name}.key"
-    token_file = args.agent_dir / "device-token.txt"
-    for required in (cert_file, key_file, token_file):
+    for required in (cert_file, key_file):
         if not required.is_file():
             print(f"Falta un archivo requerido: {required}", file=sys.stderr)
             return 1
@@ -67,7 +66,7 @@ def main() -> int:
 
     opener = agent.build_http_opener(cert_file, key_file)
     args.slot_root.mkdir(parents=True, exist_ok=True)
-    runtime = agent.Agent(args.api_base_url, token_file, args.slot_root, opener)
+    runtime = agent.Agent(args.api_base_url, args.slot_root, opener)
     server = agent.Server(("127.0.0.1", args.port), runtime, args.web_origin)
     print(f"Agente del piloto escuchando en 127.0.0.1:{args.port}")
     print(f"API: {args.api_base_url}")

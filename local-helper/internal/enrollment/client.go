@@ -2,23 +2,46 @@ package enrollment
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 )
 
 type Result struct {
-	DeviceID  string    `json:"deviceId"`
-	Token     string    `json:"deviceToken"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	DeviceID string `json:"deviceId"`
 }
 
-func Enroll(ctx context.Context, apiBaseURL, code, hostname, label string) (Result, error) {
+// FingerprintFromPEM returns the SHA-256 hex digest of the DER certificate
+// inside a PEM file, which is the public identity Agency OS stores.
+func FingerprintFromPEM(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("could not read certificate file")
+	}
+	const begin = "-----BEGIN CERTIFICATE-----"
+	const end = "-----END CERTIFICATE-----"
+	text := string(contents)
+	start := strings.Index(text, begin)
+	stop := strings.Index(text, end)
+	if start < 0 || stop < 0 || stop <= start {
+		return "", fmt.Errorf("certificate file is not a PEM certificate")
+	}
+	encoded := strings.Join(strings.Fields(text[start+len(begin):stop]), "")
+	der, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(der) == 0 {
+		return "", fmt.Errorf("certificate file is not a PEM certificate")
+	}
+	digest := sha256.Sum256(der)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func Enroll(ctx context.Context, apiBaseURL, code, hostname, label, certFingerprint string) (Result, error) {
 	base, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
 	if err != nil || (base.Scheme != "https" && base.Hostname() != "localhost") {
 		return Result{}, fmt.Errorf("API base URL must use HTTPS")
@@ -26,7 +49,15 @@ func Enroll(ctx context.Context, apiBaseURL, code, hostname, label string) (Resu
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(hostname) == "" || strings.TrimSpace(label) == "" {
 		return Result{}, fmt.Errorf("enrollment code, hostname and label are required")
 	}
-	payload, err := json.Marshal(map[string]string{"code": code, "hostname": hostname, "label": label})
+	if len(certFingerprint) != 64 || strings.ToLower(certFingerprint) != certFingerprint {
+		return Result{}, fmt.Errorf("certificate fingerprint must be a lowercase SHA-256 hex digest")
+	}
+	payload, err := json.Marshal(map[string]string{
+		"code":            code,
+		"hostname":        hostname,
+		"label":           label,
+		"certFingerprint": certFingerprint,
+	})
 	if err != nil {
 		return Result{}, fmt.Errorf("could not encode enrollment request")
 	}
@@ -44,27 +75,8 @@ func Enroll(ctx context.Context, apiBaseURL, code, hostname, label string) (Resu
 		return Result{}, fmt.Errorf("enrollment rejected")
 	}
 	var result Result
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil || result.DeviceID == "" || result.Token == "" {
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil || result.DeviceID == "" {
 		return Result{}, fmt.Errorf("enrollment response is invalid")
 	}
 	return result, nil
-}
-
-func WriteTokenFile(path, token string) error {
-	if token == "" {
-		return fmt.Errorf("device token is empty")
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("token path is invalid")
-	}
-	file, err := os.OpenFile(absolute, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("could not store device token")
-	}
-	defer file.Close()
-	if _, err := file.WriteString(token); err != nil {
-		return fmt.Errorf("could not store device token")
-	}
-	return file.Chmod(0600)
 }

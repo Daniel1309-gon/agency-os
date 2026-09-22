@@ -75,10 +75,98 @@ activos por zona; revocar libera el cupo de inmediato.
    .\deploy\mtls-pilot\remove-chrome-cert.ps1 -CertificateName <nombre>
    ```
 
+## Producción: clave no exportable y agente por WinHTTP (Fase D1)
+
+En producción la clave no se escribe en disco. Se genera en la PC con el proveedor
+de almacenamiento de Windows (TPM cuando está disponible) y Cloudflare firma una
+CSR que solo contiene la clave pública:
+
+1. Crear `request.inf` con el proveedor no exportable:
+
+   ```ini
+   [NewRequest]
+   Subject = "CN=PC-OFICINA-01/O=Agency OS/C=CO"
+   KeySpec = 1
+   KeyLength = 2048
+   Exportable = FALSE
+   ProviderName = "Microsoft Software Key Storage Provider"
+   MachineKeySet = FALSE
+   RequestType = PKCS10
+   ```
+
+2. `certreq -new request.inf device.csr` y emitir el certificado en Cloudflare
+   (misma pantalla del alta, pegando la CSR).
+3. `certreq -accept device.crt` deja el certificado en `Cert:\CurrentUser\My`
+   con su clave no exportable (TPM si el proveedor lo permite).
+4. Calcular la huella SHA-256 y registrarla en Agency OS:
+
+   ```powershell
+   $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*PC-OFICINA-01*' }
+   $fingerprint = ([Security.Cryptography.SHA256]::Create().ComputeHash($cert.RawData) | ForEach-Object { $_.ToString('x2') }) -join ''
+   .\agency-os-helper.exe enroll --api-base-url https://erp.globalcompany.company/api/v1 `
+     --code-file <archivo> --hostname $env:COMPUTERNAME --label "PC oficina 01" `
+     --cert-fingerprint $fingerprint
+   ```
+
+   O bien `--cert-file device.crt`, que calcula la misma huella desde el PEM.
+
+5. El agente arranca seleccionando ese certificado del almacén, sin exportarlo:
+
+   ```powershell
+   python tools\agency-os-local-agent.py --winhttp-cert-sha256 $fingerprint
+   ```
+
+   WinHTTP verifica el servidor, desactiva redirecciones, aplica timeouts y
+   recibe el contexto del certificado (`WINHTTP_OPTION_CLIENT_CERT_CONTEXT`).
+   Si el certificado no está en el almacén, el agente no arranca: no se elige
+   "el primero disponible".
+
+**Renovación:** emitir 30 días antes del vencimiento, registrar la huella nueva
+con `POST /devices/:id/certificate` (o el enrolamiento, si es una PC nueva),
+verificar el acceso y revocar el certificado anterior en Cloudflare. El cambio
+se hace sin perfiles activos.
+
+**Excepción documentada:** si el TPM no es compatible, se admite el proveedor
+`Microsoft Software Key Storage Provider` sin TPM, con la clave no exportable y
+la excepción registrada por dispositivo. En móviles de la dueña se emite un
+certificado individual con el mecanismo del dispositivo, sin prometer la misma
+protección.
+
+## Excepción de la WAF para health (producción)
+
+El monitoreo externo del VPS consulta `GET /health/ready` sin certificado de
+cliente (ver `deploy/production/backup/README.md` §8). En la zona de producción la
+regla de exigencia mTLS debe exceptuar **solo** esas rutas, y el orden importa:
+primero la excepción, después la exigencia.
+
+Regla 1 — Exception/Skip (Cloudflare → Security → WAF → Custom rules):
+
+- Expresión: `(http.request.method eq "GET" and starts_with(http.request.uri.path, "/health/"))`
+- Acción: **Skip** → *All remaining custom rules* y *Client Certificate*.
+- Cubre `/health/live` y `/health/ready`; ninguna otra ruta queda exenta.
+
+Regla 2 — la exigencia mTLS vigente sobre `/*`, sin cambios.
+
+El backend ya declara esas rutas públicas y sin identidad de equipo
+(`@Public @SkipIpAllowlist @SkipClientCert`, `backend/src/modules/health/health.controller.ts`)
+y la respuesta no incluye DSN, versiones ni detalles internos. Las peticiones sin
+certificado llegan sin `Client-Cert` y ahí no se exige.
+
+Comprobación posterior (gate de la excepción):
+
+```sh
+# sin certificado: 200 solo en health; 403 en todo lo demás
+curl -s -o /dev/null -w "%{http_code}\n" https://erp.globalcompany.company/health/ready
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://erp.globalcompany.company/api/v1/auth/login
+```
+
+La aplica Daniel en la consola de la zona; el repositorio no despliega reglas de
+Cloudflare.
+
 ## Verificación rápida
 
 ```sh
-# sin certificado: debe devolver 403
+# en el piloto no hay excepción: sin certificado, todo devuelve 403
 curl -s -o /dev/null -w "%{http_code}\n" https://mtls-pilot.globalcompany.company/healthz
 ```
 

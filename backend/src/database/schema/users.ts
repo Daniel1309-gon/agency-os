@@ -49,6 +49,9 @@ export const users = pgTable(
     rocketchatUserId: text('rocketchat_user_id'),
     rocketchatDirectRoomId: text('rocketchat_direct_room_id'),
     version: integer('version').notNull().default(0),
+    // Sube al desactivar, cambiar rol/permisos/cuadrilla o cambiar contrasena.
+    // Un JWT con una version anterior no vuelve a autenticar (HTTP ni WebSocket).
+    authVersion: integer('auth_version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     createdBy: uuid('created_by'),
