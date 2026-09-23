@@ -50,6 +50,13 @@ describe('message recurrence', () => {
     expect(nextOccurrenceAt(wednesday, { frequency: 'WEEKLY', weekdays: [3] })?.toISOString()).toBe('2026-09-30T14:05:00.000Z');
   });
 
+  it('picks the weekday in Bogota time, not the UTC one', () => {
+    const lateWednesday = new Date('2026-09-24T03:05:00.000Z');
+
+    expect(weekdayForBusinessDate(businessDateInBogota(lateWednesday))).toBe(3);
+    expect(nextOccurrenceAt(lateWednesday, { frequency: 'WEEKLY', weekdays: [3] })?.toISOString()).toBe('2026-10-01T03:05:00.000Z');
+  });
+
   it('treats until as an inclusive local date', () => {
     expect(nextOccurrenceAt(start, { frequency: 'DAILY', until: '2026-09-24' })?.toISOString()).toBe('2026-09-24T14:05:00.000Z');
     expect(nextOccurrenceAt(start, { frequency: 'DAILY', until: '2026-09-23' })).toBeNull();

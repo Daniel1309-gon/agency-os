@@ -156,7 +156,7 @@ describe('recurring scheduled messages', () => {
   }
 
   function rows() {
-    return ctx.db.select({ id: scheduledMessages.id, scheduledFor: scheduledMessages.scheduledFor, status: scheduledMessages.status, attempts: scheduledMessages.attempts, lastError: scheduledMessages.lastError }).from(scheduledMessages).orderBy(scheduledMessages.scheduledFor);
+    return ctx.db.select({ id: scheduledMessages.id, body: scheduledMessages.body, scheduledFor: scheduledMessages.scheduledFor, status: scheduledMessages.status, attempts: scheduledMessages.attempts, lastError: scheduledMessages.lastError }).from(scheduledMessages).orderBy(scheduledMessages.scheduledFor);
   }
 
   it('summarizes the missed occurrences in one SKIPPED row and schedules the next one', async () => {
@@ -205,31 +205,38 @@ describe('recurring scheduled messages', () => {
     expect(series[1].scheduledFor.toISOString()).toBe(new Date(start.getTime() + DAY_MS).toISOString());
   });
 
-  it('does not create an occurrence after the inclusive until', async () => {
+  it('keeps scheduling a series without until and stops the one whose until is today', async () => {
     const { actor, channelId } = await seriesActor();
     const start = new Date(Date.now() - 20 * 60_000);
     const { communication, worker } = services();
-    await communication.schedule({ channelId, body: 'Último día', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY', until: businessDateInBogota(start) } }, actor);
+    await communication.schedule({ channelId, body: 'Con límite', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY', until: businessDateInBogota(start) } }, actor);
+    await communication.schedule({ channelId, body: 'Sin límite', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
 
     await worker.tick();
 
     const series = await rows();
-    expect(series.map((row) => row.status)).toEqual(['SENT']);
-    expect(requests).toHaveLength(1);
+    const of = (body: string) => series.filter((row) => row.body === body).map((row) => row.status);
+    expect(of('Sin límite')).toEqual(['SENT', 'PENDING']);
+    expect(of('Con límite')).toEqual(['SENT']);
+    expect(requests.map((request) => request.body).sort()).toEqual(['Con límite', 'Sin límite']);
   });
 
   it('stops the series when the pending occurrence is cancelled', async () => {
     const { actor, channelId } = await seriesActor();
-    const start = new Date(Date.now() + 60 * 60_000);
+    const start = new Date(Date.now() - 20 * 60_000);
     const { communication, worker } = services();
-    const created = await communication.schedule({ channelId, body: 'Serie cancelada', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
+    await communication.schedule({ channelId, body: 'Serie cancelada', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
 
-    await expect(communication.cancelScheduled(created.id, actor)).resolves.toMatchObject({ status: 'CANCELLED' });
+    await worker.tick();
+    const [, next] = await rows();
+    expect(next.status).toBe('PENDING');
+
+    await expect(communication.cancelScheduled(next.id, actor)).resolves.toMatchObject({ status: 'CANCELLED' });
     await worker.tick();
 
     const series = await rows();
-    expect(series.map((row) => row.status)).toEqual(['CANCELLED']);
-    expect(requests).toEqual([]);
+    expect(series.map((row) => row.status)).toEqual(['SENT', 'CANCELLED']);
+    expect(requests).toHaveLength(1);
   });
 });
 
