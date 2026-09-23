@@ -61,6 +61,7 @@ export function AssignmentManagement({ accessToken, user, onNavigate }: Assignme
   const [busyAssignmentId, setBusyAssignmentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState({ operatorId: '', profileId: '' });
 
   const operators = useMemo(() => users.filter((item) => item.status === 'ACTIVE' && item.roleCode === 'OPERADOR'), [users]);
   const profileById = useMemo(() => new Map(profiles.map((item) => [item.id, item])), [profiles]);
@@ -72,13 +73,20 @@ export function AssignmentManagement({ accessToken, user, onNavigate }: Assignme
     setIsLoading(true);
     setError(null);
     try {
+      // OPS-02: el historial se filtra en el servidor, que ya pagina y aplica el alcance.
+      const historyUrl = (page: number) => {
+        const params = new URLSearchParams({ page: String(page), pageSize: '100' });
+        if (historyFilter.operatorId) params.set('operatorId', historyFilter.operatorId);
+        if (historyFilter.profileId) params.set('profileId', historyFilter.profileId);
+        return `/assignments?${params.toString()}`;
+      };
       const [rawAssignments, rawUsers, rawProfiles] = await Promise.all([
-        apiClient.request<unknown>('/assignments?page=1&pageSize=100'),
+        apiClient.request<unknown>(historyUrl(1)),
         apiClient.request<unknown>('/users'),
         apiClient.request<unknown>('/profiles?page=1&pageSize=100'),
       ]);
       const firstPage = assignmentHistoryResponseSchema.parse(rawAssignments);
-      const remainingPages = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(firstPage.total / firstPage.pageSize) - 1) }, (_, index) => apiClient.request<unknown>(`/assignments?page=${index + 2}&pageSize=${firstPage.pageSize}`)));
+      const remainingPages = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(firstPage.total / firstPage.pageSize) - 1) }, (_, index) => apiClient.request<unknown>(historyUrl(index + 2))));
       setAssignments([firstPage.items, ...remainingPages.map((page) => assignmentHistoryResponseSchema.parse(page).items)].flat());
       setUsers(managedUserSchema.array().parse(rawUsers));
       setProfiles(profileListResponseSchema.parse(rawProfiles).data);
@@ -87,7 +95,7 @@ export function AssignmentManagement({ accessToken, user, onNavigate }: Assignme
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [historyFilter]);
 
   useEffect(() => {
     if (accessToken) void loadAssignments();
@@ -182,8 +190,12 @@ export function AssignmentManagement({ accessToken, user, onNavigate }: Assignme
         <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSaving}>{isSaving ? 'Guardando…' : 'Guardar asignación'} <span aria-hidden="true">↗</span></button></div>
       </form>}
 
+      <div className="security-filter-form" aria-label="Filtros del historial">
+        <label><span>Operador</span><select value={historyFilter.operatorId} onChange={(event) => setHistoryFilter((current) => ({ ...current, operatorId: event.target.value }))}><option value="">Todos los operadores</option>{users.filter((item) => item.roleCode === 'OPERADOR').map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label>
+        <label><span>Perfil</span><select value={historyFilter.profileId} onChange={(event) => setHistoryFilter((current) => ({ ...current, profileId: event.target.value }))}><option value="">Todos los perfiles</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
+      </div>
       {isLoading && <p className="panel-state">Cargando historial de asignaciones…</p>}
-      {!isLoading && !assignments.length && <p className="panel-state">No hay asignaciones registradas en tu alcance.</p>}
+      {!isLoading && !assignments.length && <p className="panel-state">{historyFilter.operatorId || historyFilter.profileId ? 'No hay asignaciones con estos filtros.' : 'No hay asignaciones registradas en tu alcance.'}</p>}
       {!isLoading && assignmentGroups.length > 0 && <div className="management-table assignment-table" role="table" aria-label="Asignaciones y relevos">
         <div className="management-table__head" role="row"><span>Perfil</span><span>Operador</span><span>Ventana</span><span>Estado</span><span aria-hidden="true" /></div>
         {assignmentGroups.map((group) => {
