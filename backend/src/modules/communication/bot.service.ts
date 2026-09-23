@@ -61,8 +61,12 @@ export class BotService {
       .limit(1);
 
     if (!user) {
-      const inserted = await this.enqueueResponse(input, UNLINKED_MESSAGE);
-      await this.recordOutcome(undefined, inserted ? 'UNLINKED_USER' : 'DUPLICATE', undefined, undefined, startedAt);
+      // Ruta publica (webhook): sin la transaccion del interceptor, la respuesta
+      // encolada y su auditoria se cierran juntas o no se cierran.
+      await this.db.transaction(async () => {
+        const inserted = await this.enqueueResponse(input, UNLINKED_MESSAGE);
+        await this.recordOutcome(undefined, inserted ? 'UNLINKED_USER' : 'DUPLICATE', undefined, undefined, startedAt);
+      });
       return { accepted: true };
     }
 
@@ -74,8 +78,10 @@ export class BotService {
 
     const articles = await this.approvedArticles(allowedCrewIds);
     const answer = this.answers.answer(question, articles);
-    const inserted = await this.enqueueResponse(input, answer?.answer ?? UNKNOWN_MESSAGE);
-    await this.recordOutcome(user.id, inserted ? (answer ? 'ANSWERED' : 'NO_MATCH') : 'DUPLICATE', inserted ? answer?.slug : undefined, inserted ? answer?.version : undefined, startedAt);
+    await this.db.transaction(async () => {
+      const inserted = await this.enqueueResponse(input, answer?.answer ?? UNKNOWN_MESSAGE);
+      await this.recordOutcome(user.id, inserted ? (answer ? 'ANSWERED' : 'NO_MATCH') : 'DUPLICATE', inserted ? answer?.slug : undefined, inserted ? answer?.version : undefined, startedAt);
+    });
     return { accepted: true };
   }
 

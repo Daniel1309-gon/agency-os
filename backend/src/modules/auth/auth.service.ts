@@ -121,18 +121,23 @@ export class AuthService {
     const rehashed = needsRehash(identity.passwordHash, this.config.get('PASSWORD_SCRYPT_LOG2N'))
       ? await hashPassword(input.password, this.config.get('PASSWORD_SCRYPT_LOG2N'))
       : undefined;
-    await this.db.db
-      .update(users)
-      .set({
-        failedLoginCount: 0,
-        lockedUntil: null,
-        lastLoginAt: new Date(),
-        updatedAt: new Date(),
-        ...(rehashed ? { passwordHash: rehashed } : {}),
-      })
-      .where(eq(users.id, identity.id));
-    await this.recordAttempt(email, identity.id, clientIp, 'SUCCESS');
-    return this.issueTokens(identity, clientIp, userAgent, certificate?.id);
+    // El camino de exito es atomico (escritura + auditoria): si la auditoria no
+    // se puede escribir, no queda el login aplicado. El camino de fallo, en
+    // cambio, persiste contador y bloqueo aunque la peticion termine en error.
+    return this.db.transaction(async () => {
+      await this.db.db
+        .update(users)
+        .set({
+          failedLoginCount: 0,
+          lockedUntil: null,
+          lastLoginAt: new Date(),
+          updatedAt: new Date(),
+          ...(rehashed ? { passwordHash: rehashed } : {}),
+        })
+        .where(eq(users.id, identity.id));
+      await this.recordAttempt(email, identity.id, clientIp, 'SUCCESS');
+      return this.issueTokens(identity, clientIp, userAgent, certificate?.id);
+    });
   }
 
   async refresh(rawToken: string, ip?: string, userAgent?: string, deviceId?: string): Promise<AuthTokens> {
@@ -170,19 +175,14 @@ export class AuthService {
     const nextToken = randomToken();
     const nextId = randomUUID();
     const expiresAt = new Date(Date.now() + this.config.get('JWT_REFRESH_TTL_DAYS') * 86_400_000);
+    let rotated = false;
     await this.db.db.transaction(async (tx) => {
-      const [rotated] = await tx
+      const [next] = await tx
         .update(refreshTokens)
         .set({ revokedAt: new Date(), revokedReason: 'ROTATED', replacedById: nextId })
         .where(and(eq(refreshTokens.id, current.id), isNull(refreshTokens.revokedAt), gt(refreshTokens.expiresAt, new Date())))
         .returning({ id: refreshTokens.id });
-      if (!rotated) {
-        await tx
-          .update(refreshTokens)
-          .set({ revokedAt: new Date(), revokedReason: 'REUSE_DETECTED' })
-          .where(eq(refreshTokens.familyId, current.familyId));
-        throw new ConflictException('Refresh token reuse detected');
-      }
+      if (!next) return;
       await tx.insert(refreshTokens).values({
         id: nextId,
         userId: current.userId,
@@ -193,7 +193,14 @@ export class AuthService {
         userAgent,
         deviceId: current.deviceId,
       });
+      rotated = true;
     });
+    if (!rotated) {
+      // Fuera de la transaccion: la revocacion por reuso tiene que sobrevivir al
+      // error que la peticion devuelve (antes se revertia con el rollback).
+      await this.revokeFamily(current.familyId, 'REUSE_DETECTED');
+      throw new ConflictException('Refresh token reuse detected');
+    }
     return { ...(await this.issueAccessToken(identity)), refreshToken: nextToken };
   }
 

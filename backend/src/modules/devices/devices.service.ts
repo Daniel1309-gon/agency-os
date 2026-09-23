@@ -54,27 +54,32 @@ export class DevicesService {
     const now = new Date();
     let device: { id: string } | undefined;
     try {
-      [device] = await this.db.db.update(devices).set({
-        hostname: input.hostname,
-        label: input.label ?? input.hostname,
-        certFingerprint: fingerprint,
-        certNotAfter,
-        status: 'APPROVED',
-        enrollmentCodeHash: null,
-        enrollmentCodeExpiresAt: null,
-        revokedAt: null,
-        revokedReason: null,
-      }).where(and(
-        eq(devices.enrollmentCodeHash, hashToken(input.code)),
-        eq(devices.status, 'PENDING'),
-        gt(devices.enrollmentCodeExpiresAt, now),
-      )).returning({ id: devices.id, status: devices.status });
+      // Ruta publica (sin JWT): la transaccion del interceptor no la cubre, asi que
+      // el alta del dispositivo y su auditoria se cierran juntas o no se cierran.
+      await this.db.transaction(async () => {
+        [device] = await this.db.db.update(devices).set({
+          hostname: input.hostname,
+          label: input.label ?? input.hostname,
+          certFingerprint: fingerprint,
+          certNotAfter,
+          status: 'APPROVED',
+          enrollmentCodeHash: null,
+          enrollmentCodeExpiresAt: null,
+          revokedAt: null,
+          revokedReason: null,
+        }).where(and(
+          eq(devices.enrollmentCodeHash, hashToken(input.code)),
+          eq(devices.status, 'PENDING'),
+          gt(devices.enrollmentCodeExpiresAt, now),
+        )).returning({ id: devices.id, status: devices.status });
+        if (!device) return;
+        await this.audit.record({ actorType: 'DEVICE', actorDeviceId: device.id, action: 'device.enrolled', entityType: 'device', entityId: device.id, result: 'SUCCESS', metadata: { deviceId: device.id } });
+      });
     } catch (error) {
       if (isPgError(error, PG_UNIQUE_VIOLATION)) throw new ConflictException('Certificate fingerprint is already assigned to an active device');
       throw error;
     }
     if (!device) throw new ConflictException('Invalid or expired enrollment code');
-    await this.audit.record({ actorType: 'DEVICE', actorDeviceId: device.id, action: 'device.enrolled', entityType: 'device', entityId: device.id, result: 'SUCCESS', metadata: { deviceId: device.id } });
     return { deviceId: device.id };
   }
 

@@ -50,6 +50,24 @@ async function storedUser(id: string) {
 }
 
 describe('AuthService.login', () => {
+  it('does not apply a successful login when the audit write fails', async () => {
+    // SEC-07b: en las rutas sin JWT la transaccion del interceptor no corre, asi
+    // que el camino de exito (escritura + auditoria) se cierra en una propia. El
+    // camino de fallo queda fuera a proposito: contador y bloqueo deben persistir.
+    const user = await createUser(ctx);
+    await ctx.db.update(users).set({ failedLoginCount: 3 }).where(eq(users.id, user.id));
+    const failingAudit = { record: async () => { throw new Error('audit down'); } } as unknown as AuditService;
+    const failingAuth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), failingAudit);
+
+    await expect(failingAuth.login({ email: user.email, password: user.password }, fromIp(42))).rejects.toThrow('audit down');
+
+    const stored = await storedUser(user.id);
+    expect(stored.failedLoginCount).toBe(3);
+    expect(stored.lastLoginAt).toBeNull();
+    const issued = await ctx.db.select({ id: refreshTokens.id }).from(refreshTokens).where(eq(refreshTokens.userId, user.id));
+    expect(issued).toHaveLength(0);
+  });
+
   it('blocks operator login and refresh outside an approved shift when the production policy is enabled', async () => {
     const previous = process.env.REQUIRE_SHIFT_FOR_AUTH;
     process.env.REQUIRE_SHIFT_FOR_AUTH = 'true';

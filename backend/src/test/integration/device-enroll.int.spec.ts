@@ -3,13 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { DevicesService } from '../../modules/devices/devices.service.js';
 import { AuthService } from '../../modules/auth/auth.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
 import { AuthVersionService } from '../../common/auth/auth-version.service.js';
-import { ipAllowlist } from '../../database/schema/index.js';
+import { devices as devicesTable, ipAllowlist } from '../../database/schema/index.js';
 import {
   createTestContext,
   createUser,
@@ -22,6 +23,16 @@ import {
 let ctx: TestContext;
 let app: NestFastifyApplication;
 let devices: DevicesService;
+
+/** Mismo grafo que el servicio real, con la auditoria que se le pase. */
+function buildDevices(audit: AuditService): DevicesService {
+  return new DevicesService(
+    ctx.database,
+    audit,
+    new RealtimeService(ctx.database),
+    new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database)),
+  );
+}
 
 async function startApi(): Promise<NestFastifyApplication> {
   const distModuleUrl = new URL('../../../dist/app.module.js', import.meta.url).href;
@@ -44,12 +55,7 @@ beforeAll(async () => {
   await seedRoles(ctx);
   const admin = await createUser(ctx, { role: 'ADMIN' });
   await ctx.db.insert(ipAllowlist).values({ label: 'enroll test', cidr: '127.0.0.1/32', scope: 'ALL', createdBy: admin.id });
-  devices = new DevicesService(
-    ctx.database,
-    new AuditService(ctx.database),
-    new RealtimeService(ctx.database),
-    new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database)),
-  );
+  devices = buildDevices(new AuditService(ctx.database));
   app = await startApi();
 });
 
@@ -73,6 +79,20 @@ describe('POST /devices/enroll', () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toEqual({ deviceId: pending.id });
+  });
+
+  it('does not leave the device enrolled when the audit write fails', async () => {
+    // SEC-07b: ruta publica sin la transaccion del interceptor; el alta y su
+    // auditoria se cierran juntas.
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const pending = await devices.create({ hostname: 'pc-atomic-01', label: 'Atómica', deviceKind: 'STATION' }, { sub: admin.id, role: 'ADMIN' });
+    const { fingerprint } = certHeader('atomic-enrollment-der');
+    const failing = buildDevices({ record: async () => { throw new Error('audit down'); } } as unknown as AuditService);
+
+    await expect(failing.enroll({ code: pending.enrollmentCode, hostname: 'pc-atomic-01', certFingerprint: fingerprint }, { fingerprint })).rejects.toThrow('audit down');
+
+    const [row] = await ctx.db.select({ status: devicesTable.status, certFingerprint: devicesTable.certFingerprint }).from(devicesTable).where(eq(devicesTable.id, pending.id));
+    expect(row).toEqual({ status: 'PENDING', certFingerprint: null });
   });
 
   it('rejects a body fingerprint that does not match the presented certificate', async () => {

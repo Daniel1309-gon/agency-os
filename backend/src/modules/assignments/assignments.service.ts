@@ -292,18 +292,22 @@ export class AssignmentsService {
       ),
     });
     if (!assignment) throw new ForbiddenException('The assignment is no longer active');
-    const [row] = await this.db.db.update(profileSessions).set({ status: input.status, version: sql<number>`${profileSessions.version} + 1`, lastHeartbeatAt: new Date(), errorCode: input.status === 'ERROR' ? input.errorCode : null, errorDetail: input.status === 'ERROR' ? input.errorDetail : null, endedAt: input.status === 'CLOSED' ? new Date() : undefined, endReason: input.status === 'CLOSED' ? 'OPERATOR_CLOSED' : undefined }).where(and(
-      eq(profileSessions.id, id),
-      eq(profileSessions.operatorId, userId),
-      eq(profileSessions.deviceId, deviceId),
-      eq(profileSessions.status, current.status),
-      eq(profileSessions.version, input.version),
-      sql`exists (select 1 from profile_assignments pa where pa.id = ${profileSessions.assignmentId} and pa.status = 'ACTIVE' and pa.valid_range @> now())`,
-    )).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, lastHeartbeatAt: profileSessions.lastHeartbeatAt });
-    if (!row) throw new ConflictException('Session changed concurrently or its assignment expired');
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: userId, actorDeviceId: deviceId, action: 'session.transitioned', entityType: 'session', entityId: row.id, result: 'SUCCESS', metadata: { fromStatus: current.status, toStatus: input.status, errorCode: input.errorCode } });
-    await this.realtime.publishOperatorChanged(userId);
-    return row;
+        const row = await this.db.transaction(async () => {
+          const [updated] = await this.db.db.update(profileSessions).set({ status: input.status, version: sql<number>`${profileSessions.version} + 1`, lastHeartbeatAt: new Date(), errorCode: input.status === 'ERROR' ? input.errorCode : null, errorDetail: input.status === 'ERROR' ? input.errorDetail : null, endedAt: input.status === 'CLOSED' ? new Date() : undefined, endReason: input.status === 'CLOSED' ? 'OPERATOR_CLOSED' : undefined }).where(and(
+            eq(profileSessions.id, id),
+            eq(profileSessions.operatorId, userId),
+            eq(profileSessions.deviceId, deviceId),
+            eq(profileSessions.status, current.status),
+            eq(profileSessions.version, input.version),
+            sql`exists (select 1 from profile_assignments pa where pa.id = ${profileSessions.assignmentId} and pa.status = 'ACTIVE' and pa.valid_range @> now())`,
+          )).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, lastHeartbeatAt: profileSessions.lastHeartbeatAt });
+          if (!updated) return undefined;
+          await this.audit.record({ actorType: 'DEVICE', actorUserId: userId, actorDeviceId: deviceId, action: 'session.transitioned', entityType: 'session', entityId: updated.id, result: 'SUCCESS', metadata: { fromStatus: current.status, toStatus: input.status, errorCode: input.errorCode } });
+          return updated;
+        });
+        if (!row) throw new ConflictException('Session changed concurrently or its assignment expired');
+        await this.realtime.publishOperatorChanged(userId);
+        return row;
   }
 
   async updateStationSession(id: string, input: SessionPatchInput, deviceId: string) {
@@ -358,15 +362,20 @@ export class AssignmentsService {
       return this.closeStationForAuthorization(session.id, session.version, deviceId, session.operatorId, 'AUTHORIZATION_ENDED', now);
     }
 
-    const [renewed] = await this.db.db
-      .update(profileSessions)
-      .set({ lastHeartbeatAt: now, version: sql<number>`${profileSessions.version} + 1` })
-      .where(and(eq(profileSessions.id, session.id), eq(profileSessions.deviceId, deviceId), eq(profileSessions.status, 'ACTIVE'), eq(profileSessions.version, version)))
-      .returning({ version: profileSessions.version });
-    if (!renewed) throw new ConflictException('Session changed concurrently');
+    const renewedVersion = await this.db.transaction(async () => {
+      const [renewed] = await this.db.db
+        .update(profileSessions)
+        .set({ lastHeartbeatAt: now, version: sql<number>`${profileSessions.version} + 1` })
+        .where(and(eq(profileSessions.id, session.id), eq(profileSessions.deviceId, deviceId), eq(profileSessions.status, 'ACTIVE'), eq(profileSessions.version, version)))
+        .returning({ version: profileSessions.version });
+      if (!renewed) return undefined;
+      const permitUntil = new Date(Math.min(effectiveEnd.getTime(), now.getTime() + 30_000));
+      await this.audit.record({ actorType: 'DEVICE', actorDeviceId: deviceId, action: 'session.heartbeat', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { version: renewed.version, permitUntil: permitUntil.toISOString() } });
+      return renewed.version;
+    });
+    if (renewedVersion === undefined) throw new ConflictException('Session changed concurrently');
     const permitUntil = new Date(Math.min(effectiveEnd.getTime(), now.getTime() + 30_000));
-    await this.audit.record({ actorType: 'DEVICE', actorDeviceId: deviceId, action: 'session.heartbeat', entityType: 'session', entityId: session.id, result: 'SUCCESS', metadata: { version: renewed.version, permitUntil: permitUntil.toISOString() } });
-    return this.heartbeatDecision('CONTINUE', 'ACTIVE', renewed.version, now, permitUntil, effectiveEnd);
+    return this.heartbeatDecision('CONTINUE', 'ACTIVE', renewedVersion, now, permitUntil, effectiveEnd);
   }
 
   async closeStationSession(id: string, version: number, deviceId: string) {
@@ -374,22 +383,28 @@ export class AssignmentsService {
     if (!current) throw new NotFoundException('Session not found');
     if (current.status !== 'CLOSED' && current.version !== version) throw new ConflictException('Session changed concurrently');
     const now = new Date();
-    const [row] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: current.status === 'CLOSED' ? undefined : sql<number>`${profileSessions.version} + 1`, endedAt: current.endedAt ?? now, endReason: current.endReason ?? 'BROWSER_CLOSED', browserClosedAt: current.browserClosedAt ?? now }).where(eq(profileSessions.id, id)).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, browserClosedAt: profileSessions.browserClosedAt });
+    const row = await this.db.transaction(async () => {
+      const [updated] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: current.status === 'CLOSED' ? undefined : sql<number>`${profileSessions.version} + 1`, endedAt: current.endedAt ?? now, endReason: current.endReason ?? 'BROWSER_CLOSED', browserClosedAt: current.browserClosedAt ?? now }).where(eq(profileSessions.id, id)).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, browserClosedAt: profileSessions.browserClosedAt });
+      if (!updated) return undefined;
+      if (!current.browserClosedAt) {
+        await this.audit.record({ actorType: 'DEVICE', actorDeviceId: deviceId, actorUserId: current.operatorId, action: 'session.close.confirmed', entityType: 'session', entityId: id, result: 'SUCCESS', metadata: { version: updated.version } });
+      }
+      return updated;
+    });
     if (!row) throw new NotFoundException('Session not found');
-    if (!current.browserClosedAt) {
-      await this.audit.record({ actorType: 'DEVICE', actorDeviceId: deviceId, actorUserId: current.operatorId, action: 'session.close.confirmed', entityType: 'session', entityId: id, result: 'SUCCESS', metadata: { version: row.version } });
-      await this.realtime.publishOperatorChanged(current.operatorId);
-    }
+    if (!current.browserClosedAt) await this.realtime.publishOperatorChanged(current.operatorId);
     return row;
   }
 
   private async closeStationForAuthorization(id: string, version: number, deviceId: string, operatorId: string, reason: string, endedAt: Date) {
-    const [row] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: sql<number>`${profileSessions.version} + 1`, endedAt, endReason: reason }).where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, deviceId), eq(profileSessions.version, version), inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version });
-    if (row) {
+    const closed = await this.db.transaction(async () => {
+      const [row] = await this.db.db.update(profileSessions).set({ status: 'CLOSED', version: sql<number>`${profileSessions.version} + 1`, endedAt, endReason: reason }).where(and(eq(profileSessions.id, id), eq(profileSessions.deviceId, deviceId), eq(profileSessions.version, version), inArray(profileSessions.status, ['LAUNCHING', 'ACTIVE']))).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version });
+      if (!row) return undefined;
       await this.audit.record({ actorType: 'SYSTEM', actorDeviceId: deviceId, actorUserId: operatorId, action: 'session.closed', entityType: 'session', entityId: id, result: 'SUCCESS', metadata: { reason } });
-      await this.realtime.publishOperatorChanged(operatorId);
-    }
-    return this.heartbeatDecision('CLOSE', 'CLOSED', row?.version ?? version, endedAt, endedAt, endedAt, reason);
+      return row;
+    });
+    if (closed) await this.realtime.publishOperatorChanged(operatorId);
+    return this.heartbeatDecision('CLOSE', 'CLOSED', closed?.version ?? version, endedAt, endedAt, endedAt, reason);
   }
 
   private heartbeatDecision(decision: 'CONTINUE' | 'CLOSE', status: string, version: number, serverTime: Date, permitUntil: Date, effectiveEndAt: Date, reason?: string) {
