@@ -292,22 +292,22 @@ export class AssignmentsService {
       ),
     });
     if (!assignment) throw new ForbiddenException('The assignment is no longer active');
-        const row = await this.db.transaction(async () => {
-          const [updated] = await this.db.db.update(profileSessions).set({ status: input.status, version: sql<number>`${profileSessions.version} + 1`, lastHeartbeatAt: new Date(), errorCode: input.status === 'ERROR' ? input.errorCode : null, errorDetail: input.status === 'ERROR' ? input.errorDetail : null, endedAt: input.status === 'CLOSED' ? new Date() : undefined, endReason: input.status === 'CLOSED' ? 'OPERATOR_CLOSED' : undefined }).where(and(
-            eq(profileSessions.id, id),
-            eq(profileSessions.operatorId, userId),
-            eq(profileSessions.deviceId, deviceId),
-            eq(profileSessions.status, current.status),
-            eq(profileSessions.version, input.version),
-            sql`exists (select 1 from profile_assignments pa where pa.id = ${profileSessions.assignmentId} and pa.status = 'ACTIVE' and pa.valid_range @> now())`,
-          )).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, lastHeartbeatAt: profileSessions.lastHeartbeatAt });
-          if (!updated) return undefined;
-          await this.audit.record({ actorType: 'DEVICE', actorUserId: userId, actorDeviceId: deviceId, action: 'session.transitioned', entityType: 'session', entityId: updated.id, result: 'SUCCESS', metadata: { fromStatus: current.status, toStatus: input.status, errorCode: input.errorCode } });
-          return updated;
-        });
-        if (!row) throw new ConflictException('Session changed concurrently or its assignment expired');
-        await this.realtime.publishOperatorChanged(userId);
-        return row;
+    const row = await this.db.transaction(async () => {
+      const [updated] = await this.db.db.update(profileSessions).set({ status: input.status, version: sql<number>`${profileSessions.version} + 1`, lastHeartbeatAt: new Date(), errorCode: input.status === 'ERROR' ? input.errorCode : null, errorDetail: input.status === 'ERROR' ? input.errorDetail : null, endedAt: input.status === 'CLOSED' ? new Date() : undefined, endReason: input.status === 'CLOSED' ? 'OPERATOR_CLOSED' : undefined }).where(and(
+        eq(profileSessions.id, id),
+        eq(profileSessions.operatorId, userId),
+        eq(profileSessions.deviceId, deviceId),
+        eq(profileSessions.status, current.status),
+        eq(profileSessions.version, input.version),
+        sql`exists (select 1 from profile_assignments pa where pa.id = ${profileSessions.assignmentId} and pa.status = 'ACTIVE' and pa.valid_range @> now())`,
+      )).returning({ id: profileSessions.id, status: profileSessions.status, version: profileSessions.version, lastHeartbeatAt: profileSessions.lastHeartbeatAt });
+      if (!updated) return undefined;
+      await this.audit.record({ actorType: 'DEVICE', actorUserId: userId, actorDeviceId: deviceId, action: 'session.transitioned', entityType: 'session', entityId: updated.id, result: 'SUCCESS', metadata: { fromStatus: current.status, toStatus: input.status, errorCode: input.errorCode } });
+      return updated;
+    });
+    if (!row) throw new ConflictException('Session changed concurrently or its assignment expired');
+    await this.realtime.publishOperatorChanged(userId);
+    return row;
   }
 
   async updateStationSession(id: string, input: SessionPatchInput, deviceId: string) {
