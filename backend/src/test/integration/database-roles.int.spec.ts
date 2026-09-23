@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
+import { rocketchatChannels } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, type TestContext } from '../support/harness.js';
 
 const ROLE_NAMES = ['agency_owner', 'agency_app', 'agency_worker', 'agency_readonly'] as const;
@@ -101,6 +102,7 @@ describe('PostgreSQL deployment roles', () => {
       workerCrewMembersRead: boolean;
       workerShiftsInsert: boolean;
       workerShiftsDelete: boolean;
+      workerScheduledInsert: boolean;
       workerAuditExecute: boolean;
       workerPayrollRead: boolean;
       workerCredentialsRead: boolean;
@@ -123,6 +125,7 @@ describe('PostgreSQL deployment roles', () => {
         has_table_privilege('agency_worker', 'public.crew_members', 'SELECT') AS "workerCrewMembersRead",
         has_table_privilege('agency_worker', 'public.shifts', 'INSERT') AS "workerShiftsInsert",
         has_table_privilege('agency_worker', 'public.shifts', 'DELETE') AS "workerShiftsDelete",
+        has_table_privilege('agency_worker', 'public.scheduled_messages', 'INSERT') AS "workerScheduledInsert",
         has_function_privilege('agency_worker', 'public.audit_log_maintain(int, int)', 'EXECUTE') AS "workerAuditExecute",
         has_table_privilege('agency_worker', 'public.payroll_lines', 'SELECT') AS "workerPayrollRead",
         has_table_privilege('agency_worker', 'public.tt_profile_credentials', 'SELECT') AS "workerCredentialsRead"
@@ -146,6 +149,7 @@ describe('PostgreSQL deployment roles', () => {
       workerCrewMembersRead: true,
       workerShiftsInsert: true,
       workerShiftsDelete: false,
+      workerScheduledInsert: true,
       workerAuditExecute: true,
       workerPayrollRead: false,
       workerCredentialsRead: false,
@@ -154,6 +158,7 @@ describe('PostgreSQL deployment roles', () => {
 
   it('lets the worker role run the scheduler statements without reading secrets', async () => {
     const operator = await createUser(ctx);
+    const [channel] = await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'worker-room', name: 'Worker', type: 'CHANNEL', purpose: 'GENERAL' }).returning({ id: rocketchatChannels.id });
 
     await expect(asRole('agency_worker', (client) => client.query('SELECT id FROM shift_templates LIMIT 1'))).resolves.toBeDefined();
     await expect(asRole('agency_worker', (client) => client.query('SELECT key FROM app_settings LIMIT 1'))).resolves.toBeDefined();
@@ -164,6 +169,10 @@ describe('PostgreSQL deployment roles', () => {
     await expect(asRole('agency_worker', (client) => client.query(
       "INSERT INTO shifts (operator_id, business_date, status) VALUES ($1, '2026-09-22', 'SCHEDULED')",
       [operator.id],
+    ))).resolves.toBeDefined();
+    await expect(asRole('agency_worker', (client) => client.query(
+      "INSERT INTO scheduled_messages (channel_id, body, scheduled_for, status) VALUES ($1, 'Siguiente ocurrencia', now() + interval '1 day', 'PENDING')",
+      [channel.id],
     ))).resolves.toBeDefined();
 
     await expect(asRole('agency_worker', (client) => client.query('SELECT secret_ciphertext FROM tt_profile_credentials'))).rejects.toMatchObject({ code: '42501' });

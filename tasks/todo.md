@@ -113,7 +113,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 ## Fase 8 — Rocket.Chat y estado
 
 - [ ] **COM-01** Vinculación de canales y deteccion de deriva de membresia. Desbloqueada: OQ-10 resuelta en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). Canales de cuadrilla privados (`GROUP`); la membresia la administra el coordinador a mano, asi que el criterio de FR-36 ya no exige sincronizarla y el PAT no necesita invitar ni expulsar. Subavance verificado en el piloto del bot: identidad del servicio comprobada contra `chat.globalcompany.company`, canal registrado y usuario vinculado por API con auditoria; evidencia en `tasks/evidence/rocketchat-bot-pilot-2026-09-07.md`.
-- [ ] **COM-02** Mensajes recurrentes/urgentes, retry y SLA <1 s.
+- [ ] **COM-02** Mensajes recurrentes/urgentes, retry y SLA <1 s. Recurrencia hecha (2026-09-23): series DAILY/WEEKLY con `until` inclusivo, una sola fila `SKIPPED` con conteo y rango cuando el worker llega tarde, gracia de 60 min para la ocurrencia mas reciente, cancelacion de serie por el `DELETE` existente y formulario web en `/app/mensajes`; el retry del outbox ya existia. Evidencia en `tasks/evidence/e1-14-recurrence-2026-09-23.md`. Falta la medicion del SLA <1 s contra el Rocket.Chat real.
 - [ ] **COM-03** Semáforo derivado y bot allowlisted.
 - [ ] **Checkpoint 6:** periodo dorado completo + comunicación/status con worker reiniciado.
 

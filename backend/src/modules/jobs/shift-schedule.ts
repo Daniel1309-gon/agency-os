@@ -1,5 +1,8 @@
+import type { RecurrenceRule } from '@agency-os/shared';
+
 const BOGOTA_TIME_ZONE = 'America/Bogota';
 const BOGOTA_UTC_OFFSET_MINUTES = 5 * 60;
+const DAY_MS = 86_400_000;
 
 function parseDate(value: string): { year: number; month: number; day: number } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -74,4 +77,36 @@ export function businessDateInBogota(at: Date): string {
   }).formatToParts(at);
   const values = new Map(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
   return `${values.get('year')}-${values.get('month')}-${values.get('day')}`;
+}
+
+function withinUntil(at: Date, rule: RecurrenceRule): boolean {
+  return !rule.until || businessDateInBogota(at) <= rule.until;
+}
+
+/**
+ * Siguiente ocurrencia de una serie, o null cuando termina (`until`, fecha
+ * local inclusiva, o regla semanal sin día alcanzable). Bogotá no tiene horario
+ * de verano, así que sumar días conserva la hora local de la ocurrencia previa.
+ */
+export function nextOccurrenceAt(from: Date, rule: RecurrenceRule): Date | null {
+  if (rule.frequency === 'DAILY') {
+    const next = new Date(from.getTime() + DAY_MS);
+    return withinUntil(next, rule) ? next : null;
+  }
+  const weekdays = rule.weekdays ?? [];
+  for (let days = 1; days <= 7; days += 1) {
+    const candidate = new Date(from.getTime() + days * DAY_MS);
+    if (!weekdays.includes(weekdayForBusinessDate(businessDateInBogota(candidate)))) continue;
+    return withinUntil(candidate, rule) ? candidate : null;
+  }
+  return null;
+}
+
+/** Ocurrencias vencidas de una serie, en orden, desde `first` (ya vencida) hasta `now`. */
+export function occurrencesUpTo(first: Date, now: Date, rule: RecurrenceRule): Date[] {
+  const occurrences: Date[] = [];
+  for (let cursor: Date | null = first; cursor && cursor.getTime() <= now.getTime(); cursor = nextOccurrenceAt(cursor, rule)) {
+    occurrences.push(cursor);
+  }
+  return occurrences;
 }

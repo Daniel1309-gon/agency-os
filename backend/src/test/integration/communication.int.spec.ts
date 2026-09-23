@@ -9,9 +9,10 @@ import { FaqBotAnswerProvider } from '../../modules/communication/bot-answer.pro
 import { CommunicationService } from '../../modules/communication/communication.service.js';
 import { scheduledMessageSchema } from '../../modules/communication/communication.schemas.js';
 import { CommunicationWorker } from '../../modules/communication/communication.worker.js';
+import { businessDateInBogota, shiftBusinessDate, weekdayForBusinessDate } from '../../modules/jobs/shift-schedule.js';
 import { RocketChatClient } from '../../modules/communication/rocketchat.client.js';
 import { OutboxService } from '../../modules/outbox/outbox.service.js';
-import { auditLog, crews, outboxEvents, rocketchatChannels, users } from '../../database/schema/index.js';
+import { auditLog, crews, outboxEvents, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -78,15 +79,15 @@ function stableBotAuditMetadata(rows: Array<{ metadata: unknown }>): Array<Recor
 }
 
 describe('Rocket.Chat durable delivery', () => {
-  it('rejects recurring schedules instead of accepting an unsupported contract', () => {
-    const parsed = scheduledMessageSchema.safeParse({
-      targetUserId: '00000000-0000-0000-0000-000000000001',
-      body: 'Recurring',
-      scheduledFor: new Date(Date.now() + 60_000).toISOString(),
-      recurrenceRule: 'FREQ=DAILY',
-    });
+  it('accepts a structured recurrence rule and rejects a free-form one', () => {
+    const base = { targetUserId: '00000000-0000-0000-0000-000000000001', body: 'Recurring', scheduledFor: new Date(Date.now() + 60_000).toISOString() };
 
-    expect(parsed.success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY' } }).success).toBe(true);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY', weekdays: [1, 3] } }).success).toBe(true);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: 'FREQ=DAILY' }).success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY' } }).success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', weekdays: [1] } }).success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', until: '23/09/2026' } }).success).toBe(false);
   });
 
   it('keeps coordinators inside their currently managed crew channels', async () => {
@@ -142,6 +143,93 @@ describe('Rocket.Chat durable delivery', () => {
     expect(requests[0].id).toBe(requests[1].id);
     const [sent] = await ctx.db.select({ status: outboxEvents.status }).from(outboxEvents);
     expect(sent.status).toBe('SENT');
+  });
+});
+
+describe('recurring scheduled messages', () => {
+  const DAY_MS = 86_400_000;
+
+  async function seriesActor() {
+    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+    const [channel] = await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'room-series', name: 'Series', type: 'CHANNEL', purpose: 'GENERAL' }).returning({ id: rocketchatChannels.id });
+    return { actor: { sub: actor.id, role: 'COORDINADOR' as const }, channelId: channel.id };
+  }
+
+  function rows() {
+    return ctx.db.select({ id: scheduledMessages.id, scheduledFor: scheduledMessages.scheduledFor, status: scheduledMessages.status, attempts: scheduledMessages.attempts, lastError: scheduledMessages.lastError }).from(scheduledMessages).orderBy(scheduledMessages.scheduledFor);
+  }
+
+  it('summarizes the missed occurrences in one SKIPPED row and schedules the next one', async () => {
+    const { actor, channelId } = await seriesActor();
+    const start = new Date(Date.now() - 3 * DAY_MS + 10 * 60_000);
+    const { communication, worker } = services();
+    await communication.schedule({ channelId, body: 'Corte diario', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
+
+    await worker.tick();
+
+    const series = await rows();
+    expect(series.map((row) => row.status)).toEqual(['SKIPPED', 'PENDING']);
+    expect(series[0].lastError).toMatch(/^3 ocurrencias omitidas \(\d{4}-\d{2}-\d{2} a \d{4}-\d{2}-\d{2}\) por retraso del worker$/);
+    expect(series[1].scheduledFor.toISOString()).toBe(new Date(start.getTime() + 3 * DAY_MS).toISOString());
+    expect(requests).toEqual([]);
+    await expect(ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).resolves.toEqual([]);
+  });
+
+  it('sends the latest occurrence when the delay is inside the grace window', async () => {
+    const { actor, channelId } = await seriesActor();
+    const start = new Date(Date.now() - 20 * 60_000);
+    const { communication, worker } = services();
+    await communication.schedule({ channelId, body: 'Aviso de turno', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
+
+    await worker.tick();
+
+    expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'room-series', body: 'Aviso de turno' }]);
+    const series = await rows();
+    expect(series.map((row) => [row.status, row.scheduledFor.toISOString()])).toEqual([
+      ['SENT', start.toISOString()],
+      ['PENDING', new Date(start.getTime() + DAY_MS).toISOString()],
+    ]);
+  });
+
+  it('keeps a weekly series on its selected weekday', async () => {
+    const { actor, channelId } = await seriesActor();
+    const start = new Date(Date.now() - 20 * 60_000);
+    const tomorrow = shiftBusinessDate(businessDateInBogota(start), 1);
+    const { communication, worker } = services();
+    await communication.schedule({ channelId, body: 'Semanal', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'WEEKLY', weekdays: [weekdayForBusinessDate(tomorrow)] } }, actor);
+
+    await worker.tick();
+
+    const series = await rows();
+    expect(series.map((row) => row.status)).toEqual(['SENT', 'PENDING']);
+    expect(series[1].scheduledFor.toISOString()).toBe(new Date(start.getTime() + DAY_MS).toISOString());
+  });
+
+  it('does not create an occurrence after the inclusive until', async () => {
+    const { actor, channelId } = await seriesActor();
+    const start = new Date(Date.now() - 20 * 60_000);
+    const { communication, worker } = services();
+    await communication.schedule({ channelId, body: 'Último día', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY', until: businessDateInBogota(start) } }, actor);
+
+    await worker.tick();
+
+    const series = await rows();
+    expect(series.map((row) => row.status)).toEqual(['SENT']);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('stops the series when the pending occurrence is cancelled', async () => {
+    const { actor, channelId } = await seriesActor();
+    const start = new Date(Date.now() + 60 * 60_000);
+    const { communication, worker } = services();
+    const created = await communication.schedule({ channelId, body: 'Serie cancelada', scheduledFor: start.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
+
+    await expect(communication.cancelScheduled(created.id, actor)).resolves.toMatchObject({ status: 'CANCELLED' });
+    await worker.tick();
+
+    const series = await rows();
+    expect(series.map((row) => row.status)).toEqual(['CANCELLED']);
+    expect(requests).toEqual([]);
   });
 });
 

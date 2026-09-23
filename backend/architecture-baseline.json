@@ -14,6 +14,7 @@
     "module-no-private-cross-import:src/modules/communication/communication.service.ts:../outbox/outbox.service.js",
     "module-no-direct-schema:src/modules/communication/communication.service.ts:../../database/schema/index.js:crewMembers,crews,notifications,rocketchatChannels,scheduledMessages",
     "module-no-direct-schema:src/modules/communication/communication.worker.ts:../../database/schema/index.js:outboxEvents,rocketchatChannels,scheduledMessages,users",
+    "module-no-private-cross-import:src/modules/communication/communication.worker.ts:../jobs/shift-schedule.js",
     "module-no-private-cross-import:src/modules/communication/communication.worker.ts:../outbox/outbox.service.js",
     "module-no-direct-schema:src/modules/crews/crews.service.ts:../../database/schema/index.js:crewMembers,crews,roles,users",
     "module-no-direct-schema:src/modules/devices/devices.service.ts:../../database/schema/index.js:devices",

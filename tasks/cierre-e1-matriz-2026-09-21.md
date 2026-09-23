@@ -46,7 +46,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | E1-05 superficie de outbox y reproceso | `PENDIENTE` | Claim/leases/backoff/DEAD en `outbox.service.ts:18-51`, `communication.worker.ts:86-118` | Sin endpoint ni UI de inspección/reproceso; sin métricas | E1-05a/b |
 | E1-06 checkpoint 3 | `PARCIAL` | `checkpoints-1-3-2026-09-07.md`; scheduler durable ejercitado en `durable-scheduler.int.spec.ts`; reinicio de API en `checkpoint2-restart.int.spec.ts` | Caída de Redis cubierta (2026-09-23): con dos APIs vivas, cortar todas las conexiones de Redis recupera eventos entre instancias, el puente del worker y los límites de auth (`realtime-redis.int.spec.ts`; evidencia `e1-c`). Falta el reproceso real de un DEAD sintético, que depende de E1-05 | E1-05 |
 | E1-13 canales/identidades/deriva | `PARCIAL` | Piloto en `rocketchat-bot-pilot-2026-09-07.md`; ADR 0010 | Escaneo de deriva y vinculación de canales sin implementar | E1-13 |
-| E1-14 programación/alerta urgente | `PARCIAL` | `communication.worker.ts:60-75`, `communication.int.spec.ts` | Recurrencia abierta en alcance; SLA <1 s sin medir | Decisión + E1-14 |
+| E1-14 programación/alerta urgente | `PARCIAL` (2026-09-23): recurrencia y formulario web cerrados | `communication.worker.ts` (`advanceSeries`), `jobs/shift-schedule.ts` (`nextOccurrenceAt`/`occurrencesUpTo`), migración `0024`, `ScheduledMessagesPanel.tsx`; evidencia `e1-14-recurrence-2026-09-23.md` | Falta la medición del SLA <1 s contra el Rocket.Chat real | E1-14 sobre VPS |
 | E1-15 bot permanente | `PARCIAL` | `bot.service.ts`, webhook con dedupe; piloto | Webhook/worker permanente y rotación de PAT sin runbook ejecutado | E1-15 smoke autorizado |
 
 ## 4. Retención de auditoría, claves y recuperación del vault

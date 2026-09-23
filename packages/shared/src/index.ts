@@ -1,6 +1,18 @@
 export { errorEnvelopeSchema, paginationSchema, paginatedResponseSchema } from './schemas/api.js';
 export { configSchema, type Config } from './schemas/config.js';
 export {
+  channelRecordSchema,
+  recurrenceFrequencySchema,
+  recurrenceRuleSchema,
+  scheduledMessageRecordSchema,
+  scheduledMessageStatusSchema,
+  type ChannelRecord,
+  type RecurrenceFrequency,
+  type RecurrenceRule,
+  type ScheduledMessageRecord,
+  type ScheduledMessageStatus,
+} from './contracts/communication.js';
+export {
   metricBatchSchema,
   metricEventSchema,
   sessionCloseSchema,

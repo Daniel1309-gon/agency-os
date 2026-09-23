@@ -17,6 +17,7 @@ describe('workspace navigation', () => {
       '/app/asignaciones',
       '/app/cuadrillas',
       '/app/turnos',
+      '/app/mensajes',
       '/app/seguridad',
       '/app/acceso-ip',
       '/app/auditoria',
@@ -52,7 +53,7 @@ describe('workspace navigation', () => {
 
     expect(groups.map(([group]) => group)).toEqual(['Operación', 'Control']);
     expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos']);
-    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/seguridad', '/app/acceso-ip', '/app/auditoria']);
+    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/auditoria']);
   });
 
   it('intercepts only plain primary clicks so new-tab gestures keep working', () => {

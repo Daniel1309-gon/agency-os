@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { businessDateInBogota, buildScheduledRange, shiftBusinessDate, weekdayForBusinessDate } from './shift-schedule.js';
+import { businessDateInBogota, buildScheduledRange, nextOccurrenceAt, occurrencesUpTo, shiftBusinessDate, weekdayForBusinessDate } from './shift-schedule.js';
+
+const BOGOTA_CLOCK = (at: Date) => at.toLocaleTimeString('en-GB', { timeZone: 'America/Bogota', hour12: false });
 
 describe('shift schedule', () => {
   it('uses the Bogota business date instead of the UTC date', () => {
@@ -27,5 +29,47 @@ describe('shift schedule', () => {
 
   it('rejects an overnight flag that would create a day-plus shift', () => {
     expect(() => buildScheduledRange('2026-08-23', '06:05', '14:05', true)).toThrow('crosses midnight');
+  });
+});
+
+describe('message recurrence', () => {
+  const start = new Date('2026-09-23T14:05:00.000Z');
+
+  it('keeps the Bogota wall clock for a daily series', () => {
+    const next = nextOccurrenceAt(start, { frequency: 'DAILY' });
+
+    expect(next?.toISOString()).toBe('2026-09-24T14:05:00.000Z');
+    expect(BOGOTA_CLOCK(next!)).toBe('09:05:00');
+  });
+
+  it('jumps to the next selected weekday for a weekly series', () => {
+    const wednesday = new Date('2026-09-23T14:05:00.000Z');
+
+    expect(weekdayForBusinessDate(businessDateInBogota(wednesday))).toBe(3);
+    expect(nextOccurrenceAt(wednesday, { frequency: 'WEEKLY', weekdays: [1] })?.toISOString()).toBe('2026-09-28T14:05:00.000Z');
+    expect(nextOccurrenceAt(wednesday, { frequency: 'WEEKLY', weekdays: [3] })?.toISOString()).toBe('2026-09-30T14:05:00.000Z');
+  });
+
+  it('treats until as an inclusive local date', () => {
+    expect(nextOccurrenceAt(start, { frequency: 'DAILY', until: '2026-09-24' })?.toISOString()).toBe('2026-09-24T14:05:00.000Z');
+    expect(nextOccurrenceAt(start, { frequency: 'DAILY', until: '2026-09-23' })).toBeNull();
+    const lateNight = new Date('2026-09-23T03:05:00.000Z');
+    expect(nextOccurrenceAt(lateNight, { frequency: 'DAILY', until: '2026-09-23' })?.toISOString()).toBe('2026-09-24T03:05:00.000Z');
+    expect(nextOccurrenceAt(lateNight, { frequency: 'DAILY', until: '2026-09-22' })).toBeNull();
+  });
+
+  it('enumerates every missed occurrence up to now', () => {
+    const occurrences = occurrencesUpTo(new Date('2026-09-20T14:05:00.000Z'), start, { frequency: 'DAILY' });
+
+    expect(occurrences.map((occurrence) => occurrence.toISOString())).toEqual([
+      '2026-09-20T14:05:00.000Z',
+      '2026-09-21T14:05:00.000Z',
+      '2026-09-22T14:05:00.000Z',
+      '2026-09-23T14:05:00.000Z',
+    ]);
+  });
+
+  it('stops a weekly series when no selected weekday is reachable before until', () => {
+    expect(nextOccurrenceAt(start, { frequency: 'WEEKLY', weekdays: [0], until: '2026-09-26' })).toBeNull();
   });
 });

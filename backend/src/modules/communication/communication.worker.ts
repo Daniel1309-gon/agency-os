@@ -1,14 +1,29 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import type { RecurrenceRule } from '@agency-os/shared';
 import { DatabaseService } from '../../database/database.service.js';
 import { outboxEvents, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { OutboxService } from '../outbox/outbox.service.js';
+import { businessDateInBogota, nextOccurrenceAt, occurrencesUpTo } from '../jobs/shift-schedule.js';
 import { RocketChatClient } from './rocketchat.client.js';
 import { ConfigService } from '../../config/config.service.js';
+import { parseStoredRecurrence } from './communication.schemas.js';
 
 const messagePayload = z.object({ channelId: z.string().uuid().optional(), targetUserId: z.string().uuid().optional(), roomId: z.string().min(1).optional(), body: z.string().min(1).max(4000), scheduledMessageId: z.string().uuid().optional(), sourceMessageId: z.string().trim().min(1).max(160).optional() }).refine((value) => [value.channelId, value.targetUserId, value.roomId].filter(Boolean).length === 1);
+
+const RECURRENCE_GRACE_MS = 60 * 60 * 1000;
+
+type ScheduledMessageRow = typeof scheduledMessages.$inferSelect;
+
+function skipReason(occurrences: Date[]): string {
+  const first = businessDateInBogota(occurrences[0]);
+  const last = businessDateInBogota(occurrences[occurrences.length - 1]);
+  const range = first === last ? first : `${first} a ${last}`;
+  const noun = occurrences.length === 1 ? 'ocurrencia omitida' : 'ocurrencias omitidas';
+  return `${occurrences.length} ${noun} (${range}) por retraso del worker`;
+}
 
 class PermanentDeliveryError extends Error {}
 
@@ -58,18 +73,59 @@ export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
 
   private async enqueueDueScheduled(): Promise<void> {
     await this.db.transaction(async () => {
+      const now = new Date();
       const result = await this.db.db.execute(sql`SELECT id FROM scheduled_messages WHERE status = 'PENDING' AND scheduled_for <= now() ORDER BY scheduled_for FOR UPDATE SKIP LOCKED LIMIT 25`);
       for (const raw of result.rows) {
         const id = String((raw as { id: string }).id);
-        const [message] = await this.db.db.update(scheduledMessages).set({ status: 'QUEUED', attempts: sql`${scheduledMessages.attempts} + 1` }).where(and(eq(scheduledMessages.id, id), eq(scheduledMessages.status, 'PENDING'), lte(scheduledMessages.scheduledFor, new Date()))).returning();
+        const [message] = await this.db.db.select().from(scheduledMessages).where(and(eq(scheduledMessages.id, id), eq(scheduledMessages.status, 'PENDING'))).limit(1);
         if (!message) continue;
-        await this.db.db.insert(outboxEvents).values({
-          eventType: 'rocketchat.message.send',
-          aggregateType: 'scheduled_message',
-          aggregateId: message.id,
-          payload: { ...(message.channelId ? { channelId: message.channelId } : { targetUserId: message.targetUserId }), body: message.body, scheduledMessageId: message.id },
-        });
+        const rule = parseStoredRecurrence(message.recurrenceRule);
+        if (rule) {
+          await this.advanceSeries(message, rule, now);
+          continue;
+        }
+        const [queued] = await this.db.db.update(scheduledMessages).set({ status: 'QUEUED', attempts: sql`${scheduledMessages.attempts} + 1` }).where(and(eq(scheduledMessages.id, id), eq(scheduledMessages.status, 'PENDING'))).returning();
+        if (queued) await this.enqueueOccurrence(queued);
       }
+    });
+  }
+
+  /**
+   * Una serie recurrente tiene una sola fila PENDING: la próxima ocurrencia.
+   * Cuando el worker llega tarde, esa fila resume lo perdido en una sola fila
+   * SKIPPED (nunca ráfagas de envíos) y, si la ocurrencia más reciente todavía
+   * está dentro de la gracia, se envía esa y se deja la siguiente programada.
+   */
+  private async advanceSeries(message: ScheduledMessageRow, rule: RecurrenceRule, now: Date): Promise<void> {
+    const due = occurrencesUpTo(message.scheduledFor, now, rule);
+    const latest = due[due.length - 1];
+    const fresh = now.getTime() - latest.getTime() <= RECURRENCE_GRACE_MS ? latest : null;
+    const skipped = fresh ? due.slice(0, -1) : due;
+    const next = nextOccurrenceAt(latest, rule);
+
+    if (skipped.length === 0) {
+      const [queued] = await this.db.db.update(scheduledMessages).set({ status: 'QUEUED', attempts: sql`${scheduledMessages.attempts} + 1` }).where(and(eq(scheduledMessages.id, message.id), eq(scheduledMessages.status, 'PENDING'))).returning();
+      if (queued) await this.enqueueOccurrence(queued);
+    } else {
+      await this.db.db.update(scheduledMessages).set({ status: 'SKIPPED', lastError: skipReason(skipped) }).where(and(eq(scheduledMessages.id, message.id), eq(scheduledMessages.status, 'PENDING')));
+      if (fresh) {
+        const [rescheduled] = await this.db.db.insert(scheduledMessages).values({ ...this.seriesFields(message), scheduledFor: fresh, status: 'QUEUED', attempts: 1 }).returning();
+        if (rescheduled) await this.enqueueOccurrence(rescheduled);
+      }
+    }
+    if (next) await this.db.db.insert(scheduledMessages).values({ ...this.seriesFields(message), scheduledFor: next, status: 'PENDING', attempts: 0 });
+  }
+
+  private seriesFields(message: ScheduledMessageRow) {
+    return { channelId: message.channelId, targetUserId: message.targetUserId, body: message.body, recurrenceRule: message.recurrenceRule, createdBy: message.createdBy };
+  }
+
+  private async enqueueOccurrence(message: ScheduledMessageRow): Promise<void> {
+    await this.db.db.insert(outboxEvents).values({
+      eventType: 'rocketchat.message.send',
+      aggregateType: 'scheduled_message',
+      aggregateId: message.id,
+      payload: { ...(message.channelId ? { channelId: message.channelId } : { targetUserId: message.targetUserId }), body: message.body, scheduledMessageId: message.id },
     });
   }
 

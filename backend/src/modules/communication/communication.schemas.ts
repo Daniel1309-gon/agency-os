@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recurrenceRuleSchema, type RecurrenceRule } from '@agency-os/shared';
 export { botWebhookSchema, normalizeRocketChatWebhook, stripBotTrigger } from './bot-webhook.js';
 export type { BotWebhookInput } from './bot-webhook.js';
 export const channelSchema = z.object({ crewId: z.string().uuid().optional(), rcRoomId: z.string().trim().min(1).max(160), name: z.string().trim().min(1).max(160), type: z.enum(['CHANNEL', 'GROUP', 'DM']), purpose: z.enum(['CREW', 'ALERTS', 'GENERAL', 'BOT']) });
@@ -6,8 +7,23 @@ const messageFields = z.object({ channelId: z.string().uuid().optional(), target
 export const messageSchema = messageFields.refine((value) => Boolean(value.channelId) !== Boolean(value.targetUserId), 'Exactly one message target is required');
 export const scheduledMessageSchema = messageFields.extend({
   scheduledFor: z.string().datetime({ offset: true }),
-  recurrenceRule: z.never({ message: 'Recurring messages are not supported in Delivery 1' }).optional(),
+  recurrenceRule: recurrenceRuleSchema.optional(),
 }).refine((value) => Boolean(value.channelId) !== Boolean(value.targetUserId), 'Exactly one message target is required');
+
+/**
+ * Regla guardada como JSON en `scheduled_messages.recurrence_rule`. Un valor
+ * ilegible se trata como mensaje puntual: la fila sigue siendo un mensaje que
+ * alguien programó y perderlo en silencio sería peor que enviarlo una vez.
+ */
+export function parseStoredRecurrence(value: string | null): RecurrenceRule | null {
+  if (!value) return null;
+  try {
+    return recurrenceRuleSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
 export const botKnowledgeSchema = z.object({
   version: z.number().int().positive(),
   question: z.string().trim().min(1).max(300),

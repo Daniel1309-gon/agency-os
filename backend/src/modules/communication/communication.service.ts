@@ -4,6 +4,7 @@ import { DatabaseService } from '../../database/database.service.js';
 import { OutboxService } from '../outbox/outbox.service.js';
 import { crewMembers, crews, notifications, rocketchatChannels, scheduledMessages } from '../../database/schema/index.js';
 import type { ChannelInput, MessageInput, ScheduledMessageInput } from './communication.schemas.js';
+import { parseStoredRecurrence } from './communication.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 
@@ -48,8 +49,8 @@ export class CommunicationService {
 
   async schedule(input: ScheduledMessageInput, actor: ChatActor) {
     await this.assertTargetAllowed(input, actor);
-    const [row] = await this.db.db.insert(scheduledMessages).values({ channelId: input.channelId, targetUserId: input.targetUserId, body: input.body, scheduledFor: new Date(input.scheduledFor), createdBy: actor.sub }).returning({ id: scheduledMessages.id, status: scheduledMessages.status, scheduledFor: scheduledMessages.scheduledFor });
-    await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'rocketchat.message.scheduled', entityType: 'scheduled_message', entityId: row.id, result: 'SUCCESS' });
+    const [row] = await this.db.db.insert(scheduledMessages).values({ channelId: input.channelId, targetUserId: input.targetUserId, body: input.body, scheduledFor: new Date(input.scheduledFor), recurrenceRule: input.recurrenceRule ? JSON.stringify(input.recurrenceRule) : null, createdBy: actor.sub }).returning({ id: scheduledMessages.id, status: scheduledMessages.status, scheduledFor: scheduledMessages.scheduledFor });
+    await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'rocketchat.message.scheduled', entityType: 'scheduled_message', entityId: row.id, result: 'SUCCESS', metadata: { recurrence: input.recurrenceRule?.frequency ?? null } });
     return row;
   }
   async scheduled(actor: ChatActor) {
@@ -82,7 +83,8 @@ export class CommunicationService {
             )`,
           ),
         );
-    return this.db.db.select({ id: scheduledMessages.id, channelId: scheduledMessages.channelId, targetUserId: scheduledMessages.targetUserId, body: scheduledMessages.body, scheduledFor: scheduledMessages.scheduledFor, recurrenceRule: scheduledMessages.recurrenceRule, status: scheduledMessages.status, sentAt: scheduledMessages.sentAt, attempts: scheduledMessages.attempts, lastError: scheduledMessages.lastError, createdBy: scheduledMessages.createdBy }).from(scheduledMessages).where(scope).orderBy(desc(scheduledMessages.scheduledFor));
+    const rows = await this.db.db.select({ id: scheduledMessages.id, channelId: scheduledMessages.channelId, targetUserId: scheduledMessages.targetUserId, body: scheduledMessages.body, scheduledFor: scheduledMessages.scheduledFor, recurrenceRule: scheduledMessages.recurrenceRule, status: scheduledMessages.status, sentAt: scheduledMessages.sentAt, attempts: scheduledMessages.attempts, lastError: scheduledMessages.lastError, createdBy: scheduledMessages.createdBy }).from(scheduledMessages).where(scope).orderBy(desc(scheduledMessages.scheduledFor));
+    return rows.map((row) => ({ ...row, recurrenceRule: parseStoredRecurrence(row.recurrenceRule) }));
   }
 
   async cancelScheduled(id: string, actor: ChatActor) {
