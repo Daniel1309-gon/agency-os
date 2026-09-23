@@ -15,7 +15,7 @@ import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { DevicesService } from '../../modules/devices/devices.service.js';
 import { ProfilesService } from '../../modules/profiles/profiles.service.js';
-import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, profileSessions, shiftTemplates, shifts } from '../../database/schema/index.js';
+import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, profileSessions, shiftTemplates, shifts, ttProfiles } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 /**
@@ -490,6 +490,26 @@ describe('AdminService', () => {
     expect(result.map((user) => user.id)).not.toContain(outsider.id);
   });
 
+  it('pages the audit log with a stable cursor, tie-breaking equal timestamps by id', async () => {
+    const reader = await createUser(ctx, { role: 'ADMIN' });
+    const actor = await createUser(ctx);
+    const same = new Date('2026-09-20T15:00:00.000Z');
+    await ctx.db.insert(auditLog).values([
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: new Date('2026-09-20T14:00:00.000Z') },
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: same },
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: same },
+    ]);
+    const all = await admin.audit({ action: 'cursor.test', limit: '10' }, { sub: reader.id, role: 'ADMIN' });
+    expect(all.data).toHaveLength(3);
+
+    const first = await admin.audit({ action: 'cursor.test', limit: '2' }, { sub: reader.id, role: 'ADMIN' });
+    expect(first.pagination.nextCursor).toEqual(expect.any(String));
+    const second = await admin.audit({ action: 'cursor.test', limit: '2', cursor: first.pagination.nextCursor! }, { sub: reader.id, role: 'ADMIN' });
+
+    expect([...first.data, ...second.data].map((row) => row.id)).toEqual(all.data.map((row) => row.id));
+    expect(second.pagination.nextCursor).toBeNull();
+  });
+
   it('limits coordinator audit reads to actors in their crew at event time', async () => {
     const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
     const managed = await createUser(ctx);
@@ -545,6 +565,21 @@ describe('AdminService', () => {
     await expect(
       admin.createUser({ email: 'x@agency.test', fullName: 'X', password: 'una-contrasena', roleCode: 'NO_EXISTE' }, actor.id),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ProfilesService', () => {
+  it('rejects an update carrying a stale version with a 409 and keeps the newer data', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const claims = { sub: actor.id, role: 'ADMIN' as const };
+    const created = await profilesService.create({ displayName: 'Versioned', loginEmail: 'versioned@talky.test' }, claims);
+
+    const updated = await profilesService.update(created.id, { displayName: 'First writer', version: created.version }, claims);
+    expect(updated.version).toBe(created.version + 1);
+    await expect(profilesService.update(created.id, { displayName: 'Stale writer', version: created.version }, claims)).rejects.toThrow(ConflictException);
+
+    const [row] = await ctx.db.select({ displayName: ttProfiles.displayName, version: ttProfiles.version }).from(ttProfiles).where(eq(ttProfiles.id, created.id));
+    expect(row).toEqual({ displayName: 'First writer', version: updated.version });
   });
 });
 
