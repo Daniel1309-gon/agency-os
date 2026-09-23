@@ -9,7 +9,6 @@ import { RocketChatClient } from './rocketchat.client.js';
 import { ConfigService } from '../../config/config.service.js';
 
 const messagePayload = z.object({ channelId: z.string().uuid().optional(), targetUserId: z.string().uuid().optional(), roomId: z.string().min(1).optional(), body: z.string().min(1).max(4000), scheduledMessageId: z.string().uuid().optional(), sourceMessageId: z.string().trim().min(1).max(160).optional() }).refine((value) => [value.channelId, value.targetUserId, value.roomId].filter(Boolean).length === 1);
-const breakPayload = z.object({ breakId: z.string().uuid(), operatorId: z.string().uuid(), scheduledAt: z.string().optional() });
 
 class PermanentDeliveryError extends Error {}
 
@@ -80,11 +79,6 @@ export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
         const payload = messagePayload.parse(event.payload);
         const roomId = await this.resolveRoom(payload);
         await this.rocketchat.sendMessage(roomId, payload.body, `agency-outbox-${event.id}`, payload.sourceMessageId);
-      } else if (event.eventType === 'break.reminder') {
-        const payload = breakPayload.parse(event.payload);
-        const [user] = await this.db.db.select({ roomId: users.rocketchatDirectRoomId }).from(users).where(eq(users.id, payload.operatorId)).limit(1);
-        if (!user?.roomId) throw new PermanentDeliveryError('Operator has no Rocket.Chat direct room mapping');
-        await this.rocketchat.sendMessage(user.roomId, `Tu break programado comienza a las ${payload.scheduledAt ?? 'hora asignada'}.`, `agency-outbox-${event.id}`);
       } else {
         throw new PermanentDeliveryError(`Unsupported outbox event ${event.eventType}`);
       }

@@ -187,9 +187,10 @@ export const routeContracts = [
   route('DELETE', '/api/v1/crews/{id}/members/{userId}', 'RESOURCE'),
   route('GET', '/api/v1/operators/status', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/operators/me/status', 'SELF'),
-  route('GET', '/api/v1/breaks/{shiftId}', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
-  route('POST', '/api/v1/breaks/{id}/start', 'SELF'),
-  route('POST', '/api/v1/breaks/{id}/end', 'SELF'),
+    route('GET', '/api/v1/breaks/{shiftId}', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
+    route('POST', '/api/v1/breaks/start', 'SELF'),
+    route('POST', '/api/v1/breaks/{id}/start', 'SELF'),
+    route('POST', '/api/v1/breaks/{id}/end', 'SELF'),
 
   route('GET', '/api/v1/rocketchat/channels', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/rocketchat/channels', 'CREW'),

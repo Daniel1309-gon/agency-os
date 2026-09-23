@@ -1,9 +1,13 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { breaks, shifts } from '../../database/schema/index.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+
+/** Ventana de break por iniciativa del operador (OPS-06, decision de la clienta). */
+export const BREAK_WINDOW_MS = 4 * 3_600_000;
+export const BREAK_MAX_MINUTES = 20;
 
 @Injectable()
 export class BreaksService {
@@ -24,6 +28,48 @@ export class BreaksService {
       status: breaks.status,
     }).from(breaks).innerJoin(shifts, eq(shifts.id, breaks.shiftId)).where(and(eq(breaks.shiftId, shiftId), eq(shifts.operatorId, operatorId)));
   }
+  /**
+   * Break por iniciativa del operador (OPS-06): se crea y se inicia en el turno
+   * IN_PROGRESS. Dos ventanas de 4 h contadas desde la hora PROGRAMADA del turno
+   * -la primera en las primeras 4 h y la segunda en las 4 siguientes-; llegar
+   * tarde no corre las ventanas y lo que no se toma se pierde. El tope de 20 min
+   * lo aplica el job `breaks:auto-close`.
+   */
+  async startNew(operatorId: string) {
+    return this.db.transaction(async () => {
+      await this.db.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${operatorId}, 0))`);
+      const [shift] = await this.db.db
+        .select({ id: shifts.id, from: sql<Date | string | null>`lower(${shifts.scheduledRange})` })
+        .from(shifts)
+        .where(and(eq(shifts.operatorId, operatorId), eq(shifts.status, 'IN_PROGRESS')))
+        .limit(1);
+      if (!shift) throw new ConflictException('No shift in progress');
+      const scheduledFrom = shift.from ? new Date(shift.from) : null;
+      if (!scheduledFrom || Number.isNaN(scheduledFrom.getTime())) throw new ConflictException('Shift has no scheduled window');
+      const now = new Date();
+      const elapsed = now.getTime() - scheduledFrom.getTime();
+      const windowIndex = elapsed < 0 ? 0 : Math.floor(elapsed / BREAK_WINDOW_MS);
+      if (windowIndex > 1) throw new ConflictException('Breaks are only available during the first eight hours of the shift');
+      const windowStart = new Date(scheduledFrom.getTime() + windowIndex * BREAK_WINDOW_MS);
+      const windowEnd = new Date(windowStart.getTime() + BREAK_WINDOW_MS);
+      const [active] = await this.db.db.select({ id: breaks.id }).from(breaks).where(and(eq(breaks.shiftId, shift.id), eq(breaks.status, 'IN_PROGRESS'))).limit(1);
+      if (active) throw new ConflictException('Operator already has an active break');
+      const [taken] = await this.db.db
+        .select({ id: breaks.id })
+        .from(breaks)
+        .where(and(eq(breaks.shiftId, shift.id), gte(breaks.startedAt, windowStart), lt(breaks.startedAt, windowEnd)))
+        .limit(1);
+      if (taken) throw new ConflictException('Break already taken in this window');
+      const [row] = await this.db.db
+        .insert(breaks)
+        .values({ shiftId: shift.id, type: 'REST', status: 'IN_PROGRESS', startedAt: now })
+        .returning({ id: breaks.id, shiftId: breaks.shiftId, status: breaks.status, startedAt: breaks.startedAt });
+      await this.audit.record({ actorType: 'USER', actorUserId: operatorId, action: 'break.started', entityType: 'break', entityId: row.id, result: 'SUCCESS', metadata: { shiftId: shift.id } });
+      await this.realtime.publishOperatorChanged(operatorId);
+      return row;
+    });
+  }
+
   async start(id: string, operatorId: string) {
     return this.db.transaction(async () => {
       await this.db.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${operatorId}, 0))`);

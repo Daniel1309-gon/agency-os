@@ -76,7 +76,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     // ---- Instancia A: arranque de turno, perfil abierto, break en curso ----
     let api = await bootApi();
     const shift = await api.shifts.create(
-      { operatorId: morning.id, businessDate: '2026-08-23', scheduledFrom: isoOffset(-120), scheduledTo: handoverAt, breaks: [{ type: 'REST', scheduledAt: isoOffset(-30) }] },
+      { operatorId: morning.id, businessDate: '2026-08-23', scheduledFrom: isoOffset(-120), scheduledTo: handoverAt },
       admin.id,
     );
     await api.shifts.start(shift.id, morning.id);
@@ -85,8 +85,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, morning.id, device.id);
     const active = await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.id);
 
-    const [pending] = await api.breaks.list(shift.id, morning.id);
-    const started = await api.breaks.start(pending.id, morning.id);
+    const started = await api.breaks.startNew(morning.id);
     expect(started).toMatchObject({ status: 'IN_PROGRESS' });
 
     // Se retrasan sesion y break para que el turno tenga tramos de verdad y la resta del
@@ -140,7 +139,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
 
     let api = await bootApi();
     const shift = await api.shifts.create(
-      { operatorId: operator.id, businessDate: '2026-08-23', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60), breaks: [{ type: 'REST', scheduledAt: isoOffset(-30) }] },
+      { operatorId: operator.id, businessDate: '2026-08-23', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
       admin.id,
     );
     await api.shifts.start(shift.id, operator.id);
@@ -159,8 +158,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     expect(beats.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
 
     // Dos cierres de turno concurrentes: uno completa, el otro no encuentra turno en curso.
-    const [pending] = await api.breaks.list(shift.id, operator.id);
-    await api.breaks.start(pending.id, operator.id);
+    await api.breaks.startNew(operator.id);
     const ends = await Promise.allSettled([api.shifts.end(shift.id, operator.id), api.shifts.end(shift.id, operator.id)]);
     const fulfilled = ends.filter((result) => result.status === 'fulfilled');
     expect(fulfilled).toHaveLength(1);

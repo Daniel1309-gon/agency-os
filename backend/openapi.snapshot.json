@@ -1776,6 +1776,49 @@
         }
       }
     },
+    "/api/v1/breaks/start": {
+      "post": {
+        "operationId": "BreaksController.startNew",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Breaks"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/breaks/start",
+          "scope": "SELF",
+          "shift": true
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ],
+        "x-agency-shift": true
+      }
+    },
     "/api/v1/cafeteria/accounts/me": {
       "get": {
         "operationId": "CafeteriaController.account",

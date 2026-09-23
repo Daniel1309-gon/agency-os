@@ -7,10 +7,6 @@ export const shiftCreateSchema = z.object({
   scheduledTo: z.string().datetime({ offset: true }),
   templateId: z.string().uuid().optional(),
   notes: z.string().max(1000).optional(),
-  breaks: z.array(z.object({
-    type: z.string().trim().min(1).max(16),
-    scheduledAt: z.string().datetime({ offset: true }),
-  })).max(8).default([]),
 });
 export const shiftStateSchema = z.object({});
 export const shiftTemplateSchema = z.object({ name: z.string().trim().min(1).max(160), crewId: z.string().uuid().optional(), startTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/), endTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/), crossesMidnight: z.boolean().default(false), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7), breakMinutes: z.number().int().nonnegative().max(480).default(0), validFrom: z.string().date(), validTo: z.string().date().optional() });

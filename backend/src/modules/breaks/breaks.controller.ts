@@ -7,6 +7,7 @@ import { BreaksService } from './breaks.service.js';
 export class BreaksController {
   constructor(private readonly breaks: BreaksService) {}
   @Get(':shiftId') @RequirePermissions('shifts.read') list(@Param('shiftId') shiftId: string, @CurrentUser() user: AccessTokenClaims) { return this.breaks.list(shiftId, user.sub); }
+  @Post('start') @RequireRoles('OPERADOR') @RequireShift() startNew(@CurrentUser() user: AccessTokenClaims) { return this.breaks.startNew(user.sub); }
   @Post(':id/start') @RequireRoles('OPERADOR') @RequireShift() start(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.breaks.start(id, user.sub); }
   @Post(':id/end') @RequireRoles('OPERADOR') @RequireShift() end(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.breaks.end(id, user.sub); }
 }

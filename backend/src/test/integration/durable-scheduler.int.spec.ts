@@ -13,7 +13,7 @@ let jobs: JobsService;
 
 const JOB_NAMES = [
   'audit:partitions',
-  'breaks:notify',
+  'breaks:auto-close',
   'cafeteria:expire-orders',
   'sessions:reap',
   'shifts:materialize',

@@ -31,7 +31,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | OPS-03 sesiones, CAS, reaper | `PARCIAL` | `assignments.service.ts`; `0012`; pruebas de CAS y STALE; el reaper corre en el scheduler durable (`job_runs` con lease, sin lock Redis) | Solo queda el ensayo con dos workers | E1-04c sobre VPS |
 | OPS-04 proyección de perfiles/estado | `PARCIAL` | `GET /agent/profiles/assigned`; `operator-status.int.spec.ts` | Snapshot WS monotónico y telemetría de error incompletos (Fase C1 los revalida) | E1-12 + C1 |
 | OPS-05 materialización :05 y cruce de mes | `PARCIAL` (slice E1-04b verificado) | `jobs.service.ts:129-169`, `shift-schedule.ts`; `e1-04b-cierre-relevo-2026-09-09.md` | Falta reinicio real de API/worker con scheduler arrancando y overrides de fin de mes | E1-04b remate / E1-06 |
-| OPS-06 breaks, aviso durable y semáforo | `PARCIAL` (OQ-03) | `breaks.service.ts`, aviso por outbox `jobs.service.ts:171-196` | Autocierre por duración y reglas OQ-03 | Decisión externa + E1-11 |
+| OPS-06 breaks, aviso durable y semáforo | `CERRADO` (2026-09-23) | `breaks.service.ts`, `jobs.service.ts` (`breaks:auto-close`), panel del operador; ventanas de 4 h desde la hora programada, tope de 20 min y sin breaks programados. Evidencia [`e1-ops-06`](evidence/e1-ops-06-breaks-2026-09-23.md) | Queda la observación con la cuadrilla real (gate externo) | Conservar como regresión |
 | OPS-07 tiempo efectivo | `CERRADO` | `effective-time.port.ts`; ADR 0011; `ops-07-effective-time-2026-09-08.md` | — | Conservar como regresión |
 | WEB-01 frontend E1 | `CERRADO` | `frontend-delivery-1-2026-08-26.md`; componentes citados en `todo.md` | — | Conservar |
 

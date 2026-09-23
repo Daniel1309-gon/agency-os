@@ -16,8 +16,6 @@ interface ShiftForm {
   scheduledFrom: string;
   scheduledTo: string;
   templateId: string;
-  breakType: string;
-  breakAt: string;
   notes: string;
 }
 
@@ -33,7 +31,7 @@ function localPlusHours(hours: number): string {
   return toLocalDateTime(new Date(Date.now() + hours * 60 * 60 * 1000));
 }
 
-const emptyShiftForm: ShiftForm = { operatorId: '', businessDate: localDateString(), scheduledFrom: toLocalDateTime(new Date()), scheduledTo: localPlusHours(8), templateId: '', breakType: '', breakAt: '', notes: '' };
+const emptyShiftForm: ShiftForm = { operatorId: '', businessDate: localDateString(), scheduledFrom: toLocalDateTime(new Date()), scheduledTo: localPlusHours(8), templateId: '', notes: '' };
 const emptyOverrideForm: OverrideForm = { operatorId: '', validFrom: toLocalDateTime(new Date()), validTo: localPlusHours(1), type: 'OVERTIME', reason: '' };
 
 function typeLabel(type: OverrideForm['type']): string {
@@ -100,8 +98,7 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
     setError(null);
     setNotice(null);
     try {
-      const breaks = shiftForm.breakAt && shiftForm.breakType ? [{ type: shiftForm.breakType, scheduledAt: toIsoDateTime(shiftForm.breakAt) }] : [];
-      const raw = await apiClient.request<unknown>('/shifts', { method: 'POST', body: JSON.stringify({ operatorId: shiftForm.operatorId, businessDate: shiftForm.businessDate, scheduledFrom: toIsoDateTime(shiftForm.scheduledFrom), scheduledTo: toIsoDateTime(shiftForm.scheduledTo), templateId: shiftForm.templateId || undefined, notes: shiftForm.notes || undefined, breaks }) });
+      const raw = await apiClient.request<unknown>('/shifts', { method: 'POST', body: JSON.stringify({ operatorId: shiftForm.operatorId, businessDate: shiftForm.businessDate, scheduledFrom: toIsoDateTime(shiftForm.scheduledFrom), scheduledTo: toIsoDateTime(shiftForm.scheduledTo), templateId: shiftForm.templateId || undefined, notes: shiftForm.notes || undefined }) });
       const created = createdShiftSchema.parse(raw);
       setCreatedShifts((current) => [created, ...current].slice(0, 5));
       setNotice('Turno creado y disponible para las asignaciones de perfiles.');
@@ -167,8 +164,6 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
             <label><span>Inicio</span><input required type="datetime-local" value={shiftForm.scheduledFrom} onChange={(event) => updateShiftField('scheduledFrom', event.target.value)} /></label>
             <label><span>Fin</span><input required type="datetime-local" value={shiftForm.scheduledTo} onChange={(event) => updateShiftField('scheduledTo', event.target.value)} /></label>
             <label><span>Plantilla</span><select value={shiftForm.templateId} onChange={(event) => updateShiftField('templateId', event.target.value)}><option value="">Sin plantilla</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.startTime}–{item.endTime}</option>)}</select></label>
-            <label><span>Tipo de descanso</span><input value={shiftForm.breakType} placeholder="REST" onChange={(event) => updateShiftField('breakType', event.target.value)} /></label>
-            <label><span>Hora de descanso</span><input type="datetime-local" value={shiftForm.breakAt} onChange={(event) => updateShiftField('breakAt', event.target.value)} /></label>
             <label className="management-form__wide"><span>Notas</span><textarea rows={2} maxLength={1000} value={shiftForm.notes} onChange={(event) => updateShiftField('notes', event.target.value)} /></label>
           </div>
           {!templates.length && <p className="management-form__hint">Todavía no hay plantillas activas. {canManageShifts ? 'Crea la primera arriba y aparecerá en esta lista.' : 'Pide a un coordinador que cree una.'}</p>}

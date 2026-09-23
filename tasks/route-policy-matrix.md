@@ -28,6 +28,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/breaks/{id}/end` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/breaks/{id}/start` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/breaks/{shiftId}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: shifts.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
+| `POST /api/v1/breaks/start` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/cafeteria/accounts/me` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/cafeteria/menu` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | UNBOUNDED |
 | `GET /api/v1/cafeteria/orders` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |

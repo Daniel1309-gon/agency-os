@@ -165,27 +165,6 @@ describe('ShiftsService', () => {
     expect((await shiftsService.end(shift.id, operator.id)).effectiveMinutes).toBe(0);
   });
 
-  it('creates scheduled breaks together with the shift and stores their assigned time', async () => {
-    const actor = await createUser(ctx, { role: 'ADMIN' });
-    const operator = await createUser(ctx);
-    const scheduledFrom = isoOffset(-60);
-    const scheduledTo = isoOffset(60);
-    const scheduledAt = isoOffset(15);
-
-    const shift = await shiftsService.create({
-      operatorId: operator.id,
-      businessDate: '2026-08-04',
-      scheduledFrom,
-      scheduledTo,
-      breaks: [{ type: 'REST', scheduledAt }],
-    }, actor.id);
-
-    const rows = await ctx.db.select().from(breaks).where(eq(breaks.shiftId, shift.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ type: 'REST', status: 'PENDING' });
-    expect(rows[0].scheduledAt?.toISOString()).toBe(scheduledAt);
-  });
-
   it('refuses to start a shift twice or to close one that never started', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
@@ -224,80 +203,92 @@ describe('ShiftsService', () => {
 });
 
 describe('BreaksService', () => {
-  async function shiftWithBreak(): Promise<{ operatorId: string; shiftId: string; breakId: string }> {
+  /** Turno en curso con hora programada relativa; por defecto, 1 h dentro de la ventana 1. */
+  async function activeShift(scheduledFromMinutes = -60, durationMinutes = 8 * 60): Promise<{ operatorId: string; shiftId: string }> {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = await shiftsService.create(
-      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(scheduledFromMinutes), scheduledTo: isoOffset(scheduledFromMinutes + durationMinutes) },
       actor.id,
     );
-    const [row] = await ctx.db.insert(breaks).values({ shiftId: shift.id, type: 'SCHEDULED', status: 'PENDING' }).returning({ id: breaks.id });
     await shiftsService.start(shift.id, operator.id);
-    return { operatorId: operator.id, shiftId: shift.id, breakId: row.id };
+    return { operatorId: operator.id, shiftId: shift.id };
   }
 
-  it('measures the break from start to end', async () => {
-    const s = await shiftWithBreak();
-    await breaksService.start(s.breakId, s.operatorId);
-    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 20 * 60_000) }).where(eq(breaks.id, s.breakId));
+  const autoClose = () => (jobs as unknown as { autoCloseBreaks(): Promise<void> }).autoCloseBreaks();
 
-    const ended = await breaksService.end(s.breakId, s.operatorId);
-    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 20 });
+  it('starts a break by operator initiative inside the first window', async () => {
+    const s = await activeShift();
+
+    const started = await breaksService.startNew(s.operatorId);
+
+    expect(started).toMatchObject({ shiftId: s.shiftId, status: 'IN_PROGRESS' });
+    expect(started.startedAt).toBeInstanceOf(Date);
+    expect(await breaksService.list(s.shiftId, s.operatorId)).toHaveLength(1);
   });
 
-  it('refuses to start a break twice or to end one that never started', async () => {
-    const s = await shiftWithBreak();
-    await expect(breaksService.end(s.breakId, s.operatorId)).rejects.toThrow(NotFoundException);
-    await breaksService.start(s.breakId, s.operatorId);
-    await expect(breaksService.start(s.breakId, s.operatorId)).rejects.toThrow(ConflictException);
+  it('rejects a second break in the same window', async () => {
+    const s = await activeShift();
+    const first = await breaksService.startNew(s.operatorId);
+
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Operator already has an active break');
+    await breaksService.end(first.id, s.operatorId);
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Break already taken in this window');
   });
 
-  it('does not let an operator take somebody else break', async () => {
-    const s = await shiftWithBreak();
-    const intruder = await createUser(ctx);
-    await expect(breaksService.start(s.breakId, intruder.id)).rejects.toThrow(ConflictException);
-    expect(await breaksService.list(s.shiftId, intruder.id)).toHaveLength(0);
+  it('allows the second break in the following window', async () => {
+    // Turno programado hace 5 h: la ventana vigente es la 2.
+    const s = await activeShift(-5 * 60);
+    // Break de la ventana 1, tomado hace 4.5 h.
+    await ctx.db.insert(breaks).values({ shiftId: s.shiftId, type: 'REST', status: 'COMPLETED', startedAt: new Date(Date.now() - 4.5 * 3_600_000), endedAt: new Date(Date.now() - 4.5 * 3_600_000 + 20 * 60_000), durationMinutes: 20 });
+
+    const second = await breaksService.startNew(s.operatorId);
+
+    expect(second).toMatchObject({ status: 'IN_PROGRESS' });
+    expect(await breaksService.list(s.shiftId, s.operatorId)).toHaveLength(2);
   });
 
-  it('allows at most one active break per operator', async () => {
-    const s = await shiftWithBreak();
-    const [second] = await ctx.db.insert(breaks).values({ shiftId: s.shiftId, type: 'REST', status: 'PENDING' }).returning({ id: breaks.id });
+  it('rejects any break after the first eight hours of the shift', async () => {
+    const s = await activeShift(-9 * 60, 10 * 60);
 
-    await breaksService.start(s.breakId, s.operatorId);
-    await expect(breaksService.start(second.id, s.operatorId)).rejects.toThrow(ConflictException);
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Breaks are only available during the first eight hours of the shift');
   });
 
-  it('closes an active break and cancels pending breaks when the shift ends', async () => {
-    const s = await shiftWithBreak();
-    await breaksService.start(s.breakId, s.operatorId);
-    const [pending] = await ctx.db.insert(breaks).values({ shiftId: s.shiftId, type: 'REST', status: 'PENDING' }).returning({ id: breaks.id });
+  it('closes the break automatically at twenty minutes', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+
+    await autoClose();
+    const [running] = await ctx.db.select({ status: breaks.status }).from(breaks).where(eq(breaks.id, started.id));
+    expect(running.status).toBe('IN_PROGRESS');
+
+    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 21 * 60_000) }).where(eq(breaks.id, started.id));
+    await autoClose();
+
+    const [closed] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, started.id));
+    expect(closed).toMatchObject({ status: 'COMPLETED', durationMinutes: 20 });
+    expect(closed.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('lets the operator end the break before the automatic close', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 7 * 60_000) }).where(eq(breaks.id, started.id));
+
+    const ended = await breaksService.end(started.id, s.operatorId);
+
+    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 7 });
+  });
+
+  it('closes the active break when the shift ends', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
 
     await shiftsService.end(s.shiftId, s.operatorId);
 
-    const rows = await ctx.db.select({ id: breaks.id, status: breaks.status, endedAt: breaks.endedAt }).from(breaks).where(eq(breaks.shiftId, s.shiftId));
-    expect(rows.find((row) => row.id === s.breakId)).toMatchObject({ status: 'COMPLETED' });
-    expect(rows.find((row) => row.id === s.breakId)?.endedAt).toBeInstanceOf(Date);
-    expect(rows.find((row) => row.id === pending.id)).toMatchObject({ status: 'CANCELLED' });
-  });
-
-  it('emits one durable reminder for an upcoming scheduled break', async () => {
-    const actor = await createUser(ctx, { role: 'ADMIN' });
-    const operator = await createUser(ctx);
-    const shift = await shiftsService.create({
-      operatorId: operator.id,
-      businessDate: '2026-08-04',
-      scheduledFrom: isoOffset(-60),
-      scheduledTo: isoOffset(60),
-      breaks: [{ type: 'REST', scheduledAt: isoOffset(5) }],
-    }, actor.id);
-
-    await (jobs as unknown as { notifyUpcomingBreaks(): Promise<void> }).notifyUpcomingBreaks();
-    await (jobs as unknown as { notifyUpcomingBreaks(): Promise<void> }).notifyUpcomingBreaks();
-
-    const [scheduled] = await ctx.db.select({ notifiedAt: breaks.notifiedAt }).from(breaks).where(eq(breaks.shiftId, shift.id));
-    const events = await ctx.db.select({ eventType: outboxEvents.eventType, aggregateId: outboxEvents.aggregateId }).from(outboxEvents);
-    expect(scheduled.notifiedAt).toBeInstanceOf(Date);
-    expect(events).toEqual([{ eventType: 'break.reminder', aggregateId: expect.any(String) }]);
+    const [row] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt }).from(breaks).where(eq(breaks.id, started.id));
+    expect(row.status).toBe('COMPLETED');
+    expect(row.endedAt).toBeInstanceOf(Date);
   });
 });
 

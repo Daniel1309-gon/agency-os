@@ -51,7 +51,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       { name: 'cafeteria:expire-orders', intervalMs: 60_000, run: () => this.expireOrders() },
       { name: 'shifts:materialize', intervalMs: 60_000, run: () => this.materializeShiftBacklog() },
       { name: 'shifts:open-close', intervalMs: 60_000, run: () => this.closeExpiredShifts() },
-      { name: 'breaks:notify', intervalMs: 60_000, run: () => this.notifyUpcomingBreaks() },
+      // Despues de open-close: un break que cruza el fin de turno se cierra con
+      // el corte real del turno, no con el tope de 20 minutos.
+      { name: 'breaks:auto-close', intervalMs: 60_000, run: () => this.autoCloseBreaks() },
       { name: 'audit:partitions', intervalMs: 3_600_000, run: () => this.maintainAuditPartitions() },
     ];
   }
@@ -230,30 +232,22 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     await Promise.all(operatorIds.map((operatorId) => this.realtime.publishOperatorChanged(operatorId)));
   }
 
-  private async notifyUpcomingBreaks(): Promise<void> {
-    await this.db.transaction(async () => {
-      const candidates = await this.db.db
-        .select({ id: breaks.id, shiftId: breaks.shiftId, scheduledAt: breaks.scheduledAt, operatorId: shifts.operatorId })
-        .from(breaks)
-        .innerJoin(shifts, eq(shifts.id, breaks.shiftId))
-        .where(and(
-          eq(breaks.status, 'PENDING'),
-          isNull(breaks.notifiedAt),
-          isNotNull(breaks.scheduledAt),
-          lte(breaks.scheduledAt, new Date(Date.now() + 10 * 60_000)),
-          or(eq(shifts.status, 'SCHEDULED'), eq(shifts.status, 'IN_PROGRESS')),
-        ))
-        .limit(250);
-      for (const candidate of candidates) {
-        const [claimed] = await this.db.db.update(breaks).set({ notifiedAt: new Date() }).where(and(eq(breaks.id, candidate.id), isNull(breaks.notifiedAt))).returning({ id: breaks.id });
-        if (!claimed) continue;
-        await this.db.db.insert(outboxEvents).values({
-          eventType: 'break.reminder',
-          aggregateType: 'break',
-          aggregateId: candidate.id,
-          payload: { breakId: candidate.id, shiftId: candidate.shiftId, operatorId: candidate.operatorId, scheduledAt: candidate.scheduledAt?.toISOString() },
-        });
-      }
-    });
+  /**
+   * Cierra a los 20 minutos los breaks que el operador inicio y no termino. El
+   * `ended_at` sale de `started_at + 20 min` en Postgres, no del reloj del
+   * worker: el tope es una regla de la plataforma, no del proceso que la aplica.
+   */
+  private async autoCloseBreaks(): Promise<void> {
+    const closed = await this.db.db
+      .update(breaks)
+      .set({ status: 'COMPLETED', endedAt: sql`${breaks.startedAt} + interval '20 minutes'`, durationMinutes: 20 })
+      .where(and(eq(breaks.status, 'IN_PROGRESS'), sql`${breaks.startedAt} + interval '20 minutes' <= now()`))
+      .returning({ id: breaks.id, shiftId: breaks.shiftId });
+    if (!closed.length) return;
+    const operators = await this.db.db
+      .selectDistinct({ operatorId: shifts.operatorId })
+      .from(shifts)
+      .where(inArray(shifts.id, closed.map((row) => row.shiftId)));
+    await Promise.all(operators.map((row) => this.realtime.publishOperatorChanged(row.operatorId)));
   }
 }

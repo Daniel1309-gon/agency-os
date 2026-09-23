@@ -25,20 +25,10 @@ export class ShiftsService {
   async create(input: ShiftCreateInput, actorId: string) {
     await this.assertActorCanManageOperator(actorId, input.operatorId);
     const rangeValue = scheduledRange(input.scheduledFrom, input.scheduledTo);
-    const start = new Date(input.scheduledFrom).getTime();
-    const end = new Date(input.scheduledTo).getTime();
-    const scheduledBreaks = input.breaks ?? [];
-    if (scheduledBreaks.some((item) => {
-      const scheduledAt = new Date(item.scheduledAt).getTime();
-      return scheduledAt < start || scheduledAt >= end;
-    })) throw new ConflictException('Every break must be scheduled inside the shift window');
     try {
       return await this.db.transaction(async () => {
         const [row] = await this.db.db.insert(shifts).values({ operatorId: input.operatorId, templateId: input.templateId, businessDate: input.businessDate, scheduledRange: rangeValue, notes: input.notes, createdBy: actorId }).returning({ id: shifts.id, operatorId: shifts.operatorId, businessDate: shifts.businessDate, scheduledRange: shifts.scheduledRange, status: shifts.status });
-        if (scheduledBreaks.length) {
-          await this.db.db.insert(breaks).values(scheduledBreaks.map((item) => ({ shiftId: row.id, type: item.type, scheduledAt: new Date(item.scheduledAt), status: 'PENDING' })));
-        }
-        await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'shift.created', entityType: 'shift', entityId: row.id, result: 'SUCCESS', metadata: { shiftId: row.id, operatorId: row.operatorId, businessDate: row.businessDate, count: scheduledBreaks.length } });
+        await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'shift.created', entityType: 'shift', entityId: row.id, result: 'SUCCESS', metadata: { shiftId: row.id, operatorId: row.operatorId, businessDate: row.businessDate } });
         return row;
       });
     } catch (error) {
