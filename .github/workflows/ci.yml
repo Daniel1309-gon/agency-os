@@ -1,7 +1,10 @@
 name: CI
 
 on:
+  # Las ramas se verifican por su PR; un push de la rama con PR abierto
+  # duplicaría el run y el grupo de concurrencia cancelaría uno de los dos.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
