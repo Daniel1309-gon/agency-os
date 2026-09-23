@@ -52,7 +52,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       { name: 'shifts:materialize', intervalMs: 60_000, run: () => this.materializeShiftBacklog() },
       { name: 'shifts:open-close', intervalMs: 60_000, run: () => this.closeExpiredShifts() },
       // Despues de open-close: un break que cruza el fin de turno se cierra con
-      // el corte real del turno, no con el tope de 20 minutos.
+      // el corte del turno o con su tope de 20 minutos, lo que llegue antes.
       { name: 'breaks:auto-close', intervalMs: 60_000, run: () => this.autoCloseBreaks() },
       { name: 'audit:partitions', intervalMs: 3_600_000, run: () => this.maintainAuditPartitions() },
     ];
@@ -218,7 +218,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         .where(and(inArray(shifts.id, ids), eq(shifts.status, 'IN_PROGRESS')))
         .returning({ id: shifts.id, endedAt: shifts.actualEndAt });
       const endedAt = sql`(select upper(${shifts.scheduledRange}) from ${shifts} where ${shifts.id} = ${breaks.shiftId})`;
-      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt} - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
+      // Si el worker estuvo caido, el break abierto no pasa de su tope de 20 min.
+      const breakEnd = sql`least(${endedAt}, ${breaks.startedAt} + interval '20 minutes')`;
+      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt: breakEnd, durationMinutes: sql`greatest(0, round(extract(epoch from (${breakEnd} - ${breaks.startedAt})) / 60))::int` }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'IN_PROGRESS')));
       await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(inArray(breaks.shiftId, ids), eq(breaks.status, 'PENDING')));
       // Agrupar por borde conserva el procesamiento por lotes de OPS-07.
       const byBoundary = new Map<string, string[]>();

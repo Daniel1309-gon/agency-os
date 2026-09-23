@@ -66,7 +66,9 @@ export class ShiftsService {
     return this.db.transaction(async () => {
       const [row] = await this.db.db.update(shifts).set({ status: 'COMPLETED', actualEndAt: endedAt }).where(and(eq(shifts.id, id), operatorId ? eq(shifts.operatorId, operatorId) : undefined, eq(shifts.status, 'IN_PROGRESS'))).returning({ id: shifts.id, status: shifts.status, actualEndAt: shifts.actualEndAt });
       if (!row) throw new NotFoundException('Shift not found or not in progress');
-      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt, durationMinutes: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${breaks.startedAt})) / 60))::int` }).where(and(eq(breaks.shiftId, id), eq(breaks.status, 'IN_PROGRESS')));
+      // Un break abierto al cerrar el turno termina en el corte o en su tope de 20 min, lo que llegue antes.
+      const breakEnd = sql`least(${endedAt.toISOString()}::timestamptz, ${breaks.startedAt} + interval '20 minutes')`;
+      await this.db.db.update(breaks).set({ status: 'COMPLETED', endedAt: breakEnd, durationMinutes: sql`greatest(0, round(extract(epoch from (${breakEnd} - ${breaks.startedAt})) / 60))::int` }).where(and(eq(breaks.shiftId, id), eq(breaks.status, 'IN_PROGRESS')));
       await this.db.db.update(breaks).set({ status: 'CANCELLED', endedAt }).where(and(eq(breaks.shiftId, id), eq(breaks.status, 'PENDING')));
       // El tiempo efectivo se liquida despues de cerrar los breaks para que el ultimo tramo
       // de descanso ya tenga fin cuando la formula lo resta.

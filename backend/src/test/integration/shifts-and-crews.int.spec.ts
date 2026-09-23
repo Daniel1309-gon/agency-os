@@ -280,6 +280,17 @@ describe('BreaksService', () => {
     expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 7 });
   });
 
+  it('caps a late manual end at twenty minutes', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    const startedAt = new Date(Date.now() - 35 * 60_000);
+    await ctx.db.update(breaks).set({ startedAt }).where(eq(breaks.id, started.id));
+
+    const ended = await breaksService.end(started.id, s.operatorId);
+
+    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 20, endedAt: new Date(startedAt.getTime() + 20 * 60_000) });
+  });
+
   it('closes the active break when the shift ends', async () => {
     const s = await activeShift();
     const started = await breaksService.startNew(s.operatorId);
@@ -289,6 +300,18 @@ describe('BreaksService', () => {
     const [row] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt }).from(breaks).where(eq(breaks.id, started.id));
     expect(row.status).toBe('COMPLETED');
     expect(row.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('caps an overdue break at twenty minutes when the shift ends', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    const startedAt = new Date(Date.now() - 40 * 60_000);
+    await ctx.db.update(breaks).set({ startedAt }).where(eq(breaks.id, started.id));
+
+    await shiftsService.end(s.shiftId, s.operatorId);
+
+    const [row] = await ctx.db.select({ endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, started.id));
+    expect(row).toEqual({ endedAt: new Date(startedAt.getTime() + 20 * 60_000), durationMinutes: 20 });
   });
 });
 
@@ -353,12 +376,12 @@ describe('JobsService', () => {
     await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(end);
 
     const [closedShift] = await ctx.db.select({ status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(eq(shifts.id, shift.id));
-    // 8 h de turno menos los 65 minutos de descanso que quedaron abiertos hasta el cierre.
-    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 415 });
+    // El break quedo abierto hasta el cierre (worker caido): cuenta solo su tope de 20 min.
+    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 460 });
     const [missed] = await ctx.db.select({ status: shifts.status }).from(shifts).where(eq(shifts.id, missedShift.id));
     expect(missed.status).toBe('MISSED');
     const [closedBreak] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, breakRow.id));
-    expect(closedBreak).toMatchObject({ status: 'COMPLETED', endedAt: end, durationMinutes: 65 });
+    expect(closedBreak).toMatchObject({ status: 'COMPLETED', endedAt: new Date('2026-08-23T13:20:00.000Z'), durationMinutes: 20 });
   });
 
   it('recovers overdue shifts at their own boundaries across the month without adding outage time', async () => {
