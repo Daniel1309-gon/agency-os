@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { io as createClient, type Socket as ClientSocket } from 'socket.io-client';
+import Redis from 'ioredis';
 import { signAccessToken } from '../../common/auth/crypto.js';
 import { RedisIoAdapter } from '../../modules/realtime/redis-io.adapter.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
@@ -68,6 +69,37 @@ function connect(url: string, token = adminToken, extraHeaders: Record<string, s
   const snapshot = waitForSnapshot(socket);
   socket.connect();
   return { socket, snapshot };
+}
+
+/**
+ * Pub/sub no persiste: un evento emitido mientras Redis reconecta puede perderse.
+ * Reintenta el disparador hasta que un evento que cumpla `match` llega al socket.
+ */
+async function retryUntilEvent(
+  socket: ClientSocket,
+  trigger: (attempt: number) => Promise<unknown>,
+  match: (event: OperatorSnapshot) => boolean,
+  deadlineMs = 10_000,
+): Promise<void> {
+  const startedAt = performance.now();
+  for (let attempt = 1; performance.now() - startedAt < deadlineMs; attempt++) {
+    const received = new Promise<boolean>((resolve) => {
+      const onEvent = (event: OperatorSnapshot) => {
+        if (!match(event)) return;
+        clearTimeout(timeout);
+        socket.off('operator.status.changed', onEvent);
+        resolve(true);
+      };
+      const timeout = setTimeout(() => {
+        socket.off('operator.status.changed', onEvent);
+        resolve(false);
+      }, 500);
+      socket.on('operator.status.changed', onEvent);
+    });
+    await trigger(attempt);
+    if (await received) return;
+  }
+  throw new Error(`Realtime did not recover within ${deadlineMs} ms`);
 }
 
 function waitForDisconnect(socket: ClientSocket): Promise<void> {
@@ -144,6 +176,46 @@ describe('two-instance realtime semaphore', () => {
     const reconnected = connect(await second.getUrl());
     client = reconnected.socket;
     await expect(reconnected.snapshot).resolves.toEqual([expect.objectContaining({ operatorId, status: 'ALERT' })]);
+  });
+
+  it('recovers cross-instance events, the worker bridge and auth limits after Redis drops every connection', async () => {
+    const connected = connect(await second.getUrl());
+    client = connected.socket;
+    await connected.snapshot;
+
+    // Lo que ven las APIs cuando Redis se reinicia: se cortan todas sus conexiones,
+    // incluidas las de pub/sub del adaptador socket.io y del puente del worker.
+    const redisAdmin = new Redis(ctx.config.get('REDIS_URL'));
+    try {
+      await redisAdmin.client('KILL', 'TYPE', 'normal');
+      // Dos APIs × (suscriptor del adaptador + suscriptor del puente).
+      expect(Number(await redisAdmin.client('KILL', 'TYPE', 'pubsub'))).toBeGreaterThanOrEqual(4);
+    } finally {
+      redisAdmin.disconnect();
+    }
+
+    await retryUntilEvent(client, async (attempt) => {
+      const response = await first.inject({
+        method: 'POST',
+        url: '/api/v1/operators/me/status',
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { status: 'ALERT', reason: `REDIS_RECOVERY_${attempt}` },
+      });
+      expect(response.statusCode).toBe(201);
+    }, (event) => event.reason.startsWith('REDIS_RECOVERY_'));
+
+    const worker = new RealtimeService(ctx.database, ctx.redis);
+    await retryUntilEvent(client, () => worker.publishOperatorChanged(operatorId), (event) => event.operatorId === operatorId);
+
+    // El límite de login vuelve a leer Redis: credenciales malas dan 401, no 503.
+    const login = await first.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'nobody@agency-os.test', password: 'not-the-password' },
+    });
+    expect(login.statusCode).toBe(401);
+    expect(client.connected).toBe(true);
+    client.close();
   });
 
   it('rejects a token whose authorization version is stale', async () => {

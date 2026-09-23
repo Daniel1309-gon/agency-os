@@ -89,3 +89,29 @@ Pruebas nuevas relevantes:
   plan (§3) y requiere el VPS; aquí se cubren los mecanismos y sus pruebas de integración.
 - El cierre en ≤5 s se verifica en las pruebas de integración con dos instancias en la misma máquina;
   la latencia real de la oficina se mide en la prueba de carga.
+
+## Caída de Redis con las APIs vivas (E1-06, 2026-09-23)
+
+`realtime-redis.int.spec.ts` › *recovers cross-instance events, the worker bridge and auth limits
+after Redis drops every connection*: con dos APIs reales y un cliente socket.io conectado a la
+segunda, una conexión administrativa ejecuta `CLIENT KILL TYPE normal` y `CLIENT KILL TYPE pubsub`
+(corta ≥4 suscriptores: adaptador y puente de cada API). Es lo que ven los procesos cuando Redis se
+reinicia.
+
+| Comprobación | Resultado (3 corridas locales) |
+|---|---|
+| Evento originado en la API 1 llega al cliente de la API 2 | se recupera; test completo en ~620 ms |
+| Evento publicado por el worker por el puente | llega tras la resuscripción automática de ioredis |
+| Login con credenciales malas (límite en Redis) | 401, no 503 |
+| Socket del cliente con su API | sigue conectado: la conexión cliente↔API no depende de Redis |
+
+Qué se pierde y qué se recupera mientras Redis está caído:
+
+- **Se pierde**: eventos en tiempo real entre instancias y del worker emitidos durante la caída
+  (pub/sub no persiste). El test reintenta el disparador hasta recibir uno.
+- **Se degrada (503)**: login, refresh y límites que leen Redis (`auth.service.ts` convierte el fallo
+  en `ServiceUnavailableException`, sin conceder acceso).
+- **Se recupera sin reiniciar la API**: clientes de comandos (`RedisService.ensureReady`), adaptador
+  socket.io y puente (resuscripción automática). El estado de verdad está en PostgreSQL: al
+  reconectar, cada socket recibe un snapshot (`realtime-server-close.int.spec.ts`).
+- **No depende de Redis**: el scheduler durable (`job_runs` con lease en PostgreSQL).
