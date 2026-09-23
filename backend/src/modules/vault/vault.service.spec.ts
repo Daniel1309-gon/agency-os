@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VaultService } from './vault.service.js';
-import type { VaultCryptoService } from './vault.crypto.js';
+import { VaultCryptoService } from './vault.crypto.js';
+import type { ConfigService } from '../../config/config.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
 import type { AuditService } from '../../common/audit/audit.service.js';
@@ -312,5 +313,22 @@ describe('VaultService.credential-management authorization', () => {
 
     await expect(h.service.rotate(PROFILE, { username: 'perfil@talky.test', secret: 'nueva', profileVersion: 0 }, actor)).rejects.toThrow(ForbiddenException);
     await expect(h.service.meta(PROFILE, actor)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('translates a concurrent key rotation into 409 instead of 500', async () => {
+    // Dos rotaciones simultaneas calculan la misma version y chocan con la PK de
+    // encryption_keys: el SQLSTATE tiene que salir como conflicto, no como 500.
+    const h = harness();
+    const config = { get: () => 'kek-de-pruebas-de-mas-de-32-caracteres' } as unknown as ConfigService;
+    const service = new VaultService(
+      new DrizzleVaultRepository(h.db.service),
+      {} as unknown as RedisService,
+      new VaultCryptoService(config, h.db.service),
+      { record: vi.fn(async () => undefined) } as unknown as AuditService,
+      h.db.service,
+    );
+    h.db.stub('encryption_keys').failsWith(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }));
+
+    await expect(service.rotateEncryptionKey(OPERATOR)).rejects.toThrow(ConflictException);
   });
 });

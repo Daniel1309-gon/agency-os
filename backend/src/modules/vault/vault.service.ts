@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../database/pg-error.js';
 import { VaultCryptoService } from './vault.crypto.js';
 import { VAULT_REPOSITORY, type VaultRepository, type VaultScopeActor } from './vault.repository.port.js';
 import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInput } from './vault.schemas.js';
@@ -71,7 +72,15 @@ export class VaultService {
   }
 
   async rotateEncryptionKey(actorId: string): Promise<{ keyVersion: number }> {
-    const keyVersion = await this.crypto.rotateKey();
+    let keyVersion: number;
+    try {
+      keyVersion = await this.crypto.rotateKey();
+    } catch (error) {
+      // Dos rotaciones concurrentes calculan la misma version y chocan con la PK
+      // de encryption_keys; sin traducirlo, la carrera responde 500.
+      if (isPgError(error, PG_UNIQUE_VIOLATION)) throw new ConflictException('Key rotation is already in progress');
+      throw error;
+    }
     await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.key.rotated', result: 'SUCCESS', metadata: { version: keyVersion } });
     return { keyVersion };
   }

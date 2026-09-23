@@ -166,6 +166,37 @@ $COMPOSE --profile ops run --rm ops node scripts/vault-restore-check.mjs open <e
 Redis no es fuente única de información irrecuperable: al restaurar, las sesiones efímeras se
 invalidan y el trabajo duradero se recupera desde PostgreSQL (jobs, outbox, sesiones de perfil).
 
+## Rotación de la KEK del vault (SEC-09a)
+
+`VAULT_KEK` envuelve las DEK de `encryption_keys`; las credenciales siguen cifradas con su DEK. Rotar
+la KEK cambia la envoltura, no re-cifra credenciales: el recifrado a la DEK vigente es SEC-09b y queda
+para E2. Es una operación de ventana corta: mientras corre, nada debe estar cifrando ni descifrando.
+
+```sh
+# 1. Con la KEK nueva ya escrita en .env.production, agregar la anterior al mismo archivo
+#    (nunca en la línea de comandos: quedaría en el historial y en `ps`):
+#      VAULT_KEK_PREVIOUS=<kek anterior>
+# 2. Detener API y worker.
+docker compose --env-file deploy/production/.env.production -f compose.production.yml stop api worker
+# 3. Reenvolver. Aborta sin escribir si alguna fila no abre con la KEK anterior.
+docker compose --env-file deploy/production/.env.production -f compose.production.yml --profile ops run --rm ops \
+  node scripts/vault-rewrap-kek.mjs
+# 4. Quitar VAULT_KEK_PREVIOUS de .env.production, arrancar y validar la credencial sintética.
+docker compose --env-file deploy/production/.env.production -f compose.production.yml up -d api worker
+docker compose --env-file deploy/production/.env.production -f compose.production.yml --profile ops run --rm ops \
+  node scripts/vault-restore-check.mjs open <externalRef> <secreto>
+```
+
+- **Custodiar la KEK anterior 30 días**: los dumps retenidos en B2 siguen envueltos con ella, y
+  restaurar esos días exige la KEK con la que se hizo el dump, no la nueva.
+- Si el paso 3 falla, no escribió nada: confirmar que `VAULT_KEK_PREVIOUS` es la KEK vigente y repetir.
+- No confundir con `POST /vault/keys/rotate` (rotación de DEK): esa agrega una DEK nueva para
+  credenciales nuevas y no toca la KEK.
+
+Ensayo local (2026-09-23): la credencial sintética abrió con la KEK nueva, dejó de abrir con la vieja,
+la reenvoltura de vuelta la restauró y con una KEK anterior equivocada el script abortó sin cambios.
+Detalle en [`tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md`](../../tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md).
+
 ## Verificación local (sin B2)
 
 El ensayo usa el esquema real: el stack de `compose.station-e2e.yml` (migraciones, bootstrap y
