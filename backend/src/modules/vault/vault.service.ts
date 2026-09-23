@@ -131,8 +131,7 @@ export class VaultService {
     const grantKey = `vault:grant:${input.grantId}`;
     const raw = await this.redis.get(grantKey);
     if (!raw) {
-      await this.repository.markGrantReuse(input.grantId);
-      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId: input.grantId, reused: true } });
+      await this.recordGrantReuse(input.grantId, context);
       throw new ConflictException('Grant expired or already consumed');
     }
     const grant = JSON.parse(raw) as { profileId: string; sessionId: string; userId: string; deviceId: string; assignmentId: string };
@@ -153,8 +152,7 @@ export class VaultService {
     });
     if (!assignment) throw new ForbiddenException('Assignment is not active');
     if (!(await this.redis.compareAndDelete(grantKey, raw))) {
-      await this.repository.markGrantReuse(input.grantId);
-      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: grant.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId: input.grantId, reused: true } });
+      await this.recordGrantReuse(input.grantId, context);
       throw new ConflictException('Grant expired or already consumed');
     }
     const credential = await this.repository.currentCredential(grant.profileId);
@@ -220,8 +218,26 @@ export class VaultService {
     }
   }
 
+  /**
+   * Igual que `deny`: el reuso termina en excepcion, asi que su bitacora se
+   * escribe en una transaccion propia para que el rollback del request no la borre.
+   */
+  private async recordGrantReuse(grantId: string, context: RequestContext): Promise<void> {
+    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+      await this.repository.markGrantReuse(grantId);
+      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId, reused: true } });
+    });
+  }
+
+  /**
+   * La denegacion se escribe en una transaccion propia: el request termina en
+   * excepcion y el `TransactionInterceptor` revierte la suya, asi que sin esto no
+   * quedaria ni la fila de bitacora ni la de auditoria (SEC-07b).
+   */
   private async deny(profileId: string, context: RequestContext, reason: string): Promise<void> {
-    await this.repository.recordCredentialAccess({ profileId, userId: context.userId, purpose: 'LOGIN_INJECTION', granted: false, denyReason: reason, ip: context.ip });
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, action: 'vault.credential.denied', entityType: 'profile', entityId: profileId, result: 'DENIED', ip: context.ip, metadata: { profileId, denyReason: reason } });
+    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+      await this.repository.recordCredentialAccess({ profileId, userId: context.userId, purpose: 'LOGIN_INJECTION', granted: false, denyReason: reason, ip: context.ip });
+      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.denied', entityType: 'profile', entityId: profileId, result: 'DENIED', ip: context.ip, metadata: { profileId, denyReason: reason } });
+    });
   }
 }

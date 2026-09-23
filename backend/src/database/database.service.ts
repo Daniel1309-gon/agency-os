@@ -126,6 +126,29 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  /**
+   * Ejecuta el callback en su propia transaccion, sobre otra conexion del pool y
+   * con su propio contexto RLS, sin reutilizar la transaccion del request en
+   * curso. Es para registros que deben sobrevivir al rollback de una peticion que
+   * termina en error: las denegaciones del vault se escriben justo antes de
+   * lanzar la excepcion, y el `TransactionInterceptor` revierte la transaccion
+   * completa del handler.
+   *
+   * ponytail: una segunda conexion por denegacion; solo corre en caminos de
+   * denegacion, medir el pool si algun dia deja de ser raro.
+   */
+  async independentTransaction<T>(userId: string, roleCode: string, callback: () => Promise<T>): Promise<T> {
+    if (!this._db) throw new Error('Database not initialized');
+    const afterCommit: Array<() => Promise<void>> = [];
+    const result = await this._db.transaction(async (transaction) => {
+      await transaction.execute(sql`select set_config('app.user_id', ${userId}, true)`);
+      await transaction.execute(sql`select set_config('app.role_code', ${roleCode}, true)`);
+      return this.requestContext.run({ database: transaction as unknown as NodePgDatabase<typeof schema>, afterCommit }, callback);
+    });
+    await Promise.allSettled(afterCommit.map((work) => work()));
+    return result;
+  }
+
   async afterCommit(work: () => Promise<void>): Promise<void> {
     const context = this.requestContext.getStore();
     if (context) {

@@ -5,7 +5,7 @@ import { VaultService } from '../../modules/vault/vault.service.js';
 import { VaultCryptoService } from '../../modules/vault/vault.crypto.js';
 import { DrizzleVaultRepository } from '../../modules/vault/vault.drizzle-repository.js';
 import { AuditService } from '../../common/audit/audit.service.js';
-import { credentialAccessLog, profileAssignments, profileSessions, ttProfileCredentials, ttProfiles } from '../../database/schema/index.js';
+import { credentialAccessLog, auditLog, profileAssignments, profileSessions, ttProfileCredentials, ttProfiles } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
@@ -357,6 +357,59 @@ describe('grant denials are recorded with their reason', () => {
       .from(credentialAccessLog)
       .where(eq(credentialAccessLog.granted, false));
     expect(denials).toEqual([{ denyReason: 'RATE_LIMITED' }]);
+  });
+});
+
+describe('denials survive the request transaction', () => {
+  // El TransactionInterceptor envuelve todo handler con request.user en
+  // withRequestContext, y la excepcion revierte esa transaccion. La denegacion se
+  // escribe justo antes de lanzarla, asi que sin transaccion propia desaparecia.
+  it('keeps the denial and its audit row after the request rolls back', async () => {
+    const s = await scenario();
+    await ctx.db
+      .update(profileAssignments)
+      .set({ validRange: halfOpen(new Date(Date.now() - 7_200_000), new Date(Date.now() - 3_600_000)) })
+      .where(eq(profileAssignments.id, s.assignmentId));
+
+    await expect(
+      ctx.database.withRequestContext(s.operatorId, 'OPERADOR', () =>
+        vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s)),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    const denials = await ctx.db
+      .select({ denyReason: credentialAccessLog.denyReason, userId: credentialAccessLog.userId })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.granted, false));
+    expect(denials).toEqual([{ denyReason: 'NO_ASSIGNMENT', userId: s.operatorId }]);
+
+    const audit = await ctx.db
+      .select({ action: auditLog.action, result: auditLog.result })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vault.credential.denied'));
+    expect(audit).toEqual([{ action: 'vault.credential.denied', result: 'DENIED' }]);
+  });
+
+  it('keeps reuse_attempted and its audit row after the request rolls back', async () => {
+    const s = await scenario();
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    await vault.redeem({ grantId }, contextFor(s));
+
+    await expect(
+      ctx.database.withRequestContext(s.operatorId, 'OPERADOR', () => vault.redeem({ grantId }, contextFor(s))),
+    ).rejects.toThrow(ConflictException);
+
+    const [row] = await ctx.db
+      .select({ reuseAttempted: credentialAccessLog.reuseAttempted })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.grantJti, grantId));
+    expect(row.reuseAttempted).toBe(true);
+
+    const audit = await ctx.db
+      .select({ result: auditLog.result })
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'vault.credential.redeem'), eq(auditLog.result, 'DENIED')));
+    expect(audit).toHaveLength(1);
   });
 });
 

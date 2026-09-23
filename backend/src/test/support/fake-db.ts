@@ -164,6 +164,7 @@ export function createFakeDatabase(): FakeDatabase {
     service: {
       db,
       withRequestContext: async (_userId: string, _roleCode: string, callback: () => Promise<unknown>) => callback(),
+      independentTransaction: async (_userId: string, _roleCode: string, callback: () => Promise<unknown>) => callback(),
     } as unknown as DatabaseService,
     stub(name: string): TableStub {
       const current = state(name);
