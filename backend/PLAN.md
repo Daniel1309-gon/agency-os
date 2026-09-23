@@ -1232,6 +1232,8 @@ El detalle del flujo y sus controles está en §6.3.
 | GET | `/health/live`, `/health/ready` | Sin auth. `ready` verifica Postgres y Redis |
 | GET / PATCH | `/settings` | `settings.manage` |
 | GET / PATCH | `/feature-flags` | `settings.manage` |
+| GET | `/ops/outbox`, `/ops/outbox/summary` | `outbox.manage` (ADMIN) |
+| POST | `/ops/outbox/:id/requeue` | `outbox.manage` (ADMIN) |
 | GET | `/audit-log?from&to&action&actorId` | `audit.read`. Solo lectura, paginada |
 
 ---

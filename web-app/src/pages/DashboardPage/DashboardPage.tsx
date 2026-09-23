@@ -16,6 +16,7 @@ import { ShiftManagement } from '../../components/OperationsManagement/ShiftMana
 import { UserManagement } from '../../components/OperationsManagement/UserManagement';
 import { AuditLogPanel } from '../../components/SecurityManagement/AuditLogPanel';
 import { IpAllowlistPanel } from '../../components/SecurityManagement/IpAllowlistPanel';
+import { OutboxPanel } from '../../components/SecurityManagement/OutboxPanel';
 import { SecurityOverview } from '../../components/SecurityManagement/SecurityOverview';
 import { TeamOverview } from '../../components/TeamOverview/TeamOverview';
 import { useOperatorStatuses } from '../../components/TeamOverview/use-operator-statuses';
@@ -102,6 +103,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'metrics': return <ManagementOverview accessToken={accessToken} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;
     case 'ipAllowlist': return <IpAllowlistPanel accessToken={accessToken} user={user} />;
+    case 'outbox': return <OutboxPanel accessToken={accessToken} />;
     case 'audit': return <AuditLogPanel accessToken={accessToken} user={user} />;
     case 'cafeteriaOrders': return <CafeteriaKds accessToken={accessToken} />;
     case 'cafeteriaMenu': return <CafeteriaOverview accessToken={accessToken} />;

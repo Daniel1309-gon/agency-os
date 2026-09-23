@@ -39,6 +39,7 @@ describe('role permission contract', () => {
       'payroll.close',
       'security.manage',
       'settings.manage',
+      'outbox.manage',
     ]) {
       expect(permissions.has(forbidden)).toBe(false);
     }

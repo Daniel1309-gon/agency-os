@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
@@ -12,6 +13,8 @@ import { CommunicationWorker } from '../../modules/communication/communication.w
 import { businessDateInBogota, shiftBusinessDate, weekdayForBusinessDate } from '../../modules/jobs/shift-schedule.js';
 import { RocketChatClient } from '../../modules/communication/rocketchat.client.js';
 import { OutboxService } from '../../modules/outbox/outbox.service.js';
+import { OutboxOpsRepository } from '../../modules/outbox/outbox-ops.drizzle-repository.js';
+import { OutboxOpsService } from '../../modules/outbox/outbox-ops.service.js';
 import { auditLog, crews, outboxEvents, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
@@ -150,6 +153,56 @@ describe('Rocket.Chat durable delivery', () => {
     expect(requests[0].id).toBe(requests[1].id);
     const [sent] = await ctx.db.select({ status: outboxEvents.status }).from(outboxEvents);
     expect(sent.status).toBe('SENT');
+  });
+
+  it('requeues a DEAD scheduled message from the ops surface and delivers it (E1-05)', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const [channel] = await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'room-dead', name: 'Dead letter', type: 'CHANNEL', purpose: 'GENERAL' }).returning({ id: rocketchatChannels.id });
+    const { communication, worker } = services();
+    const ops = new OutboxOpsService(new OutboxOpsRepository(ctx.database), ctx.database, new AuditService(ctx.database));
+    const scheduled = await communication.schedule({ channelId: channel.id, body: 'Aviso que murio', scheduledFor: new Date(Date.now() - 1_000).toISOString() }, { sub: admin.id, role: 'ADMIN' });
+    responseStatus = 500;
+    await worker.tick();
+    // Octavo intento: el worker lo da por perdido.
+    await ctx.db.update(outboxEvents).set({ attempts: 7, nextAttemptAt: new Date(Date.now() - 1_000) });
+    await worker.tick();
+    const [dead] = await ctx.db.select({ id: outboxEvents.id, status: outboxEvents.status }).from(outboxEvents);
+    expect(dead.status).toBe('DEAD');
+    const messageStatus = async () => (await ctx.db.select({ status: scheduledMessages.status }).from(scheduledMessages).where(eq(scheduledMessages.id, scheduled.id)))[0].status;
+    expect(await messageStatus()).toBe('FAILED');
+
+    const listed = await ops.list({ status: 'DEAD' });
+    expect(listed.data).toEqual([expect.objectContaining({ id: dead.id, eventType: 'rocketchat.message.send', aggregateType: 'scheduled_message', attempts: 8, lastError: expect.any(String) })]);
+    expect(listed.data[0]).not.toHaveProperty('payload');
+    expect((await ops.summary()).byStatus).toEqual([{ status: 'DEAD', count: 1 }]);
+
+    await expect(ops.requeue(String(dead.id), admin.id)).resolves.toEqual({ id: dead.id, status: 'PENDING' });
+    expect(await messageStatus()).toBe('QUEUED');
+    await expect(ops.requeue(String(dead.id), admin.id)).rejects.toThrow(ConflictException);
+    await expect(ops.requeue('999999', admin.id)).rejects.toThrow(NotFoundException);
+
+    responseStatus = 200;
+    await services().worker.tick();
+
+    const [sent] = await ctx.db.select({ status: outboxEvents.status, attempts: outboxEvents.attempts }).from(outboxEvents);
+    expect(sent).toEqual({ status: 'SENT', attempts: 1 });
+    expect(await messageStatus()).toBe('SENT');
+    const audit = await ctx.db.select({ actorUserId: auditLog.actorUserId, metadata: auditLog.metadata }).from(auditLog).where(eq(auditLog.action, 'outbox.requeued'));
+    expect(audit).toEqual([{ actorUserId: admin.id, metadata: expect.objectContaining({ eventId: dead.id, eventType: 'rocketchat.message.send', aggregateType: 'scheduled_message', fromStatus: 'DEAD' }) }]);
+  });
+
+  it('pages the outbox list by id and rejects an invalid filter', async () => {
+    const outbox = new OutboxService(ctx.database);
+    const ids = [];
+    for (let index = 0; index < 3; index += 1) ids.push(await outbox.enqueue('rocketchat.message.send', 'manual', undefined, { roomId: 'r', body: `m${index}` }));
+    const ops = new OutboxOpsService(new OutboxOpsRepository(ctx.database), ctx.database, new AuditService(ctx.database));
+
+    const first = await ops.list({ limit: '2' });
+    expect(first.data.map((row) => row.id)).toEqual([ids[2], ids[1]]);
+    const second = await ops.list({ limit: '2', cursor: first.pagination.nextCursor ?? undefined });
+    expect(second.data.map((row) => row.id)).toEqual([ids[0]]);
+    expect(second.pagination.nextCursor).toBeNull();
+    await expect(ops.list({ status: 'LOST' })).rejects.toThrow('status');
   });
 });
 

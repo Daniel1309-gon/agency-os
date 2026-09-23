@@ -4094,6 +4094,174 @@
         }
       }
     },
+    "/api/v1/ops/outbox": {
+      "get": {
+        "operationId": "OutboxController.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "eventType",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Outbox"
+        ],
+        "x-agency-permissions": [
+          "outbox.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "outbox.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "CURSOR",
+          "path": "/api/v1/ops/outbox",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/ops/outbox/{id}/requeue": {
+      "post": {
+        "operationId": "OutboxController.requeue",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Outbox"
+        ],
+        "x-agency-permissions": [
+          "outbox.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "outbox.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/ops/outbox/{id}/requeue",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/ops/outbox/summary": {
+      "get": {
+        "operationId": "OutboxController.summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Outbox"
+        ],
+        "x-agency-permissions": [
+          "outbox.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "outbox.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/ops/outbox/summary",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/payroll/goals": {
       "get": {
         "operationId": "PayrollController.goals",

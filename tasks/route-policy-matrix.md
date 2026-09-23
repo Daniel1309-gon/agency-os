@@ -75,6 +75,9 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `PATCH /api/v1/notifications/{id}/read` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/operators/me/status` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/operators/status` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: operators.monitor | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/ops/outbox` | ADMIN | authenticated; permissions: outbox.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | CURSOR |
+| `POST /api/v1/ops/outbox/{id}/requeue` | ADMIN | authenticated; permissions: outbox.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/ops/outbox/summary` | ADMIN | authenticated; permissions: outbox.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
 | `GET /api/v1/payroll/goals` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/payroll/goals` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/payroll/goals/me/progress` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |

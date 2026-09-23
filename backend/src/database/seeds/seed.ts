@@ -42,6 +42,7 @@ const permissionDefinitions = [
   ['security.manage', 'security', 'Manage IP allowlist'],
   ['audit.read', 'audit', 'Read audit log'],
   ['settings.manage', 'settings', 'Manage settings and feature flags'],
+  ['outbox.manage', 'outbox', 'Inspect and requeue outbox events'],
 ] as const;
 
 const roleDefinitions = [

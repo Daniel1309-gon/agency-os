@@ -169,6 +169,48 @@ export const auditLogResponseSchema = z.object({
 }).strict();
 export type AuditLogResponse = z.infer<typeof auditLogResponseSchema>;
 
+export const outboxStatusSchema = z.enum(['PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD']);
+export type OutboxStatus = z.infer<typeof outboxStatusSchema>;
+
+/** Evento del outbox sin `payload`: puede traer cuerpos de mensaje (E1-05). */
+export const outboxEventRecordSchema = z.object({
+  id: z.number().int().positive(),
+  eventType: z.string(),
+  aggregateType: z.string(),
+  aggregateId: z.string().uuid().nullable(),
+  status: outboxStatusSchema,
+  attempts: z.number().int().nonnegative(),
+  nextAttemptAt: z.string().datetime({ offset: true }),
+  lastError: z.string().nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  processedAt: z.string().datetime({ offset: true }).nullable(),
+}).strict();
+export type OutboxEventRecord = z.infer<typeof outboxEventRecordSchema>;
+
+export const outboxListResponseSchema = z.object({
+  data: z.array(outboxEventRecordSchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    nextCursor: z.string().nullable(),
+  }).strict(),
+}).strict();
+export type OutboxListResponse = z.infer<typeof outboxListResponseSchema>;
+
+export const outboxSummarySchema = z.object({
+  byStatus: z.array(z.object({ status: outboxStatusSchema, count: z.number().int().nonnegative() }).strict()),
+  oldestPendingAt: z.string().datetime({ offset: true }).nullable(),
+  failedJobs: z.array(z.object({
+    id: z.number().int().positive(),
+    jobName: z.string(),
+    runKey: z.string(),
+    status: z.enum(['FAILED', 'DEAD']),
+    attempts: z.number().int().nonnegative(),
+    lastError: z.string().nullable(),
+    scheduledFor: z.string().datetime({ offset: true }),
+  }).strict()),
+}).strict();
+export type OutboxSummary = z.infer<typeof outboxSummarySchema>;
+
 export const ipAllowlistRecordSchema = z.object({
   id: z.string().uuid(),
   label: z.string(),

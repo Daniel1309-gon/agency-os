@@ -14,6 +14,7 @@ export type WorkspacePageId =
   | 'metrics'
   | 'security'
   | 'ipAllowlist'
+  | 'outbox'
   | 'audit'
   | 'cafeteriaOrders'
   | 'cafeteriaMenu'
@@ -65,6 +66,7 @@ const managementRoutes: readonly WorkspaceRoute[] = [
 const adminSecurityRoutes: readonly WorkspaceRoute[] = [
   { id: 'security', path: '/app/seguridad', label: 'Seguridad', group: 'Control', kicker: 'Perímetro y estaciones', title: 'Estado de seguridad', description: 'Comprueba la salud de servicios y estaciones enroladas.', permission: 'devices.manage', longPage: true },
   { id: 'ipAllowlist', path: '/app/acceso-ip', label: 'Acceso por IP', group: 'Control', kicker: 'Perímetro de acceso', title: 'Allowlist IP', description: 'Administra las redes autorizadas para entrar a Agency OS.', permission: 'security.manage', longPage: true },
+  { id: 'outbox', path: '/app/entregas', label: 'Entregas', group: 'Control', kicker: 'Outbox · Rocket.Chat', title: 'Cola de entregas', description: 'Revisa las entregas pendientes o fallidas y reintenta las que murieron.', permission: 'outbox.manage', longPage: true },
 ];
 
 const adminRoutes: readonly WorkspaceRoute[] = [
