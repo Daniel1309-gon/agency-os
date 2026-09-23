@@ -91,6 +91,46 @@ describe('ApiClient', () => {
     expect(client.getAccessToken()).toBeNull();
   });
 
+  it('emits session expiration once when a shared refresh returns 401', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ error: { code: 'UNAUTHENTICATED', message: 'revoked' } }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    client.setAccessToken('old');
+    const expired = vi.fn();
+    client.onSessionExpired(expired);
+
+    await Promise.allSettled([client.refresh(), client.refresh()]);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(expired).toHaveBeenCalledOnce();
+    expect(client.getAccessToken()).toBeNull();
+  });
+
+  it('does not expire a session when the retried request is forbidden', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ error: { code: 'UNAUTHENTICATED', message: 'expired' } }, 401))
+      .mockResolvedValueOnce(response({ accessToken: 'new', expiresIn: 900, user: {} }))
+      .mockResolvedValueOnce(response({ error: { code: 'FORBIDDEN', message: 'revoked' } }, 403));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    const expired = vi.fn();
+    client.onSessionExpired(expired);
+    client.setAccessToken('old');
+    await expect(client.request('/protected')).rejects.toMatchObject({ status: 403 });
+    expect(expired).not.toHaveBeenCalled();
+    expect(client.getAccessToken()).toBe('new');
+  });
+
+  it('does not emit session expiration for a failed login', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ error: { code: 'BAD_LOGIN', message: 'bad' } }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient('http://api.test/api/v1');
+    const expired = vi.fn();
+    client.onSessionExpired(expired);
+    await expect(client.login('a@b.test', 'bad')).rejects.toMatchObject({ status: 401 });
+    expect(expired).not.toHaveBeenCalled();
+  });
+
   it('does not persist credentials through browser storage', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ accessToken: 'access-1', expiresIn: 900, user: { id: 'u-1' } }));
     vi.stubGlobal('fetch', fetchMock);

@@ -68,6 +68,8 @@ function errorPayload(payload: unknown, status: number): ApiErrorPayload {
 export class ApiClient {
   private accessToken: string | null = null;
   private refreshPromise: Promise<AuthResponse> | null = null;
+  private sessionExpired = false;
+  private readonly sessionExpiredListeners = new Set<() => void>();
 
   constructor(private readonly baseUrl = apiBaseUrl()) {}
 
@@ -77,6 +79,19 @@ export class ApiClient {
 
   setAccessToken(accessToken: string | null): void {
     this.accessToken = accessToken;
+    if (accessToken) this.sessionExpired = false;
+  }
+
+  onSessionExpired(listener: () => void): () => void {
+    this.sessionExpiredListeners.add(listener);
+    return () => { this.sessionExpiredListeners.delete(listener); };
+  }
+
+  endSession(): void {
+    this.accessToken = null;
+    if (this.sessionExpired) return;
+    this.sessionExpired = true;
+    for (const listener of this.sessionExpiredListeners) listener();
   }
 
   async login<User = unknown>(email: string, password: string): Promise<AuthResponse<User>> {
@@ -85,7 +100,7 @@ export class ApiClient {
       body: JSON.stringify({ email, password }),
       skipRefresh: true,
     }, false);
-    this.accessToken = result.accessToken;
+    this.setAccessToken(result.accessToken);
     return result;
   }
 
@@ -95,12 +110,17 @@ export class ApiClient {
         method: 'POST',
         body: '{}',
         skipRefresh: true,
-      }, false).finally(() => {
+      }, false).then((result) => {
+        this.setAccessToken(result.accessToken);
+        return result;
+      }).catch((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.endSession();
+        throw error;
+      }).finally(() => {
         this.refreshPromise = null;
       });
     }
     const result = await this.refreshPromise as AuthResponse<User>;
-    this.accessToken = result.accessToken;
     return result;
   }
 
@@ -125,20 +145,11 @@ export class ApiClient {
         throw error;
       }
 
-      try {
-        await this.refresh();
-      } catch (refreshError) {
-        if (refreshError instanceof ApiError && refreshError.status === 401) {
-          this.accessToken = null;
-        }
-        throw refreshError;
-      }
+      await this.refresh();
       try {
         return await this.execute<T>(path, { ...options, skipRefresh: true }, true);
       } catch (retryError) {
-        if (retryError instanceof ApiError && retryError.status === 401) {
-          this.accessToken = null;
-        }
+        if (retryError instanceof ApiError && retryError.status === 401) this.endSession();
         throw retryError;
       }
     }

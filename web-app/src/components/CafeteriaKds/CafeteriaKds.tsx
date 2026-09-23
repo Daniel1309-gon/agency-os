@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
+import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
 
 const columns: Array<{ status: CafeteriaOrderStatus; label: string }> = [
   { status: 'PLACED', label: 'Recibidos' },
@@ -55,11 +56,18 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     if (!accessToken) return;
     void loadOrders();
     const socket: Socket = io(`${socketOrigin()}/operations`, {
-      auth: { token: accessToken },
+      // El token se resuelve en cada intento: el servidor cierra el socket cada
+      // 45-60 s para revalidar y la reconexion usa el JWT vigente.
+      auth: (done) => done({ token: apiClient.getAccessToken() ?? '' }),
       transports: ['websocket'],
       autoConnect: false,
+      reconnection: false,
     });
     let disposed = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Renueva antes de reconectar: el servidor cierra tambien al vencer el JWT.
+    const renewSession = () => apiClient.request('/auth/me').then(() => undefined);
     const onSnapshot = (payload: unknown) => {
       const parsed = cafeteriaOrderSchema.array().safeParse(payload);
       if (parsed.success) setOrders((current) => mergeOrders(current, parsed.data));
@@ -68,6 +76,24 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
       const parsed = cafeteriaOrderSchema.safeParse(payload);
       if (parsed.success) setOrders((current) => mergeOrders(current, [parsed.data]));
     };
+    const queueReconnect = (reason: string) => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = scheduleServerCloseReconnect({
+        socket, reason, isDisposed: () => disposed, renewSession,
+        onSessionExpired: () => apiClient.endSession(), attempt: reconnectAttempt++,
+      });
+    };
+    socket.on('connect', () => {
+      reconnectAttempt = 0;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    });
+    socket.on('disconnect', (reason) => {
+      queueReconnect(reason);
+    });
+    socket.on('connect_error', () => {
+      queueReconnect('connect_error');
+    });
     socket.on('cafeteria.orders.snapshot', onSnapshot);
     socket.on('cafeteria.order.created', onChanged);
     socket.on('cafeteria.order.changed', onChanged);
@@ -76,6 +102,7 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     });
     return () => {
       disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       socket.off('cafeteria.orders.snapshot', onSnapshot);
       socket.off('cafeteria.order.created', onChanged);
       socket.off('cafeteria.order.changed', onChanged);

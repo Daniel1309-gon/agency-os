@@ -49,6 +49,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const mounted = useRef(false);
   const restoreAttempt = useRef(0);
 
+  useEffect(() => apiClient.onSessionExpired(() => {
+    restoreAttempt.current += 1;
+    setUser(null);
+    setStatus('anonymous');
+    setError(null);
+  }), []);
+
   const restoreSession = useCallback(async () => {
     const attempt = ++restoreAttempt.current;
     setStatus('loading');
