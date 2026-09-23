@@ -109,3 +109,4 @@ export {
   type ShiftOverrideRecord,
   type ShiftTemplateRecord,
 } from './contracts/management.js';
+export { AUDIT_ACTIONS, auditActionCodes, isAuditAction, type AuditAction } from './contracts/audit-actions.js';

@@ -1,9 +1,10 @@
+import type { AuditAction } from '@agency-os/shared';
 import { AuditService } from '../audit/audit.service.js';
 import { normalizeIp } from './ip.js';
 
 const DENIAL_AUDIT_WINDOW_MS = 60_000;
 const MAX_DENIAL_AUDIT_KEYS = 10_000;
-const THROTTLED_ACTIONS = new Set(['ip_allowlist.denied', 'realtime.connection.denied']);
+const THROTTLED_ACTIONS = new Set<AuditAction>(['ip_allowlist.denied', 'realtime.connection.denied']);
 const denialAuditAt = new Map<string, number>();
 
 export interface SecurityDenialContext {
@@ -27,7 +28,7 @@ function safeRoute(route: string | undefined): string {
 export async function recordSecurityDenial(
   audit: AuditService,
   context: SecurityDenialContext,
-  action: string,
+  action: AuditAction,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   const ip = normalizeIp(context.ip);

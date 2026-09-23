@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import type { AuditAction } from '@agency-os/shared';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { ipAllowlist, roles, users } from '../../database/schema/index.js';
@@ -20,7 +21,7 @@ import { recordSecurityDenial } from './denial-audit.js';
 async function recordDenied(
   audit: AuditService,
   request: AuthenticatedRequest,
-  action: string,
+  action: AuditAction,
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   await recordSecurityDenial(audit, {

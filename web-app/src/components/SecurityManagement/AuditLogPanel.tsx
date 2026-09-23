@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { auditLogResponseSchema, managedUserSchema, type AuditRecord, type ManagedUser, type UserSummary } from '@agency-os/shared';
+import { auditActionCodes, auditLogResponseSchema, managedUserSchema, type AuditRecord, type ManagedUser, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { canManage, errorMessage } from '../OperationsManagement/management-view';
 import { auditActionLabel, auditActorLabel, auditResultLabel, formatMetadata, formatSecurityDate } from './security-view';
@@ -17,12 +17,6 @@ interface AuditFilters {
 }
 
 const emptyFilters: AuditFilters = { from: '', to: '', action: '', actorId: '' };
-const auditActions = [
-  'auth.login.succeeded', 'auth.login.denied', 'auth.token.denied', 'permission.denied',
-  'ip_allowlist.denied', 'device.access.denied', 'device.enrolled', 'device.revoked',
-  'user.created', 'user.updated', 'user.disabled', 'vault.credential.redeemed',
-  'vault.credential.denied', 'assignment.created', 'assignment.ended', 'session.opened', 'session.closed',
-];
 
 function dateFilter(value: string, endOfDay = false): string | undefined {
   if (!value) return undefined;
@@ -114,7 +108,7 @@ export function AuditLogPanel({ accessToken, user }: AuditLogPanelProps) {
       <form className="security-filter-form" onSubmit={submitFilters}>
         <label><span>Desde</span><input type="date" value={draft.from} onChange={(event) => setDraft((current) => ({ ...current, from: event.target.value }))} /></label>
         <label><span>Hasta</span><input type="date" value={draft.to} onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))} /></label>
-        <label><span>Acción</span><select value={draft.action} onChange={(event) => setDraft((current) => ({ ...current, action: event.target.value }))}><option value="">Todas las acciones</option>{auditActions.map((action) => <option key={action} value={action}>{auditActionLabel(action)}</option>)}</select></label>
+        <label><span>Acción</span><select value={draft.action} onChange={(event) => setDraft((current) => ({ ...current, action: event.target.value }))}><option value="">Todas las acciones</option>{auditActionCodes.map((action) => <option key={action} value={action}>{auditActionLabel(action)}</option>)}</select></label>
         <label><span>Actor</span><select value={draft.actorId} onChange={(event) => setDraft((current) => ({ ...current, actorId: event.target.value }))}><option value="">Todos los actores</option>{users.map((item) => <option key={item.id} value={item.id}>{item.fullName} · {item.email}</option>)}</select></label>
         <div className="security-filter-form__actions"><button className="primary-button primary-button--compact" type="submit">Aplicar filtros <span aria-hidden="true">↗</span></button><button className="quiet-button" type="button" onClick={() => { setDraft(emptyFilters); setFilters(emptyFilters); }}>Limpiar</button></div>
       </form>

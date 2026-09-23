@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { AuditAction } from '@agency-os/shared';
 import { DatabaseService } from '../../database/database.service.js';
 import { auditLog } from '../../database/schema/index.js';
 
@@ -7,7 +8,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   'status', 'fromStatus', 'toStatus', 'attempt', 'route', 'resource', 'version', 'count',
   'outcome', 'source', 'businessDate', 'periodId', 'errorCode', 'reused', 'role', 'permission',
   'operatorId', 'shiftId', 'userId', 'crewId', 'key', 'article', 'latencyMs', 'eventId',
-  'eventType', 'aggregateType', 'recurrence',
+  'eventType', 'aggregateType', 'recurrence', 'deviceKind', 'permitUntil',
 ]);
 
 const FORBIDDEN_METADATA_KEYS = new Set([
@@ -54,7 +55,8 @@ export interface AuditRecord {
   actorType: string;
   actorUserId?: string;
   actorDeviceId?: string;
-  action: string;
+  /** Del catalogo cerrado de SEC-07a (`@agency-os/shared`). */
+  action: AuditAction;
   entityType?: string;
   entityId?: string;
   result: string;
