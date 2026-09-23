@@ -48,7 +48,7 @@ beforeAll(async () => {
     new VaultCryptoService(ctx.config, ctx.database),
     new AuditService(ctx.database),
     ctx.database,
-    new VaultAlertService(ctx.database, ctx.redis, new OutboxService(ctx.database), ctx.logger),
+    new VaultAlertService(new DrizzleVaultRepository(ctx.database), ctx.database, ctx.redis, new OutboxService(ctx.database), ctx.logger),
   );
 });
 
@@ -546,7 +546,7 @@ describe('the secret never reaches the logs', () => {
         new VaultCryptoService(debugCtx.config, debugCtx.database),
         new AuditService(debugCtx.database),
         debugCtx.database,
-        new VaultAlertService(debugCtx.database, debugCtx.redis, new OutboxService(debugCtx.database), debugCtx.logger),
+        new VaultAlertService(new DrizzleVaultRepository(debugCtx.database), debugCtx.database, debugCtx.redis, new OutboxService(debugCtx.database), debugCtx.logger),
       );
       const s = await scenario();
 

@@ -64,6 +64,14 @@ export interface VaultAccessRecord {
   occurredAt?: Date;
 }
 
+export interface VaultAbuseAlertTargets {
+  actorEmail?: string;
+  profileName?: string;
+  adminIds: string[];
+  /** Canal ALERTS activo de Rocket.Chat, si se registro. */
+  alertsChannelId?: string;
+}
+
 export interface VaultRepository {
   profileExistsForRotation(profileId: string, actor: VaultScopeActor): Promise<boolean>;
   currentCredentialVersion(profileId: string): Promise<number | undefined>;
@@ -105,4 +113,7 @@ export interface VaultRepository {
   }): Promise<{ operatorId: string } | undefined>;
   currentCredential(profileId: string): Promise<VaultEncryptedCredential | undefined>;
   markGrantConsumed(grantId: string, consumedAt: Date): Promise<void>;
+  /** Destinatarios y nombres legibles de una alerta de abuso (SEC-10). */
+  abuseAlertTargets(userId: string, profileId: string): Promise<VaultAbuseAlertTargets>;
+  recordAbuseNotifications(adminIds: string[], notification: { body: string; profileId: string }): Promise<void>;
 }

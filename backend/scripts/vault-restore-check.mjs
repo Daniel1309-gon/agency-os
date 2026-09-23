@@ -33,7 +33,7 @@ try {
     const { rows: [admin] } = await database.db.execute(sql`select u.id from users u join roles r on r.id = u.role_id where r.code = 'ADMIN' and u.deleted_at is null limit 1`);
     if (!admin) throw new Error('an ADMIN user is required to rotate the credential');
     const redis = new RedisService(config);
-    const vault = new VaultService(new DrizzleVaultRepository(database), redis, crypto, new AuditService(database), database, new VaultAlertService(database, redis, new OutboxService(database), logger));
+    const vault = new VaultService(new DrizzleVaultRepository(database), redis, crypto, new AuditService(database), database, new VaultAlertService(new DrizzleVaultRepository(database), database, redis, new OutboxService(database), logger));
     const { version } = await vault.rotate(profile.id, { username: profile.login_email, secret, profileVersion: profile.version }, { id: admin.id, role: 'ADMIN' });
     console.log(`sealed ${externalRef} credential v${version}`);
   } else {

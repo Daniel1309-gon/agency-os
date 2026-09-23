@@ -5,12 +5,17 @@ import { DatabaseService } from '../../database/database.service.js';
 import {
   credentialAccessLog,
   devices,
+  notifications,
   profileAssignments,
   profileSessions,
+  roles,
+  rocketchatChannels,
   ttProfileCredentials,
   ttProfiles,
+  users,
 } from '../../database/schema/index.js';
 import type {
+  VaultAbuseAlertTargets,
   VaultAccessRecord,
   VaultAssignment,
   VaultCredentialMetadata,
@@ -263,5 +268,35 @@ export class DrizzleVaultRepository implements VaultRepository {
       .update(credentialAccessLog)
       .set({ consumedAt })
       .where(eq(credentialAccessLog.grantJti, grantId));
+  }
+
+  async abuseAlertTargets(userId: string, profileId: string): Promise<VaultAbuseAlertTargets> {
+    const [actor] = await this.database.db.select({ email: users.email }).from(users).where(eq(users.id, userId)).limit(1);
+    const [profile] = await this.database.db.select({ displayName: ttProfiles.displayName }).from(ttProfiles).where(eq(ttProfiles.id, profileId)).limit(1);
+    const admins = await this.database.db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(roles, eq(roles.id, users.roleId))
+      .where(and(eq(roles.code, 'ADMIN'), eq(users.status, 'ACTIVE'), isNull(users.deletedAt)));
+    const [channel] = await this.database.db
+      .select({ id: rocketchatChannels.id })
+      .from(rocketchatChannels)
+      .where(and(eq(rocketchatChannels.purpose, 'ALERTS'), eq(rocketchatChannels.isActive, true)))
+      .limit(1);
+    return { actorEmail: actor?.email, profileName: profile?.displayName, adminIds: admins.map((admin) => admin.id), alertsChannelId: channel?.id };
+  }
+
+  async recordAbuseNotifications(adminIds: string[], notification: { body: string; profileId: string }): Promise<void> {
+    if (!adminIds.length) return;
+    await this.database.db.insert(notifications).values(adminIds.map((userId) => ({
+      userId,
+      type: 'vault.abuse',
+      title: 'Alerta de abuso del vault',
+      body: notification.body,
+      severity: 'WARNING',
+      channels: 'IN_APP',
+      referenceType: 'profile',
+      referenceId: notification.profileId,
+    })));
   }
 }

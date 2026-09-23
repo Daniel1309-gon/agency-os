@@ -1,10 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { Inject, Injectable } from '@nestjs/common';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { notifications, roles, rocketchatChannels, ttProfiles, users } from '../../database/schema/index.js';
-import { OutboxService } from '../outbox/outbox.service.js';
+import { OutboxService } from '../outbox/outbox.module.js';
+import { VAULT_REPOSITORY, type VaultRepository } from './vault.repository.port.js';
 
 /**
  * Motivos alertables y su ventana de deduplicacion en segundos, por gravedad
@@ -35,6 +34,7 @@ const REASON_COPY: Record<VaultAlertReason, string> = {
 @Injectable()
 export class VaultAlertService {
   constructor(
+    @Inject(VAULT_REPOSITORY) private readonly repository: VaultRepository,
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly outbox: OutboxService,
@@ -66,35 +66,11 @@ export class VaultAlertService {
   }
 
   private async deliver(input: { userId: string; profileId: string; reason: VaultAlertReason }): Promise<void> {
-    const [actor] = await this.db.db.select({ email: users.email }).from(users).where(eq(users.id, input.userId)).limit(1);
-    const [profile] = await this.db.db.select({ displayName: ttProfiles.displayName }).from(ttProfiles).where(eq(ttProfiles.id, input.profileId)).limit(1);
-    const body = `El operador ${actor?.email ?? input.userId} ${REASON_COPY[input.reason]} en el perfil ${profile?.displayName ?? input.profileId}. Revisa Seguridad para el detalle.`;
-
-    const admins = await this.db.db
-      .select({ id: users.id })
-      .from(users)
-      .innerJoin(roles, eq(roles.id, users.roleId))
-      .where(and(eq(roles.code, 'ADMIN'), eq(users.status, 'ACTIVE'), isNull(users.deletedAt)));
-    if (admins.length) {
-      await this.db.db.insert(notifications).values(admins.map((admin) => ({
-        userId: admin.id,
-        type: 'vault.abuse',
-        title: 'Alerta de abuso del vault',
-        body,
-        severity: 'WARNING',
-        channels: 'IN_APP',
-        referenceType: 'profile',
-        referenceId: input.profileId,
-      })));
-    }
-
-    const [channel] = await this.db.db
-      .select({ id: rocketchatChannels.id })
-      .from(rocketchatChannels)
-      .where(and(eq(rocketchatChannels.purpose, 'ALERTS'), eq(rocketchatChannels.isActive, true)))
-      .limit(1);
-    if (channel) {
-      await this.outbox.enqueue('rocketchat.message.send', 'vault_alert', input.profileId, { channelId: channel.id, body });
+    const targets = await this.repository.abuseAlertTargets(input.userId, input.profileId);
+    const body = `El operador ${targets.actorEmail ?? input.userId} ${REASON_COPY[input.reason]} en el perfil ${targets.profileName ?? input.profileId}. Revisa Seguridad para el detalle.`;
+    await this.repository.recordAbuseNotifications(targets.adminIds, { body, profileId: input.profileId });
+    if (targets.alertsChannelId) {
+      await this.outbox.enqueue('rocketchat.message.send', 'vault_alert', input.profileId, { channelId: targets.alertsChannelId, body });
     } else {
       // Sin canal ALERTS registrado la fila de `notifications` sigue siendo el
       // registro; el canal se registra con POST /rocketchat/channels.

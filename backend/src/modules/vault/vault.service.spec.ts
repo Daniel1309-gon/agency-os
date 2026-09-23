@@ -4,7 +4,7 @@ import { VaultService } from './vault.service.js';
 import { VaultCryptoService } from './vault.crypto.js';
 import { VaultAlertService } from './vault-alerts.service.js';
 import type { ConfigService } from '../../config/config.service.js';
-import type { OutboxService } from '../outbox/outbox.service.js';
+import type { OutboxService } from '../outbox/outbox.module.js';
 import type { LoggerService } from '../../common/logger/logger.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
@@ -81,7 +81,7 @@ function harness(): Harness {
   } as unknown as VaultCryptoService;
 
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
-  const alerts = new VaultAlertService(db.service, redis, { enqueue: vi.fn(async () => 1) } as unknown as OutboxService, { warn: vi.fn(), debug: vi.fn() } as unknown as LoggerService);
+  const alerts = new VaultAlertService(new DrizzleVaultRepository(db.service), db.service, redis, { enqueue: vi.fn(async () => 1) } as unknown as OutboxService, { warn: vi.fn(), debug: vi.fn() } as unknown as LoggerService);
   return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit, db.service, alerts), db, store, ttls, counters, decrypt };
 }
 
