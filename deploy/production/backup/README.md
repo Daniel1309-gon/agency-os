@@ -195,7 +195,7 @@ docker compose --env-file deploy/production/.env.production -f compose.productio
 
 Ensayo local (2026-09-23): la credencial sintética abrió con la KEK nueva, dejó de abrir con la vieja,
 la reenvoltura de vuelta la restauró y con una KEK anterior equivocada el script abortó sin cambios.
-Detalle en [`tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md`](../../tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md).
+Detalle en [`tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md`](../../../tasks/evidence/e1-09a-kek-rewrap-2026-09-23.md).
 
 ## Verificación local (sin B2)
 
@@ -218,4 +218,4 @@ Repetir la subida con `AWS_STUB_FAIL_SUFFIX=.sha256`: la corrida debe registrar
 `FAILED_UPLOAD_FREQUENT` y conservar `last-backup.json` en `SUCCESS`.
 
 Resultados de los ensayos (2026-09-22 y 2026-09-23) en
-[`tasks/evidence/e1-e-backups-2026-09-21.md`](../../tasks/evidence/e1-e-backups-2026-09-21.md).
+[`tasks/evidence/e1-e-backups-2026-09-21.md`](../../../tasks/evidence/e1-e-backups-2026-09-21.md).

@@ -1,8 +1,8 @@
 // Reenvoltura de la KEK del vault (SEC-09a; runbook en deploy/production/backup/README.md).
 // Rotar la KEK no re-cifra las credenciales -eso es SEC-09b, E2-: cada DEK de
 // encryption_keys se abre con VAULT_KEK_PREVIOUS y se vuelve a envolver con VAULT_KEK.
-// Primero reenvuelve todo en memoria y solo despues escribe, en una transaccion: si una
-// sola fila no abre con la KEK anterior, no cambia nada.
+// Reenvuelve todo en memoria antes de escribir, dentro de una transaccion: si una sola
+// fila no abre con la KEK anterior, no cambia nada.
 // Uso: VAULT_KEK_PREVIOUS=<vieja> VAULT_KEK=<nueva> node scripts/vault-rewrap-kek.mjs
 import { sql } from 'drizzle-orm';
 import { ConfigService } from '../dist/config/config.service.js';
@@ -25,15 +25,18 @@ const database = new DatabaseService(config, new LoggerService('warn'));
 await database.onModuleInit();
 const crypto = new VaultCryptoService(config, database);
 try {
-  const { rows } = await database.db.execute(sql`select version, wrapped_dek from encryption_keys order by version`);
-  if (!rows.length) throw new Error('encryption_keys is empty: nothing to rewrap');
-  const rewrapped = rows.map((row) => ({ version: row.version, wrappedDek: crypto.rewrap(row.wrapped_dek, previous) }));
-  await database.db.transaction(async (tx) => {
+  // Lectura y escritura en la misma transaccion, con las filas bloqueadas: una
+  // rotacion de DEK que se colara entre ambas quedaria envuelta con la KEK vieja.
+  const count = await database.db.transaction(async (tx) => {
+    const { rows } = await tx.execute(sql`select version, wrapped_dek from encryption_keys order by version for update`);
+    if (!rows.length) throw new Error('encryption_keys is empty: nothing to rewrap');
+    const rewrapped = rows.map((row) => ({ version: row.version, wrappedDek: crypto.rewrap(row.wrapped_dek, previous) }));
     for (const row of rewrapped) {
       await tx.execute(sql`update encryption_keys set wrapped_dek = ${row.wrappedDek} where version = ${row.version}`);
     }
+    return rewrapped.length;
   });
-  console.log(`rewrapped ${rewrapped.length} DEK(s) to the configured VAULT_KEK`);
+  console.log(`rewrapped ${count} DEK(s) to the configured VAULT_KEK`);
 } catch (error) {
   console.error(`vault KEK rewrap failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
