@@ -116,7 +116,8 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in <nombre>.dump.enc -out <nom
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in <nombre>.globals.sql.enc -out <nombre>.globals.sql \
   -pass env:BACKUP_ENCRYPTION_PASSPHRASE
 
-# 2. Servidor vacío: primero roles y tablespaces, después los datos CON sus privilegios.
+# 2. Servidor vacío, conectado como POSTGRES_USER (superusuario del contenedor):
+# primero roles y tablespaces, después los datos con sus dueños y privilegios.
 # postgres:16-alpine ya creó POSTGRES_USER; omitir solo su CREATE ROLE
 # duplicado. El ALTER ROLE y todos los demás roles/grants sí se restauran.
 bootstrap_role="${POSTGRES_USER:-agency}"
@@ -128,13 +129,15 @@ psql -d postgres -c "ALTER ROLE agency_app PASSWORD '<...>'"    # una por rol de
 if [ "$(psql -At -d postgres -c "SELECT 1 FROM pg_database WHERE datname = 'agency_os'")" != 1 ]; then
   createdb agency_os
 fi
-# El esquema `public` pertenece a pg_database_owner: habilitar a agency_owner
-# antes del restore para que pueda crear tablas y aplicar los GRANT del dump.
-psql -d agency_os -c "GRANT CREATE, USAGE ON SCHEMA public TO agency_owner"
-# Sin --no-privileges: el dump incluye los GRANT de tablas y los ALTER DEFAULT
-# PRIVILEGES que 0008 dejó para las tablas futuras. Con --no-owner el dueño de
-# los objetos pasa a ser agency_owner (el rol del restore), como en producción.
-pg_restore --no-owner --role=agency_owner --dbname agency_os <nombre>.dump
+# Restore fiel, como superusuario y SIN --no-owner/--role: recrea las
+# extensiones (citext, btree_gist, pgcrypto), el esquema drizzle, los dueños
+# originales (agency_owner), los GRANT y los ALTER DEFAULT PRIVILEGES.
+# Con --role=agency_owner el restore no puede crear extensiones ni esquemas y
+# cae en cascada (365 errores en el ensayo del 2026-09-23).
+# PostgreSQL gestionado no da superusuario: el rol administrador del proveedor
+# debe poder crear esas extensiones y ser miembro de agency_owner. Queda por
+# ensayar con el proveedor elegido antes de adoptarlo.
+pg_restore --exit-on-error --dbname agency_os <nombre>.dump
 
 # 3. Verificar dueño, GRANT y DEFAULT ACL antes de arrancar (0, `t`, >0):
 psql -d agency_os -tAc "select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('r','p') and pg_get_userbyid(c.relowner) <> 'agency_owner'"
@@ -149,24 +152,39 @@ Validación mínima del ensayo (el plan la exige): abrir una **credencial sinté
 KEK custodiada, iniciar sesión, ver el semáforo y confirmar el turno. Medir desde el inicio del
 incidente hasta el servicio validado: **máximo 4 horas**, con pérdida de datos no superior a 1 hora.
 
+La credencial sintética se guarda una vez, al poner en marcha producción, en un perfil de prueba que
+no sea de ninguna operadora; su secreto se custodia junto a la KEK. Nunca usar una credencial real:
+el secreto viaja en la línea de comandos.
+
+```sh
+# Al poner en marcha (una vez):
+$COMPOSE --profile ops run --rm ops node scripts/vault-restore-check.mjs seal <externalRef> <secreto>
+# Tras cada restauración: sale 0 si abre con la KEK del .env.production, 1 si no.
+$COMPOSE --profile ops run --rm ops node scripts/vault-restore-check.mjs open <externalRef> <secreto>
+```
+
 Redis no es fuente única de información irrecuperable: al restaurar, las sesiones efímeras se
 invalidan y el trabajo duradero se recupera desde PostgreSQL (jobs, outbox, sesiones de perfil).
 
 ## Verificación local (sin B2)
 
-El ensayo reproducible usa dos contenedores temporales `postgres:16-alpine` (origen y destino),
-[`test/acl-fixture.sql`](test/acl-fixture.sql) y el stub [`test/aws-stub.sh`](test/aws-stub.sh).
-El stub copia cada `--body` a `AWS_STUB_DEST/<key>` y guarda el modo y vencimiento de Object Lock
-en `<key>.lock`. Montarlo como `/usr/local/bin/aws-stub` y pasar
-`AWS=/usr/local/bin/aws-stub`, `AWS_STUB_DEST=/upload/objects` y
-`BACKUP_WORKDIR=/upload/work` a la imagen de backup; ejecutar `backup-postgres.sh --once`
-contra la base sintética de origen.
+El ensayo usa el esquema real: el stack de `compose.station-e2e.yml` (migraciones, bootstrap y
+seeds de demo) como origen, un `postgres:16-alpine` vacío como destino y el stub
+[`test/aws-stub.sh`](test/aws-stub.sh), que copia cada `--body` a `AWS_STUB_DEST/<key>` y guarda el
+modo y vencimiento de Object Lock en `<key>.lock`.
 
-Verificar los dos `.sha256` de `daily/` con `sha256sum -c`, descifrar ambos objetos, restaurar
-globals y el dump en el destino vacío con el procedimiento anterior y ejecutar
-`psql -v ON_ERROR_STOP=1 -d agency_os -f test/verify-restore.sql`. Debe terminar con `DO`.
+1. Guardar la credencial sintética en el origen con `vault-restore-check.mjs seal DEMO-LUNA-01 <secreto>`.
+2. Ejecutar `backup-postgres.sh --once` con la imagen de backup en la red del origen, pasando
+   `AWS=/usr/local/bin/aws-stub` (copiado con `install -m 755`; `$AWS` debe ser una ruta
+   ejecutable), `AWS_STUB_DEST=/upload/objects` y `BACKUP_WORKDIR=/upload/work`.
+3. Verificar los `.sha256` de `daily/`, descifrar y restaurar en el destino con el procedimiento
+   anterior; `pg_restore --exit-on-error` debe terminar sin errores.
+4. Comparar origen y destino: dueños, extensiones, ACL del esquema, `pg_default_acl` y privilegios
+   efectivos de `agency_app`/`agency_worker`/`agency_readonly`; `db-migrate.mjs` no debe aplicar nada.
+5. `vault-restore-check.mjs open` contra el destino: sale 0 con la KEK del origen y 1 con otra KEK.
+
 Repetir la subida con `AWS_STUB_FAIL_SUFFIX=.sha256`: la corrida debe registrar
 `FAILED_UPLOAD_FREQUENT` y conservar `last-backup.json` en `SUCCESS`.
 
-Resultado y nombres de artefactos del ensayo 2026-09-22 en
+Resultados de los ensayos (2026-09-22 y 2026-09-23) en
 [`tasks/evidence/e1-e-backups-2026-09-21.md`](../../tasks/evidence/e1-e-backups-2026-09-21.md).
