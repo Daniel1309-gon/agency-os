@@ -21,7 +21,7 @@ function reflectorReturning(value: unknown): Reflector {
   return { getAllAndOverride: () => value } as unknown as Reflector;
 }
 
-const operator = { sub: 'operator-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' };
+const operator = { sub: 'operator-1', role: 'OPERADOR', permissions: [], av: 1, iat: 0, exp: 1, jti: 'jti' };
 
 describe('ShiftWindowGuard', () => {
   it('rejects an operator outside a shift and without an override', async () => {

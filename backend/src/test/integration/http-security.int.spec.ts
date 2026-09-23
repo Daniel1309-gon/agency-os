@@ -51,19 +51,19 @@ beforeEach(async () => {
 });
 
 function accessToken(user: CreatedUser, role: RoleCode, permissions: string[] = []): string {
-  return signAccessToken({ sub: user.id, role, permissions }, TEST_JWT_SECRET, 60);
+  return signAccessToken({ sub: user.id, role, permissions, av: 1 }, TEST_JWT_SECRET, 60);
 }
 
 async function allowLoopback(createdBy: string): Promise<void> {
   await ctx.db.insert(ipAllowlist).values({ label: 'Nest acceptance test', cidr: '127.0.0.1/32', scope: 'ALL', createdBy });
 }
 
-function authorization(token: string, deviceToken?: string): Record<string, string> {
-  return { authorization: `Bearer ${token}`, ...(deviceToken ? { 'x-device-token': deviceToken } : {}) };
+function authorization(token: string, clientCert?: string): Record<string, string> {
+  return { authorization: `Bearer ${token}`, ...(clientCert ? { 'client-cert': clientCert } : {}) };
 }
 
 describe('Entrega 1 HTTP security acceptance', () => {
-  it('authenticates station credential claims with the device token and no operator JWT', async () => {
+  it('authenticates station credential claims with the client certificate and no operator JWT', async () => {
     const operator = await createUser(ctx);
     await allowLoopback(operator.id);
     const device = await createDevice(ctx, { operatorId: operator.id });
@@ -71,7 +71,7 @@ describe('Entrega 1 HTTP security acceptance', () => {
     const acceptedByStationBoundary = await app.inject({
       method: 'POST',
       url: '/api/v1/station/credential-claims',
-      headers: { 'x-device-token': device.token },
+      headers: { 'client-cert': device.header },
       payload: { profileId: 'not-a-uuid', sessionId: 'not-a-uuid' },
     });
     expect(acceptedByStationBoundary.statusCode).toBe(400);
@@ -82,12 +82,12 @@ describe('Entrega 1 HTTP security acceptance', () => {
       payload: { profileId: 'not-a-uuid', sessionId: 'not-a-uuid' },
     });
     expect(missingDevice.statusCode).toBe(403);
-    expect(missingDevice.json()).toMatchObject({ message: 'Device token required' });
+    expect(missingDevice.json()).toMatchObject({ message: 'An approved station device is required' });
 
     const forbiddenTransition = await app.inject({
       method: 'PATCH',
       url: '/api/v1/station/sessions/33333333-3333-3333-3333-333333333333',
-      headers: { 'x-device-token': device.token },
+      headers: { 'client-cert': device.header },
       payload: { status: 'CLOSED', version: 1 },
     });
     expect(forbiddenTransition.statusCode).toBe(400);
@@ -164,7 +164,7 @@ describe('Entrega 1 HTTP security acceptance', () => {
     expect(response.json()).toMatchObject({ message: 'Operator is outside an approved shift' });
   });
 
-  it('rejects both revoked and expired devices', async () => {
+  it('rejects both revoked and expired client certificates', async () => {
     const operator = await createUser(ctx);
     await allowLoopback(operator.id);
     const now = new Date();
@@ -175,13 +175,13 @@ describe('Entrega 1 HTTP security acceptance', () => {
     });
     const revoked = await createDevice(ctx, { operatorId: operator.id, status: 'REVOKED' });
     const expired = await createDevice(ctx, { operatorId: operator.id });
-    await ctx.db.update(devices).set({ tokenExpiresAt: new Date(now.getTime() - 1_000) }).where(eq(devices.id, expired.id));
+    await ctx.db.update(devices).set({ certNotAfter: new Date(now.getTime() - 1_000) }).where(eq(devices.id, expired.id));
     const token = accessToken(operator, 'OPERADOR', ['profiles.read']);
 
     for (const device of [revoked, expired]) {
-      const response = await app.inject({ method: 'POST', url: '/api/v1/agent/devices/heartbeat', headers: authorization(token, device.token), payload: {} });
+      const response = await app.inject({ method: 'POST', url: '/api/v1/agent/devices/heartbeat', headers: authorization(token, device.header), payload: {} });
       expect(response.statusCode).toBe(403);
-      expect(response.json()).toMatchObject({ message: 'Device token is invalid or expired' });
+      expect(response.json()).toMatchObject({ message: 'Client certificate is not authorized' });
     }
   });
 

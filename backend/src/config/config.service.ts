@@ -32,6 +32,7 @@ export class ConfigService {
       }
       if (parsed.data.CORS_ORIGINS.includes('localhost')) throw new Error('Production CORS_ORIGINS cannot contain localhost');
       if (!trustedProxyCidrs.length) throw new Error('Production requires TRUSTED_PROXY_CIDRS');
+      if (parsed.data.DEV_CLIENT_CERT_FINGERPRINT) throw new Error('DEV_CLIENT_CERT_FINGERPRINT is not allowed in production');
       if (!runtimeUrl) throw new Error(`Production requires ${runtimeVariable} for the least-privileged runtime role`);
       const migrationRole = new URL(parsed.data.DATABASE_URL).username;
       const runtimeRole = new URL(runtimeUrl).username;

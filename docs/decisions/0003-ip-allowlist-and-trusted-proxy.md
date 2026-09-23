@@ -3,6 +3,9 @@
 - Estado: aceptada
 - Fecha: 2026-08-22
 - Alcance: SEC-03
+- Revisión: el [ADR 0014](0014-mtls-access-without-office-ip.md) (2026-09-22) retira la exigencia de
+  allowlist para solicitudes con certificado de dispositivo aprobado (fase B2 del plan de cierre). El
+  resto de esta decisión sigue vigente.
 
 ## Contexto
 

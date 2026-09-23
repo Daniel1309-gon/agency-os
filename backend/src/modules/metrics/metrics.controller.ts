@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Post, Query, UsePipes } from '@nestjs/common';
 import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
-import { RequireDevice } from '../../common/auth/device.decorator.js';
+import { RequireStationDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { MetricsService } from './metrics.service.js';
@@ -11,7 +11,7 @@ export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}
 
   @Post('agent/metrics/batch')
-  @RequireDevice()
+  @RequireStationDevice()
   @RequireRoles('OPERADOR')
   @RequireShift()
   @UsePipes(new ZodValidationPipe(metricBatchSchema))

@@ -10,6 +10,7 @@ describe('AuthService rate-limit dependency', () => {
       { incrWithExpiry: vi.fn().mockRejectedValue(new Error('redis unavailable')) } as never,
       {} as never,
       {} as never,
+      { bump: vi.fn(async () => undefined) } as never,
     );
 
     await expect(auth.login({ email: 'operator@agency.test', password: 'long-enough-password' }, '203.0.113.10'))

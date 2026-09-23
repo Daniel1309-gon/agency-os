@@ -31,10 +31,17 @@ import {
 } from '../../common/auth/crypto.js';
 import type { LoginInput, PasswordChangeInput, PasswordResetInput } from './auth.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
 import { normalizeIp } from '../../common/auth/ip.js';
 
-const LOGIN_RATE_LIMIT = 5;
-const REFRESH_RATE_LIMIT = 30;
+// Limites separados para una oficina compartida (plan 2026-09-20, fase C2):
+// una cuenta no puede martillarse, pero 30 operadores tras el mismo certificado
+// de estacion y la misma IP publica deben poder iniciar turno.
+const LOGIN_ACCOUNT_LIMIT = 5;
+const LOGIN_CERTIFICATE_LIMIT = 30;
+const LOGIN_IP_LIMIT = 300;
+const REFRESH_SESSION_LIMIT = 60;
+const REFRESH_IP_LIMIT = 1200;
 const AUTH_RATE_WINDOW_SECONDS = 900;
 
 export interface AuthUser {
@@ -60,17 +67,20 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly redis: RedisService,
     private readonly shiftAccess: ShiftAccessService,
+    private readonly authVersion: AuthVersionService,
     private readonly audit: AuditService,
   ) {}
 
-  async login(input: LoginInput, ip?: string, userAgent?: string): Promise<AuthTokens> {
+  async login(input: LoginInput, ip?: string, userAgent?: string, certificate?: { id: string; fingerprint: string }): Promise<AuthTokens> {
     const email = input.email.trim().toLowerCase();
     const clientIp = normalizeIp(ip);
-    const attempts = await this.rateLimitCounts([
-      `auth:login:ip:${clientIp ?? 'unknown'}`,
-      `auth:login:account:${email}`,
-    ], AUTH_RATE_WINDOW_SECONDS);
-    if (attempts.some((count) => count > LOGIN_RATE_LIMIT)) {
+    const checks: Array<{ key: string; limit: number }> = [
+      { key: `auth:login:account:${email}`, limit: LOGIN_ACCOUNT_LIMIT },
+      { key: `auth:login:ip:${clientIp ?? 'unknown'}`, limit: LOGIN_IP_LIMIT },
+    ];
+    if (certificate) checks.push({ key: `auth:login:cert:${certificate.fingerprint}`, limit: LOGIN_CERTIFICATE_LIMIT });
+    const attempts = await this.rateLimitCounts(checks.map((check) => check.key), AUTH_RATE_WINDOW_SECONDS);
+    if (attempts.some((count, index) => count > checks[index].limit)) {
       await this.recordAttempt(email, undefined, clientIp, 'RATE_LIMITED');
       throw new HttpException('Too many login attempts', HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -122,22 +132,28 @@ export class AuthService {
       })
       .where(eq(users.id, identity.id));
     await this.recordAttempt(email, identity.id, clientIp, 'SUCCESS');
-    return this.issueTokens(identity, clientIp, userAgent);
+    return this.issueTokens(identity, clientIp, userAgent, certificate?.id);
   }
 
-  async refresh(rawToken: string, ip?: string, userAgent?: string): Promise<AuthTokens> {
+  async refresh(rawToken: string, ip?: string, userAgent?: string, deviceId?: string): Promise<AuthTokens> {
     const clientIp = normalizeIp(ip);
     const ipCount = await this.rateLimitCounts([`auth:refresh:ip:${clientIp ?? 'unknown'}`], AUTH_RATE_WINDOW_SECONDS);
-    if (ipCount[0] > REFRESH_RATE_LIMIT) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
+    if (ipCount[0] > REFRESH_IP_LIMIT) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
     const tokenHash = hashToken(rawToken);
     const current = await this.db.db.query.refreshTokens.findFirst({
       where: eq(refreshTokens.tokenHash, tokenHash),
     });
     if (!current) throw new UnauthorizedException('Invalid refresh token');
-    const identityKeys = [`auth:refresh:account:${current.userId}`];
-    if (current.deviceId) identityKeys.push(`auth:refresh:device:${current.deviceId}`);
-    const identityCounts = await this.rateLimitCounts(identityKeys, AUTH_RATE_WINDOW_SECONDS);
-    if (identityCounts.some((count) => count > REFRESH_RATE_LIMIT)) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
+    // El token nace atado al certificado que inicio sesion: renovarlo desde otro
+    // equipo aprobado no es valido aunque el usuario sea el mismo.
+    if (current.deviceId && current.deviceId !== deviceId) {
+      throw new UnauthorizedException('Refresh token was issued to another device');
+    }
+    const sessionKey = current.deviceId
+      ? `auth:refresh:device:${current.deviceId}`
+      : `auth:refresh:account:${current.userId}`;
+    const sessionCounts = await this.rateLimitCounts([sessionKey], AUTH_RATE_WINDOW_SECONDS);
+    if (sessionCounts[0] > REFRESH_SESSION_LIMIT) throw new HttpException('Too many refresh attempts', HttpStatus.TOO_MANY_REQUESTS);
     if (current.revokedAt) {
       await this.revokeFamily(current.familyId, 'REUSE_DETECTED');
       throw new ConflictException('Refresh token reuse detected');
@@ -188,6 +204,18 @@ export class AuthService {
     if (current) await this.revokeFamily(current.familyId, 'LOGOUT');
   }
 
+  /**
+   * Revoca las sesiones de refresco nacidas en un dispositivo. La llama la baja
+   * de estaciones: sin esto, un refresh token seguiria renovando desde otro
+   * equipo aprobado (el acceso directo ya lo corta el guard de certificado).
+   */
+  async revokeDeviceTokens(deviceId: string, reason = 'DEVICE_REVOKED'): Promise<void> {
+    await this.db.db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date(), revokedReason: reason })
+      .where(and(eq(refreshTokens.deviceId, deviceId), isNull(refreshTokens.revokedAt)));
+  }
+
   async changePassword(userId: string, input: PasswordChangeInput): Promise<void> {
     const user = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) });
     if (!user || !(await verifyPassword(input.currentPassword, user.passwordHash))) {
@@ -203,12 +231,14 @@ export class AuthService {
       })
       .where(eq(users.id, userId));
     await this.revokeAllUserTokens(userId, 'ADMIN_REVOKE');
+    await this.authVersion.bump(userId);
   }
 
   async resetPassword(userId: string, input: PasswordResetInput): Promise<void> {
     const [updated] = await this.db.db.update(users).set({ passwordHash: await hashPassword(input.newPassword, this.config.get('PASSWORD_SCRYPT_LOG2N')), mustChangePassword: true, passwordChangedAt: new Date(), updatedAt: new Date() }).where(and(eq(users.id, userId), isNull(users.deletedAt))).returning({ id: users.id });
     if (!updated) throw new UnauthorizedException('User not found');
     await this.revokeAllUserTokens(userId, 'ADMIN_REVOKE');
+    await this.authVersion.bump(userId);
   }
 
   async me(userId: string): Promise<AuthUser> {
@@ -231,6 +261,7 @@ export class AuthService {
         failedLoginCount: users.failedLoginCount,
         lockedUntil: users.lockedUntil,
         deletedAt: users.deletedAt,
+        authVersion: users.authVersion,
       })
       .from(users)
       .innerJoin(roles, eq(roles.id, users.roleId))
@@ -253,6 +284,7 @@ export class AuthService {
         failedLoginCount: users.failedLoginCount,
         lockedUntil: users.lockedUntil,
         deletedAt: users.deletedAt,
+        authVersion: users.authVersion,
       })
       .from(users)
       .innerJoin(roles, eq(roles.id, users.roleId))
@@ -261,7 +293,7 @@ export class AuthService {
       .then((rows) => rows[0]);
   }
 
-  private async issueTokens(identity: NonNullable<Awaited<ReturnType<AuthService['findIdentity']>>>, ip?: string, userAgent?: string) {
+  private async issueTokens(identity: NonNullable<Awaited<ReturnType<AuthService['findIdentity']>>>, ip?: string, userAgent?: string, deviceId?: string) {
     const refreshToken = randomToken();
     const familyId = randomUUID();
     const expiresAt = new Date(Date.now() + this.config.get('JWT_REFRESH_TTL_DAYS') * 86_400_000);
@@ -273,6 +305,7 @@ export class AuthService {
       expiresAt,
       ip,
       userAgent,
+      ...(deviceId ? { deviceId } : {}),
     });
     return { ...(await this.issueAccessToken(identity)), refreshToken, user };
   }
@@ -281,7 +314,7 @@ export class AuthService {
     const user = await this.toUser(identity);
     return {
       accessToken: signAccessToken(
-        { sub: identity.id, role: user.role, permissions: user.permissions },
+        { sub: identity.id, role: user.role, permissions: user.permissions, av: identity.authVersion },
         this.config.get('JWT_SECRET'),
         this.config.get('JWT_ACCESS_TTL_SECONDS'),
       ),

@@ -82,8 +82,8 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     await api.shifts.start(shift.id, morning.id);
 
     const assignment = await api.assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: isoOffset(-120), validTo: handoverAt }, admin.id);
-    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
-    const active = await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.token);
+    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, morning.id, device.id);
+    const active = await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.id);
 
     const [pending] = await api.breaks.list(shift.id, morning.id);
     const started = await api.breaks.start(pending.id, morning.id);
@@ -104,7 +104,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
 
     // La sesion abierta antes del reinicio sigue viva y acepta el siguiente CAS: la version
     // no vivia en memoria del proceso.
-    const beat = await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: active.version }, morning.id, device.token);
+    const beat = await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: active.version }, morning.id, device.id);
     expect(beat.version).toBe(active.version + 1);
 
     // El relevo contiguo no produce un 409 espurio pese al cambio de proceso.
@@ -145,7 +145,7 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     );
     await api.shifts.start(shift.id, operator.id);
     const assignment = await api.assignments.create({ profileId: profile.id, operatorId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(60) }, admin.id);
-    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.token);
+    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.id);
 
     await api.stop();
     api = await bootApi();
@@ -153,8 +153,8 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     // Dos heartbeats con la misma version: el CAS vive en Postgres, asi que el proceso nuevo
     // sigue dejando ganar a uno solo.
     const beats = await Promise.allSettled([
-      api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.token),
-      api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.token),
+      api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.id),
+      api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, operator.id, device.id),
     ]);
     expect(beats.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
 
@@ -263,8 +263,8 @@ describe('Checkpoint 2 — the operational journey survives an API restart', () 
     }).returning({ id: breaks.id });
 
     const outgoing = await api.assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: start.toISOString(), validTo: boundary.toISOString() }, admin.id);
-    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: outgoing.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
-    await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.token);
+    const session = await api.assignments.openSession({ profileId: profile.id, assignmentId: outgoing.id, chromeProfileDir: 'Profile 1' }, morning.id, device.id);
+    await api.assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.id);
     await ctx.db.update(profileSessions).set({ startedAt: start, lastHeartbeatAt: start }).where(eq(profileSessions.id, session.id));
 
     // El relevo exacto cierra la sesión en el borde programado; el worker se ejecuta 45 min tarde.

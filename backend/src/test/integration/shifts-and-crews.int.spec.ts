@@ -8,6 +8,9 @@ import { BreaksService } from '../../modules/breaks/breaks.service.js';
 import { CrewsService } from '../../modules/crews/crews.service.js';
 import { AdminService } from '../../modules/admin/admin.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
+import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { AuthService } from '../../modules/auth/auth.service.js';
 import { JobsService } from '../../modules/jobs/jobs.service.js';
 import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { DevicesService } from '../../modules/devices/devices.service.js';
@@ -34,10 +37,15 @@ beforeAll(async () => {
   const realtime = new RealtimeService(ctx.database);
   shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime, new DrizzleEffectiveTimeRepository(ctx.database));
   breaksService = new BreaksService(ctx.database, new AuditService(ctx.database), realtime);
-  crews = new CrewsService(ctx.database, new AuditService(ctx.database));
-  admin = new AdminService(ctx.database, ctx.config, new AuditService(ctx.database));
+  crews = new CrewsService(ctx.database, new AuditService(ctx.database), new AuthVersionService(ctx.database, realtime));
+  admin = new AdminService(ctx.database, ctx.config, new AuditService(ctx.database), new AuthVersionService(ctx.database, realtime));
   jobs = new JobsService(ctx.database, realtime, new DrizzleEffectiveTimeRepository(ctx.database));
-  devicesService = new DevicesService(ctx.database, new AuditService(ctx.database));
+  devicesService = new DevicesService(
+    ctx.database,
+    new AuditService(ctx.database),
+    realtime,
+    new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, realtime), new AuditService(ctx.database)),
+  );
   profilesService = new ProfilesService(ctx.database, new AuditService(ctx.database));
 });
 
@@ -542,7 +550,7 @@ describe('Delivery 1 crew-scoped resources', () => {
       expect.objectContaining({ id: foreignDevice.id }),
     ]));
     await expect(devicesService.get(foreignDevice.id, actor)).resolves.toMatchObject({ id: foreignDevice.id });
-    await expect(devicesService.create({ hostname: 'shared-host', label: 'Shared station' }, actor)).resolves.toMatchObject({ label: 'Shared station' });
+    await expect(devicesService.create({ hostname: 'shared-host', label: 'Shared station', deviceKind: 'STATION' }, actor)).resolves.toMatchObject({ label: 'Shared station' });
   });
 
   it('shows profiles only through ownership or a current in-scope assignment', async () => {

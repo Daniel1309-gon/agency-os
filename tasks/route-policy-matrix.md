@@ -14,7 +14,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/agent/sessions` | OPERADOR | authenticated; roles: OPERADOR | REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/agent/sessions/{id}` | OPERADOR | authenticated; roles: OPERADOR | REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/agent/sessions/{id}/close` | OPERADOR | authenticated; roles: OPERADOR | REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
-| `POST /api/v1/agent/sessions/prepare` | OPERADOR | authenticated; roles: OPERADOR; permissions: profiles.read | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/agent/sessions/prepare` | OPERADOR | authenticated; roles: OPERADOR; permissions: profiles.read | REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/assignments` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: profiles.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | OFFSET |
 | `POST /api/v1/assignments` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: profiles.update | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/assignments/{id}/end` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: profiles.update | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
@@ -48,8 +48,8 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/devices` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/devices` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/devices/{id}` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/devices/{id}/certificate` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/devices/{id}/revoke` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
-| `POST /api/v1/devices/{id}/rotate` | ADMIN | authenticated; permissions: devices.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/devices/enroll` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/feature-flags` | ADMIN | authenticated; permissions: settings.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `PATCH /api/v1/feature-flags/{key}` | ADMIN | authenticated; permissions: settings.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |

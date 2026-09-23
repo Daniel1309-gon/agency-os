@@ -88,8 +88,8 @@ export const routeContracts = [
   route('POST', '/api/v1/devices', 'GLOBAL'),
   route('POST', '/api/v1/devices/enroll', 'PUBLIC'),
   route('GET', '/api/v1/devices/{id}', 'RESOURCE'),
+  route('POST', '/api/v1/devices/{id}/certificate', 'RESOURCE'),
   route('POST', '/api/v1/devices/{id}/revoke', 'RESOURCE'),
-  route('POST', '/api/v1/devices/{id}/rotate', 'RESOURCE'),
   route('POST', '/api/v1/agent/devices/heartbeat', 'SELF'),
 
   route('GET', '/api/v1/assignments', 'CREW', 'NOT_APPLICABLE', 'OFFSET'),
@@ -297,6 +297,6 @@ export function applyRouteContracts(document: OpenAPIObject, contracts: readonly
       device: operation['x-agency-device'] === true,
       shift: operation['x-agency-shift'] === true,
     };
-    operation.security = access.public ? [] : access.station ? [{ deviceToken: [] }] : [{ accessToken: [] }];
+    operation.security = access.public || access.station ? [] : [{ accessToken: [] }];
   }
 }

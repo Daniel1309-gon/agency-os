@@ -78,9 +78,14 @@ export const devices = pgTable('devices', {
   status: varchar('status', { length: 16 }).notNull().default('PENDING'),
   enrollmentCodeHash: text('enrollment_code_hash'),
   enrollmentCodeExpiresAt: ts('enrollment_code_expires_at'),
+  // Retired 2026-09-21: device identity is the SHA-256 fingerprint of the mTLS
+  // client certificate. Columns stay for history; nothing reads or writes them.
   tokenHash: text('token_hash'),
   tokenIssuedAt: ts('token_issued_at'),
   tokenExpiresAt: ts('token_expires_at'),
+  certFingerprint: text('cert_fingerprint'),
+  certNotAfter: ts('cert_not_after'),
+  deviceKind: varchar('device_kind', { length: 16 }).notNull().default('STATION'),
   extensionVersion: text('extension_version'),
   helperVersion: text('helper_version'),
   osVersion: text('os_version'),
@@ -90,7 +95,12 @@ export const devices = pgTable('devices', {
   approvedBy: uuid('approved_by').references(() => users.id),
   revokedAt: ts('revoked_at'),
   revokedReason: text('revoked_reason'),
-});
+}, (t) => ({
+  certFingerprintActive: uniqueIndex('devices_cert_fingerprint_active_idx')
+    .on(t.certFingerprint)
+    .where(sql`${t.certFingerprint} is not null and ${t.status} <> 'REVOKED'`),
+  deviceKindCheck: check('devices_device_kind_check', sql`${t.deviceKind} in ('STATION', 'ADMIN')`),
+}));
 
 export const refreshTokens = pgTable('refresh_tokens', {
   id: id(),

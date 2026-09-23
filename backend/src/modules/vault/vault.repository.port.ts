@@ -69,7 +69,7 @@ export interface VaultRepository {
   currentCredentialVersion(profileId: string): Promise<number | undefined>;
   rotateCredential(rotation: VaultCredentialRotation, profile?: VaultProfileUpdate): Promise<void>;
   currentCredentialMetadata(profileId: string): Promise<VaultCredentialMetadata | undefined>;
-  findApprovedDevice(tokenHash: string, deviceId?: string): Promise<VaultDevice | undefined>;
+  findApprovedDevice(deviceId: string): Promise<VaultDevice | undefined>;
   activeProfileExists(profileId: string): Promise<boolean>;
   sessionChromeBindingMatches(input: {
     sessionId: string;
@@ -80,11 +80,12 @@ export interface VaultRepository {
     sessionId: string;
     profileId: string;
     operatorId: string;
-    deviceId?: string;
+    deviceId: string;
   }): Promise<VaultLaunchingSession | undefined>;
   findPreparedHandoffSession(input: {
     sessionId: string;
     profileId: string;
+    deviceId: string;
     notBefore: Date;
   }): Promise<VaultPreparedHandoffSession | undefined>;
   findActiveAssignment(input: {
@@ -92,13 +93,6 @@ export interface VaultRepository {
     profileId: string;
     operatorId: string;
   }): Promise<VaultAssignment | undefined>;
-  claimLaunchingSession(input: {
-    sessionId: string;
-    profileId: string;
-    operatorId: string;
-    deviceId: string;
-    claimedAt: Date;
-  }): Promise<boolean>;
   recordCredentialAccess(record: VaultAccessRecord): Promise<void>;
   markGrantReuse(grantId: string): Promise<void>;
   currentCredential(profileId: string): Promise<VaultEncryptedCredential | undefined>;

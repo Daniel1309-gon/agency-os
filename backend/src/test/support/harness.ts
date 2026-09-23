@@ -1,11 +1,12 @@
 import { Pool } from 'pg';
+import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
-import { hashPassword, hashToken, randomToken } from '../../common/auth/crypto.js';
+import { hashPassword, randomToken } from '../../common/auth/crypto.js';
 import * as schema from '../../database/schema/index.js';
 import { devices, roles, ttProfiles, permissions, rolePermissions } from '../../database/schema/index.js';
 import { users } from '../../database/schema/index.js';
@@ -199,11 +200,21 @@ export async function createProfile(
   return row;
 }
 
+export interface CreatedDevice {
+  id: string;
+  fingerprint: string;
+  /** RFC 9440 `Client-Cert` header value the trusted edge would forward. */
+  header: string;
+}
+
 export async function createDevice(
   context: TestContext,
-  options: { operatorId?: string; status?: string } = {},
-): Promise<{ id: string; token: string }> {
-  const token = randomToken();
+  options: { operatorId?: string; status?: string; kind?: 'STATION' | 'ADMIN' } = {},
+): Promise<CreatedDevice> {
+  // The guard trusts the header's provenance, not the certificate contents:
+  // tests generate arbitrary DER bytes and register their SHA-256 fingerprint.
+  const der = Buffer.from(randomToken(16));
+  const fingerprint = createHash('sha256').update(der).digest('hex');
   const [row] = await context.db
     .insert(devices)
     .values({
@@ -211,12 +222,12 @@ export async function createDevice(
       label: `PC-${randomToken(4)}`,
       assignedOperatorId: options.operatorId,
       status: options.status ?? 'APPROVED',
-      tokenHash: hashToken(token),
-      tokenIssuedAt: new Date(),
-      tokenExpiresAt: new Date(Date.now() + 86_400_000),
+      deviceKind: options.kind ?? 'STATION',
+      certFingerprint: fingerprint,
+      certNotAfter: new Date(Date.now() + 30 * 86_400_000),
     })
     .returning({ id: devices.id });
-  return { id: row.id, token };
+  return { id: row.id, fingerprint, header: `:${der.toString('base64')}:` };
 }
 
 /** Rango tstzrange semiabierto, la convencion que fija PLAN.md §4.1. */

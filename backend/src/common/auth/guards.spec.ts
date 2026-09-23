@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import { DeviceTokenGuard, IpAllowlistGuard, JwtAuthGuard, PermissionsGuard, RolesGuard } from './guards.js';
+import { IpAllowlistGuard, JwtAuthGuard, PermissionsGuard, RolesGuard, StationDeviceGuard } from './guards.js';
 import { signAccessToken } from './crypto.js';
 import type { ConfigService } from '../../config/config.service.js';
 import type { AuthenticatedRequest } from './auth.types.js';
@@ -19,7 +19,7 @@ function jwtDatabase(active = true): DatabaseService {
       select: () => ({
         from: () => ({
           innerJoin: () => ({
-            where: () => ({ limit: async () => active ? [{ id: 'user-1' }] : [] }),
+            where: () => ({ limit: async () => active ? [{ id: 'user-1', authVersion: 1 }] : [] }),
           }),
         }),
       }),
@@ -52,7 +52,7 @@ function contextFor(request: Partial<AuthenticatedRequest>): ExecutionContext {
 
 describe('JwtAuthGuard', () => {
   it('lets a valid bearer token through and attaches the claims', async () => {
-    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: ['payroll.read'] }, SECRET, 60);
+    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: ['payroll.read'], av: 1 }, SECRET, 60);
     const { context, request } = requestContext({ headers: { authorization: `Bearer ${token}` } });
     const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase());
 
@@ -69,7 +69,7 @@ describe('JwtAuthGuard', () => {
   });
 
   it('rejects a token signed with another secret', async () => {
-    const forged = signAccessToken({ sub: 'user-1', role: 'ADMIN', permissions: [] }, 'b'.repeat(32), 60);
+    const forged = signAccessToken({ sub: 'user-1', role: 'ADMIN', permissions: [], av: 1 }, 'b'.repeat(32), 60);
     const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase());
     await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${forged}` } }))).rejects.toThrow(
       UnauthorizedException,
@@ -77,7 +77,7 @@ describe('JwtAuthGuard', () => {
   });
 
   it('rejects an expired token', async () => {
-    const expired = signAccessToken({ sub: 'user-1', role: 'ADMIN', permissions: [] }, SECRET, -1);
+    const expired = signAccessToken({ sub: 'user-1', role: 'ADMIN', permissions: [], av: 1 }, SECRET, -1);
     const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase());
     await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${expired}` } }))).rejects.toThrow(
       UnauthorizedException,
@@ -89,7 +89,7 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(contextFor({ headers: {} }))).resolves.toBe(true);
   });
 
-  it('delegates authentication to the device guard on station routes', async () => {
+  it('delegates authentication to the certificate identity on station routes', async () => {
     const guard = new JwtAuthGuard(
       config,
       reflectorByKey({ [STATION_AUTH_KEY]: true }),
@@ -97,17 +97,23 @@ describe('JwtAuthGuard', () => {
       jwtDatabase(),
     );
 
-    await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'station-token' } }))).resolves.toBe(true);
+    await expect(guard.canActivate(contextFor({ headers: {} }))).resolves.toBe(true);
   });
 
   it('rejects a valid token after the user is disabled or its role changes', async () => {
-    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [] }, SECRET, 60);
+    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [], av: 1 }, SECRET, 60);
     const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase(false));
     await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${token}` } }))).rejects.toThrow(UnauthorizedException);
   });
 
+  it('rejects a valid token whose authorization version is stale', async () => {
+    const stale = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [], av: 0 }, SECRET, 60);
+    const guard = new JwtAuthGuard(config, reflectorReturning(false), audit, jwtDatabase());
+    await expect(guard.canActivate(contextFor({ headers: { authorization: `Bearer ${stale}` } }))).rejects.toThrow(UnauthorizedException);
+  });
+
   it('lets database failures propagate instead of misclassifying them as invalid tokens', async () => {
-    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [] }, SECRET, 60);
+    const token = signAccessToken({ sub: 'user-1', role: 'OPERADOR', permissions: [], av: 1 }, SECRET, 60);
     const database = {
       db: {
         select: () => {
@@ -132,7 +138,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('requires every declared permission, not just one of them', async () => {
-    const request = { user: { sub: 'u', role: 'COORDINADOR', permissions: ['payroll.read'], iat: 0, exp: 0, jti: '' } };
+    const request = { user: { sub: 'u', role: 'COORDINADOR', permissions: ['payroll.read'], av: 1, iat: 0, exp: 0, jti: '' } };
     await expect(guard(['payroll.read']).canActivate(contextFor(request))).resolves.toBe(true);
     await expect(guard(['payroll.read', 'payroll.close']).canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);
   });
@@ -142,7 +148,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('does not accept a permission prefix as the permission', async () => {
-    const request = { user: { sub: 'u', role: 'OPERADOR', permissions: ['vault.read_meta'], iat: 0, exp: 0, jti: '' } };
+    const request = { user: { sub: 'u', role: 'OPERADOR', permissions: ['vault.read_meta'], av: 1, iat: 0, exp: 0, jti: '' } };
     await expect(guard(['vault.credential.issue']).canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);
   });
 });
@@ -151,7 +157,7 @@ describe('RolesGuard', () => {
   const guard = (required: string[] | undefined) => new RolesGuard(reflectorReturning(required), audit);
 
   it('allows only an explicitly declared role', async () => {
-    const operator = { user: { sub: 'u', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: '' } };
+    const operator = { user: { sub: 'u', role: 'OPERADOR', permissions: [], av: 1, iat: 0, exp: 1, jti: '' } };
     const cafeteria = { user: { ...operator.user, role: 'CAFETERIA' } };
     await expect(guard(['OPERADOR']).canActivate(contextFor(operator))).resolves.toBe(true);
     await expect(guard(['OPERADOR']).canActivate(contextFor(cafeteria))).rejects.toThrow('Role is not allowed');
@@ -162,56 +168,22 @@ describe('RolesGuard', () => {
   });
 });
 
-describe('DeviceTokenGuard', () => {
-  const approvedDevice = {
-    id: 'device-1',
-    assignedOperatorId: 'another-user',
-    label: 'Office laptop',
-    tokenExpiresAt: new Date(Date.now() + 60_000),
-  };
-  const dbFor = (device: typeof approvedDevice | undefined) => ({ db: { query: { devices: { findFirst: async () => device } } } });
+describe('StationDeviceGuard', () => {
+  const guard = () => new StationDeviceGuard(audit);
 
-  it('requires the x-device-token header and an authenticated operator', async () => {
-    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit, reflectorByKey({}));
-    await expect(guard.canActivate(contextFor({ headers: {} }))).rejects.toThrow(ForbiddenException);
-    await expect(guard.canActivate(contextFor({ headers: { 'x-device-token': 'abc' } }))).rejects.toThrow(ForbiddenException);
-    await expect(guard.canActivate(contextFor({
-      user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
-      headers: { 'x-device-token': 'x'.repeat(129) },
-    }))).rejects.toThrow('Device token is invalid or expired');
-  });
-
-  it('accepts an approved office station regardless of which operator is using it', async () => {
-    const guard = new DeviceTokenGuard(dbFor(approvedDevice) as never, audit, reflectorByKey({}));
+  it('accepts an approved station identity resolved from the certificate', async () => {
     const { context, request } = requestContext({
-      user: { sub: 'user-1', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' },
-      headers: { 'x-device-token': 'abc' },
+      device: { id: 'device-1', label: 'Office PC', kind: 'STATION', fingerprint: 'a'.repeat(64), certNotAfter: null },
     });
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-    expect(request.device).toEqual({
-      id: 'device-1',
-      label: 'Office laptop',
-      tokenExpiresAt: approvedDevice.tokenExpiresAt,
-    });
+    await expect(guard().canActivate(context)).resolves.toBe(true);
+    expect(request.device?.id).toBe('device-1');
   });
 
-  it('rejects an invalid or expired device token', async () => {
-    const guard = new DeviceTokenGuard(dbFor(undefined) as never, audit, reflectorByKey({}));
-    const request = { user: { sub: 'user-2', role: 'OPERADOR', permissions: [], iat: 0, exp: 1, jti: 'jti' }, headers: { 'x-device-token': 'abc' } };
-    await expect(guard.canActivate(contextFor(request))).rejects.toThrow(ForbiddenException);
-  });
-
-  it('authenticates an approved station without requiring an operator JWT', async () => {
-    const guard = new DeviceTokenGuard(
-      dbFor(approvedDevice) as never,
-      audit,
-      reflectorByKey({ [STATION_AUTH_KEY]: true }),
-    );
-    const { context, request } = requestContext({ headers: { 'x-device-token': 'abc' } });
-
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-    expect(request.user).toBeUndefined();
-    expect(request.device?.id).toBe(approvedDevice.id);
+  it('rejects a missing identity and an administrative device', async () => {
+    await expect(guard().canActivate(contextFor({}))).rejects.toThrow(ForbiddenException);
+    await expect(guard().canActivate(contextFor({
+      device: { id: 'device-2', label: 'Owner laptop', kind: 'ADMIN', fingerprint: 'b'.repeat(64), certNotAfter: null },
+    }))).rejects.toThrow(ForbiddenException);
   });
 });
 

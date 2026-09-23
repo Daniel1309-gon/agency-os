@@ -21,27 +21,26 @@ la extensión manualmente en cada PC. La clave privada `.pem` no se versiona y d
 entorno de empaquetado autorizado.
 
 La versión productiva no lee archivos locales ni usa credenciales de prueba. El acceso al API se
-limita primero por la IP pública permitida de la oficina. `apiBaseUrl`, `webAppOrigin`, el nombre del
-host Native Messaging y el token revocable de la estación se provisionan con
-`chrome.storage.managed` mediante política empresarial. Ese token acredita una estación compartida,
-no la asocia a un operador: cualquier operador autenticado puede usar cualquier PC aprobado dentro
-de la red autorizada.
+limita primero por el mTLS de zona y la IP pública permitida de la oficina. `apiBaseUrl`, `webAppOrigin`
+y el nombre del host Native Messaging se provisionan con `chrome.storage.managed` mediante política
+empresarial. La identidad del equipo no es un secreto: es el certificado cliente emitido para esa PC,
+registrado por huella en Agency OS. No asocia la estación a un operador: cualquier operador
+autenticado puede usar cualquier PC aprobado dentro de la red autorizada.
 
-Después de enrolar la estación, provisiona esos valores desde una PowerShell elevada. El instalador
-lee el token desde el archivo indicado y nunca lo imprime ni lo acepta como argumento:
+Después de enrolar la estación, provisiona esos valores desde una PowerShell elevada:
 
 ```powershell
 .\scripts\install-managed-policy.ps1 `
   -ExtensionId EXTENSION_ID `
   -ApiBaseUrl https://api.example.com/api/v1 `
-  -WebAppOrigin https://app.example.com `
-  -DeviceTokenFile C:\ProgramData\AgencyOS\device-token.txt
+  -WebAppOrigin https://app.example.com
 ```
 
-El web-app prepara una sesión `LAUNCHING` sin elegir PC; el service worker valida el origen, guarda
-el contexto únicamente en `chrome.storage.session`, invoca el helper sin secretos y reclama la
-sesión desde la estación que está usando el operador. Después solicita un grant de 60 segundos, lo
-redime una sola vez y entrega la credencial al content script solo en memoria.
+El web-app prepara una sesión `LAUNCHING` vinculada al operador, al perfil, a la asignación y al
+certificado del equipo; el service worker valida el origen, guarda el contexto únicamente en
+`chrome.storage.session`, invoca el helper sin secretos y reclama la sesión desde el certificado
+vinculado. Después solicita un grant de 60 segundos, lo redime una sola vez y entrega la credencial
+al content script solo en memoria.
 
 Antes de empaquetar, renderiza el manifest con los orígenes exactos de producción:
 

@@ -1,6 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { HealthService } from './health.service.js';
-import { Public, SkipIpAllowlist } from '../../common/auth/decorators.js';
+import { Public, SkipClientCert, SkipIpAllowlist } from '../../common/auth/decorators.js';
 
 @Controller('health')
 export class HealthController {
@@ -9,6 +9,7 @@ export class HealthController {
   @Get('live')
   @Public()
   @SkipIpAllowlist()
+  @SkipClientCert()
   @HttpCode(HttpStatus.OK)
   live(): { status: 'ok' } {
     return this.health.checkLive();
@@ -17,6 +18,7 @@ export class HealthController {
   @Get('ready')
   @Public()
   @SkipIpAllowlist()
+  @SkipClientCert()
   @HttpCode(HttpStatus.OK)
   async ready() {
     const result = await this.health.checkReady();

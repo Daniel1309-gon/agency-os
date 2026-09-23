@@ -44,25 +44,30 @@ func runEnrollment(arguments []string) error {
 	codeFile := flags.String("code-file", "", "Restricted file containing the one-time enrollment code")
 	hostname := flags.String("hostname", "", "This Windows host name")
 	label := flags.String("label", "", "Human-readable device label")
-	tokenFile := flags.String("token-file", "", "Path where the managed-policy installer will read the device token")
+	certFile := flags.String("cert-file", "", "PEM certificate issued for this PC; its SHA-256 is registered as the device identity")
+	certFingerprint := flags.String("cert-fingerprint", "", "Precomputed lowercase SHA-256 fingerprint, when the certificate is not available as a file")
 	if err := flags.Parse(arguments); err != nil {
 		return err
-	}
-	if *tokenFile == "" {
-		return fmt.Errorf("--token-file is required; the device token is never printed")
 	}
 	enrollmentCodeValue, err := enrollmentCode(*code, *codeFile)
 	if err != nil {
 		return err
 	}
-	result, err := enrollment.Enroll(context.Background(), *apiBaseURL, enrollmentCodeValue, *hostname, *label)
+	fingerprint := strings.TrimSpace(*certFingerprint)
+	if fingerprint == "" {
+		if *certFile == "" {
+			return fmt.Errorf("provide --cert-file or --cert-fingerprint; the device identity is its certificate")
+		}
+		fingerprint, err = enrollment.FingerprintFromPEM(*certFile)
+		if err != nil {
+			return err
+		}
+	}
+	result, err := enrollment.Enroll(context.Background(), *apiBaseURL, enrollmentCodeValue, *hostname, *label, fingerprint)
 	if err != nil {
 		return err
 	}
-	if err := enrollment.WriteTokenFile(*tokenFile, result.Token); err != nil {
-		return err
-	}
-	fmt.Printf("Device %s enrolled; token stored for managed policy until %s\n", result.DeviceID, result.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"))
+	fmt.Printf("Device %s enrolled with certificate fingerprint %s\n", result.DeviceID, fingerprint)
 	return nil
 }
 

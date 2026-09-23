@@ -59,7 +59,8 @@ describe('AssignmentsService.create', () => {
       createdBy: admin.id,
     }).returning({ id: shifts.id });
     const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, shiftId: shift.id, validFrom, validTo }, admin.id);
-    const session = await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id);
+    const device = await createDevice(ctx);
+    const session = await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.id);
 
     const [assigned] = await profiles.assignedTo(operator.id);
 
@@ -100,12 +101,13 @@ describe('AssignmentsService.create', () => {
     const profile = await createProfile(ctx, { chromeProfileDir: 'Profile 7' });
     const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
 
+const device = await createDevice(ctx);
     await expect(
-      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id),
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.id),
     ).rejects.toThrow(ConflictException);
 
     await expect(
-      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id),
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id, device.id),
     ).resolves.toMatchObject({ status: 'LAUNCHING' });
   });
 
@@ -115,8 +117,9 @@ describe('AssignmentsService.create', () => {
     const profile = await createProfile(ctx, { chromeProfileDir: null });
     const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
 
+const device = await createDevice(ctx);
     await expect(
-      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id),
+      assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 1' }, operator.id, device.id),
     ).rejects.toThrow(ConflictException);
   });
 
@@ -125,7 +128,8 @@ describe('AssignmentsService.create', () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx, { chromeProfileDir: 'Profile 7' });
     const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
-    await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id);
+    const device = await createDevice(ctx);
+    await assignments.prepareSession({ profileId: profile.id, assignmentId: assignment.id, chromeProfileDir: 'Profile 7' }, operator.id, device.id);
 
     await expect(
       profiles.update(profile.id, { chromeProfileDir: 'Profile 8', version: 0 }, { sub: admin.id, role: 'ADMIN' }),
@@ -169,8 +173,8 @@ describe('AssignmentsService.create', () => {
     const device = await createDevice(ctx, { operatorId: morning.id });
     const boundary = isoOffset(60);
     const first = await assignments.create({ profileId: profile.id, operatorId: morning.id, validFrom: isoOffset(-60), validTo: boundary }, admin.id);
-    const session = await assignments.openSession({ profileId: profile.id, assignmentId: first.id, chromeProfileDir: 'Profile 1' }, morning.id, device.token);
-    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.token);
+    const session = await assignments.openSession({ profileId: profile.id, assignmentId: first.id, chromeProfileDir: 'Profile 1' }, morning.id, device.id);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, morning.id, device.id);
 
     const second = await assignments.create({ profileId: profile.id, operatorId: afternoon.id, validFrom: boundary, validTo: isoOffset(180) }, admin.id);
 
@@ -299,13 +303,13 @@ describe('AssignmentsService.create', () => {
 });
 
 describe('AssignmentsService sessions', () => {
-  async function ready(): Promise<{ operatorId: string; profileId: string; assignmentId: string; deviceToken: string }> {
+  async function ready(): Promise<{ operatorId: string; profileId: string; assignmentId: string; deviceId: string }> {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const device = await createDevice(ctx, { operatorId: operator.id });
     const assignment = await assignments.create({ profileId: profile.id, operatorId: operator.id, ...NOW_WINDOW() }, admin.id);
-    return { operatorId: operator.id, profileId: profile.id, assignmentId: assignment.id, deviceToken: device.token };
+    return { operatorId: operator.id, profileId: profile.id, assignmentId: assignment.id, deviceId: device.id };
   }
 
   it('opens a session in LAUNCHING', async () => {
@@ -313,31 +317,32 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     expect(session).toMatchObject({ status: 'LAUNCHING' });
   });
 
-  it('prepares a session without choosing a workstation for the operator', async () => {
+  it('prepares a session already bound to the requesting station certificate', async () => {
     const s = await ready();
     const session = await assignments.prepareSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
+      s.deviceId,
     );
 
     const [stored] = await ctx.db
       .select({ deviceId: profileSessions.deviceId, status: profileSessions.status })
       .from(profileSessions)
       .where(eq(profileSessions.id, session.id));
-    expect(stored).toEqual({ deviceId: null, status: 'LAUNCHING' });
+    expect(stored).toEqual({ deviceId: s.deviceId, status: 'LAUNCHING' });
   });
 
   it('turns the single-live-session index into a 409', async () => {
     const s = await ready();
     const input = { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' };
-    await assignments.openSession(input, s.operatorId, s.deviceToken);
+    await assignments.openSession(input, s.operatorId, s.deviceId);
 
-    const error = await assignments.openSession(input, s.operatorId, s.deviceToken).catch((thrown) => thrown);
+    const error = await assignments.openSession(input, s.operatorId, s.deviceId).catch((thrown) => thrown);
     expect(error).toBeInstanceOf(ConflictException);
     expect((error as ConflictException).getStatus()).toBe(409);
   });
@@ -345,10 +350,10 @@ describe('AssignmentsService sessions', () => {
   it('frees the profile once the session is closed', async () => {
     const s = await ready();
     const input = { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' };
-    const first = await assignments.openSession(input, s.operatorId, s.deviceToken);
+    const first = await assignments.openSession(input, s.operatorId, s.deviceId);
 
-    await assignments.closeSession(first.id, first.version, s.operatorId, s.deviceToken);
-    await expect(assignments.openSession(input, s.operatorId, s.deviceToken)).resolves.toBeDefined();
+    await assignments.closeSession(first.id, first.version, s.operatorId, s.deviceId);
+    await expect(assignments.openSession(input, s.operatorId, s.deviceId)).resolves.toBeDefined();
 
     const [closed] = await ctx.db
       .select({ status: profileSessions.status, endReason: profileSessions.endReason, endedAt: profileSessions.endedAt })
@@ -364,9 +369,9 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId);
 
     await assignments.end(s.assignmentId, admin.id);
 
@@ -384,7 +389,7 @@ describe('AssignmentsService sessions', () => {
     const sharedStation = await createDevice(ctx, { operatorId: previousUser.id });
 
     await expect(
-      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, s.operatorId, sharedStation.token),
+      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, s.operatorId, sharedStation.id),
     ).resolves.toMatchObject({ status: 'LAUNCHING' });
   });
 
@@ -394,7 +399,7 @@ describe('AssignmentsService sessions', () => {
     const otherDevice = await createDevice(ctx, { operatorId: other.id });
 
     await expect(
-      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, other.id, otherDevice.token),
+      assignments.openSession({ profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' }, other.id, otherDevice.id),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -403,10 +408,10 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
 
-    const beat = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    const beat = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId);
     expect(beat.status).toBe('ACTIVE');
     expect(beat.lastHeartbeatAt).toBeInstanceOf(Date);
 
@@ -414,7 +419,7 @@ describe('AssignmentsService sessions', () => {
       session.id,
       { status: 'ERROR', version: beat.version, errorCode: 'LOGIN_FAILED', errorDetail: 'TalkyTimes rechazo la credencial' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     const [errored] = await ctx.db
       .select({ status: profileSessions.status, errorCode: profileSessions.errorCode })
@@ -428,11 +433,11 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
 
     await expect(
-      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken),
+      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceId),
     ).resolves.toMatchObject({ status: 'ACTIVE', version: session.version + 1 });
   });
 
@@ -441,15 +446,15 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceId);
 
-    const heartbeat = await assignments.heartbeatStationSession(session.id, active.version, s.deviceToken);
+    const heartbeat = await assignments.heartbeatStationSession(session.id, active.version, s.deviceId);
 
     expect(heartbeat).toMatchObject({ decision: 'CONTINUE', status: 'ACTIVE', version: active.version + 1 });
     expect(new Date(heartbeat.permitUntil).getTime() - new Date(heartbeat.serverTime).getTime()).toBeLessThanOrEqual(30_000);
-    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceToken)).rejects.toThrow(ConflictException);
+    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceId)).rejects.toThrow(ConflictException);
   });
 
   it('closes the browser permit when the assignment is revoked', async () => {
@@ -457,12 +462,12 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceId);
     await ctx.db.update(profileAssignments).set({ status: 'ENDED', endedAt: new Date(), endReason: 'HANDOFF' }).where(eq(profileAssignments.id, s.assignmentId));
 
-    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceToken)).resolves.toMatchObject({ decision: 'CLOSE', reason: 'AUTHORIZATION_ENDED', status: 'CLOSED' });
+    await expect(assignments.heartbeatStationSession(session.id, active.version, s.deviceId)).resolves.toMatchObject({ decision: 'CLOSE', reason: 'AUTHORIZATION_ENDED', status: 'CLOSED' });
     const [closed] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
     expect(closed).toEqual({ status: 'CLOSED', endReason: 'AUTHORIZATION_ENDED' });
   });
@@ -472,12 +477,12 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceToken);
+    const active = await assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, s.deviceId);
 
-    const first = await assignments.closeStationSession(session.id, active.version, s.deviceToken);
-    const second = await assignments.closeStationSession(session.id, active.version, s.deviceToken);
+    const first = await assignments.closeStationSession(session.id, active.version, s.deviceId);
+    const second = await assignments.closeStationSession(session.id, active.version, s.deviceId);
 
     expect(first).toMatchObject({ status: 'CLOSED', version: active.version + 1 });
     expect(second).toMatchObject({ status: 'CLOSED', version: first.version, browserClosedAt: first.browserClosedAt });
@@ -489,11 +494,11 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
 
     await expect(
-      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, otherStation.token),
+      assignments.updateStationSession(session.id, { status: 'ACTIVE', version: session.version }, otherStation.id),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -502,13 +507,13 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     const version = session.version;
     const patch = (sessionVersion: number) => ({ status: 'ACTIVE' as const, version: sessionVersion });
 
-    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceToken)).resolves.toMatchObject({ status: 'ACTIVE' });
-    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceToken)).rejects.toThrow(ConflictException);
+    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceId)).resolves.toMatchObject({ status: 'ACTIVE' });
+    await expect(assignments.updateSession(session.id, patch(version), s.operatorId, s.deviceId)).rejects.toThrow(ConflictException);
   });
 
   it('marks an ACTIVE session STALE after its heartbeat deadline and keeps it terminal', async () => {
@@ -516,9 +521,9 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId);
     await ctx.db.update(profileSessions).set({ lastHeartbeatAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
@@ -526,7 +531,7 @@ describe('AssignmentsService sessions', () => {
     const [stale] = await ctx.db.select({ status: profileSessions.status, endReason: profileSessions.endReason }).from(profileSessions).where(eq(profileSessions.id, session.id));
     expect(stale).toEqual({ status: 'STALE', endReason: 'HEARTBEAT_TIMEOUT' });
     await expect(
-      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId),
     ).rejects.toThrow(ConflictException);
   });
 
@@ -535,15 +540,15 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    const active = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    const active = await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId);
     await ctx.db.update(profileSessions).set({ lastHeartbeatAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
 
     const [stale] = await ctx.db.select({ version: profileSessions.version }).from(profileSessions).where(eq(profileSessions.id, session.id));
     expect(stale.version).toBe(active.version + 1);
-    await expect(assignments.closeSession(session.id, stale.version, s.operatorId, s.deviceToken)).resolves.toMatchObject({ status: 'CLOSED', version: stale.version + 1 });
+    await expect(assignments.closeSession(session.id, stale.version, s.operatorId, s.deviceId)).resolves.toMatchObject({ status: 'CLOSED', version: stale.version + 1 });
   });
 
   it('does not reopen a closed session through PATCH', async () => {
@@ -551,12 +556,12 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    await assignments.closeSession(session.id, session.version, s.operatorId, s.deviceToken);
+    await assignments.closeSession(session.id, session.version, s.operatorId, s.deviceId);
 
     await expect(
-      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId),
     ).rejects.toThrow(ConflictException);
   });
 
@@ -565,7 +570,7 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     await ctx.db
       .update(profileAssignments)
@@ -573,7 +578,7 @@ describe('AssignmentsService sessions', () => {
       .where(eq(profileAssignments.id, s.assignmentId));
 
     await expect(
-      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken),
+      assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -582,12 +587,12 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     const other = await createUser(ctx);
     const otherDevice = await createDevice(ctx, { operatorId: other.id });
 
-    await expect(assignments.updateSession(session.id, { status: 'CLOSED', version: session.version }, other.id, otherDevice.token)).rejects.toThrow(
+    await expect(assignments.updateSession(session.id, { status: 'CLOSED', version: session.version }, other.id, otherDevice.id)).rejects.toThrow(
       NotFoundException,
     );
   });
@@ -597,7 +602,7 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
     await ctx.db.update(profileSessions).set({ startedAt: new Date(Date.now() - 121_000) }).where(eq(profileSessions.id, session.id));
 
@@ -612,9 +617,9 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ACTIVE', version: session.version }, s.operatorId, s.deviceId);
     await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();
@@ -628,9 +633,9 @@ describe('AssignmentsService sessions', () => {
     const session = await assignments.openSession(
       { profileId: s.profileId, assignmentId: s.assignmentId, chromeProfileDir: 'Profile 1' },
       s.operatorId,
-      s.deviceToken,
+      s.deviceId,
     );
-    await assignments.updateSession(session.id, { status: 'ERROR', version: session.version, errorCode: 'LOGIN_FAILED' }, s.operatorId, s.deviceToken);
+    await assignments.updateSession(session.id, { status: 'ERROR', version: session.version, errorCode: 'LOGIN_FAILED' }, s.operatorId, s.deviceId);
     await ctx.db.update(profileAssignments).set({ validRange: `[${new Date(Date.now() - 3_600_000).toISOString()},${new Date(Date.now() - 1_000).toISOString()})` }).where(eq(profileAssignments.id, s.assignmentId));
 
     await (jobs as unknown as { reapSessions(): Promise<void> }).reapSessions();

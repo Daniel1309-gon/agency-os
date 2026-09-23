@@ -1,6 +1,6 @@
 import { SetMetadata, applyDecorators, createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import { ApiExtension } from '@nestjs/swagger';
-import { AUTH_USER, type AuthenticatedRequest } from './auth.types.js';
+import { AUTH_USER, type AuthenticatedRequest, type ClientCertIdentity, type DevicePrincipal } from './auth.types.js';
 import type { AccessTokenClaims } from './crypto.js';
 
 export const IS_PUBLIC_KEY = 'agency-os.public';
@@ -10,6 +10,8 @@ export const REQUIRED_PERMISSIONS_KEY = 'agency-os.permissions';
 export const REQUIRED_ROLES_KEY = 'agency-os.roles';
 export const ROUTE_POLICY_KEY = 'agency-os.route-policy';
 export const STATION_AUTH_KEY = 'agency-os.station-auth';
+export const SKIP_CLIENT_CERT_KEY = 'agency-os.skip-client-cert';
+export const ALLOW_UNREGISTERED_CLIENT_CERT_KEY = 'agency-os.allow-unregistered-client-cert';
 
 export type RoutePolicy = 'authenticated' | 'permissions' | 'public' | 'roles' | 'station';
 
@@ -28,6 +30,14 @@ export const StationAuthenticated = () => applyDecorators(
   ApiExtension('x-agency-station', true),
 );
 export const SkipIpAllowlist = () => SetMetadata(SKIP_IP_ALLOWLIST_KEY, true);
+export const SkipClientCert = () => SetMetadata(SKIP_CLIENT_CERT_KEY, true);
+/**
+ * Exige certificado de cliente (presentado y verificado en el borde) pero no que
+ * su huella pertenezca ya a un dispositivo aprobado. Solo para el enrolamiento:
+ * la PC existe como PENDING y canjea su codigo presentando su propio certificado.
+ * El guard deja la huella verificada en `request.clientCertFingerprint`.
+ */
+export const AllowUnregisteredClientCert = () => SetMetadata(ALLOW_UNREGISTERED_CLIENT_CERT_KEY, true);
 export const RequireShift = () => applyDecorators(
   SetMetadata(REQUIRE_SHIFT_KEY, true),
   ApiExtension('x-agency-shift', true),
@@ -59,6 +69,20 @@ export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): AccessTokenClaims | undefined => {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     return request.user;
+  },
+);
+
+export const CurrentDevice = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): DevicePrincipal | undefined => {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    return request.device;
+  },
+);
+
+export const CurrentClientCert = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): ClientCertIdentity => {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    return { fingerprint: request.clientCertFingerprint, notAfter: request.clientCertNotAfter ?? null };
   },
 );
 

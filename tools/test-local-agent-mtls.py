@@ -8,7 +8,7 @@ Levanta un servidor HTTPS local que exige certificado de cliente y comprueba:
 - certificado válido: la petición es aceptada;
 - sin certificado: la conexión es rechazada;
 - certificado de servidor no confiable: la conexión es rechazada;
-- redirección: no se sigue (el token no se reenvía a otro destino);
+- redirección: no se sigue (la petición autenticada no se reenvía a otro destino);
 - configuración parcial o archivos inválidos: error al arrancar.
 
 Ejecutar: uv run tools/test-local-agent-mtls.py
@@ -132,7 +132,7 @@ def main() -> int:
         # agente real usa el bundle de certifi para el certificado público.
         opener = agent.build_http_opener(pki["client_crt"], pki["client_key"], ca_file=pki["ca_crt"])
         try:
-            result = agent.api_json(base, "/ok", "POST", "token", body, opener)
+            result = agent.api_json(base, "/ok", "POST", body, opener)
             if result.get("ok") is not True:
                 failures.append("valid client certificate did not reach the server")
         except Exception as exc:  # noqa: BLE001
@@ -157,7 +157,7 @@ def main() -> int:
 
         # Redirect: no se sigue.
         try:
-            agent.api_json(base, "/redirect", "POST", "token", body, opener)
+            agent.api_json(base, "/redirect", "POST", body, opener)
             failures.append("redirect was followed")
         except agent.ApiFailure as exc:
             if exc.status != 302:
