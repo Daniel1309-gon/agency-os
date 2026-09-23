@@ -396,6 +396,26 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   define al cierre de E1 (spike de PostgreSQL gestionado vs. Patroni con testigo), Redis irá por
   réplica manual y las imágenes se publican en GHCR. Topología objetivo: dos nodos en la misma región
   con replicación y balanceo, ~US$33/mes dentro de los ~US$155 autorizados.
+- **Decisiones de cierre de E1 (2026-09-23), confirmadas por Daniel con la clienta:**
+  (1) auditoría: **30 días** — `audit.retention_months = 1` sobre las particiones mensuales
+  (conserva entre 30 y ~61 días); resuelve la parte de auditoría de OQ-08 (la retención de datos raw
+  sigue abierta). (2) Breaks (parte de OQ-03): **sin breaks programados**; el operador inicia el suyo
+  cuando quiere, **máximo 20 min con cierre automático**, uno en las primeras 4 h y otro en las 4 h
+  siguientes contadas desde la hora **programada** del turno; si no lo toma, lo pierde; turnos de 8 h
+  y el tiempo extra no tiene break (score y aprobación de icebreakers de OQ-03 siguen abiertos).
+  (3) Mensajes programados **puntuales y recurrentes, entregados por Rocket.Chat**, con formulario en
+  la web. (4) Alcance: OPS-02 (vista de historial), SEC-07a (catálogo de auditoría), SEC-09a
+  (reenvoltura de la KEK) y E1-05 (superficie de outbox y reproceso) **quedan en E1**; OPS-04
+  (snapshot monotónico) y SEC-09b (recifrado a la DEK vigente) **pasan a E2**. (5) SEC-10: alertas por
+  abuso del vault al canal privado de administración de Rocket.Chat + registro en la web.
+  Plan de ejecución en [`tasks/plan-trabajo-interno-e1-2026-09-23.md`](tasks/plan-trabajo-interno-e1-2026-09-23.md);
+  estado por fila en [`tasks/cierre-e1-matriz-2026-09-21.md`](tasks/cierre-e1-matriz-2026-09-21.md) §10–§11.
+- **Hallazgos del ensayo de restore (2026-09-23):** el restore con `--no-owner --role=agency_owner`
+  fallaba sobre el esquema real (no puede crear `citext`/`btree_gist`/`pgcrypto`); se restaura como
+  superusuario conservando dueños. En PostgreSQL gestionado (sin superusuario) hay que verificar que el
+  rol administrador pueda crear esas extensiones y actuar como `agency_owner` antes de elegir
+  proveedor. Los `.sh` deben quedar en LF (`.gitattributes`) o las imágenes construidas desde Windows
+  no arrancan.
 - **Plan de backend escrito (2026-08-04):** [`backend/PLAN.md`](backend/PLAN.md) — modelo de datos
   completo (11 dominios), invariantes en la BD, superficie HTTP, seguridad, y 9 decisiones nuevas
   numeradas del #10 al #18 en continuación de la tabla de §5. Su §11 lista 10 preguntas abiertas

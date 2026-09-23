@@ -129,3 +129,20 @@ acta (E1-19) lo deciden Daniel y la clienta.
 | **C. Externos (VPS, Cloudflare, B2, PG gestionado, físico)** | SEC-03, SEC-04, E1-04c, OPS-05, C1 carga, D1, D2, INT-01, E1-16, E1-17, E1-18, E | Reglas mTLS y Transform Rule en Cloudflare, CIDR del túnel, 30 logins y 30 sockets, dos workers, restore real de B2 con KEK, prueba física en PCs de oficina |
 | **D. Decisiones de la clienta** | OQ-08 (SEC-08), OQ-03 (OPS-06), recurrencia (E1-14) | Retención de auditoría, autocierre de breaks por duración, recurrencia de mensajes |
 | **E. Rocket.Chat (servidor autorizado)** | E1-13, E1-14 SLA, E1-15 | Escaneo de deriva, medición <1 s y runbook del bot permanente; requieren el servidor del VPS de la clienta |
+
+## 11. Decisiones y alcance confirmados (2026-09-23)
+
+Confirmados por Daniel con la clienta; detalle en `agents.md` §6 y plan de ejecución en
+[`plan-trabajo-interno-e1-2026-09-23.md`](plan-trabajo-interno-e1-2026-09-23.md) (pendiente de
+aprobación para ejecutar).
+
+| Punto | Decisión | Efecto en esta matriz |
+|---|---|---|
+| OQ-08 (auditoría) | 30 días: `audit.retention_months = 1` | SEC-08 deja de estar bloqueada por la clienta; la retención de datos raw sigue abierta, por eso OQ-08 no se marca resuelta |
+| OQ-03 (breaks) | Sin breaks programados; el operador inicia, máx. 20 min con cierre automático, uno por ventana de 4 h desde la hora programada; si no lo toma, lo pierde; turnos de 8 h, extra sin break | OPS-06 pasa a construcción interna; score/aprobación de icebreakers siguen abiertos en OQ-03 |
+| E1-14 (recurrencia) | Mensajes puntuales y recurrentes por Rocket.Chat, con formulario web | Recurrencia y formulario pasan a construcción interna; la medición del SLA sigue en el servidor real |
+| Alcance E1 | Quedan: OPS-02, SEC-07a, SEC-09a, E1-05. Pasan a E2: OPS-04, SEC-09b | El grupo B de §10 queda resuelto |
+| SEC-10 | Alertas al canal privado de administración en Rocket.Chat + registro en la web | Deja de estar bloqueada |
+
+Hecho el 2026-09-23 (local): E1-09c (restore con KEK, `63b31a4`) y caída de Redis de E1-06
+(`4f8e472`, sin push al momento de escribir esto).
