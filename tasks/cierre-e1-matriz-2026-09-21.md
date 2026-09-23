@@ -15,8 +15,8 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | SEC-05 principal y lifecycle del dispositivo | `CERRADO` (2026-09-21): identidad por huella SHA-256 del certificado mTLS, inventario `devices` con estado/vencimiento, enrolamiento con certificado no registrado y código de un solo uso, revocación que corta sockets y refresh tokens | `client-cert.ts`, `devices.service.ts`, migración `0020`; `guards.int.spec.ts`, `device-enroll.int.spec.ts`, `devices.int.spec.ts` | — | Conservar como regresión |
 | SEC-06 turno y overrides | `CERRADO` | `shift-access.service*`, migración `0011`, `shift-access.int.spec.ts` | — | Conservar como regresión |
 | SEC-07 escritor central de auditoría | `PARCIAL` | `common/audit/audit.service.ts` (whitelist fail-closed); atomicidad vía `TransactionInterceptor` | Faltan catálogo por acción y prueba de atomicidad en rutas sin JWT (login, station) | E1-07a/07b |
-| SEC-08 partición, inmutabilidad y retención | `PARCIAL` | Migración `0016`, `schema-invariants.int.spec.ts`; `retention_months=0` | Cursor de consulta y decisión de retención OQ-08 pendientes | E1-08; OQ-08 es externa |
-| SEC-09 vault (grant/redeem/rotación) | `PARCIAL` | `vault.int.spec.ts`, `vault.crypto.ts`, DEK versionadas | Concurrencia de rotación, recifrado reanudable, restore de KEK sin evidencia; handoff sin binding de operador/dispositivo (Fase B2) | E1-09a/b/c + pruebas de B2 |
+| SEC-08 partición, inmutabilidad y retención | `PARCIAL` | Migración `0016`, `schema-invariants.int.spec.ts`; `retention_months=0`; `GET /admin/audit-log` con cursor (`admin.service.ts:103-107`) | El cursor existe pero ninguna prueba lo cubre; decisión de retención OQ-08 pendiente | Prueba del cursor; OQ-08 es externa |
+| SEC-09 vault (grant/redeem/rotación) | `PARCIAL` | `vault.int.spec.ts` (incluye binding de operador/estación, ventana de 60 s y redeem único de B2), `vault.crypto.ts`, DEK versionadas | La rotación de credencial está protegida por la versión del perfil (CAS), pero ninguna prueba cubre dos rotaciones concurrentes; `rotateKey` concurrente choca con la PK de `encryption_keys` y responde 500; no existe recifrado a la DEK nueva (las credenciales viejas quedan en su versión) ni reenvoltura de la KEK (`VAULT_KEK` única); restore con KEK sin ensayo | E1-09a/b/c |
 | SEC-10 abuso y revocación del vault | `PENDIENTE` | Límite 30/h por (operador, perfil) `vault.service.ts:132-136` | Sin alertas durables ni política de revocación probada | E1-10 |
 | SEC-11 guard 500 ≠ 401 | `CERRADO` | `guards.ts:66-80` corregido; `guards.spec.ts`, `api-client.test.ts`; `e1-01-2026-09-08.md` | — | Conservar como regresión |
 | E1-02 restauración web recuperable | `CERRADO` | `web-app/src/auth/AuthProvider.tsx:20-22,52-74`; `e1-02-2026-09-08.md` | — | Conservar como regresión |
@@ -26,9 +26,9 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 
 | Requisito | Estado | Evidencia actual | Brecha concreta | Prueba necesaria |
 |---|---|---|---|---|
-| OPS-01 CRUD de perfiles | `PARCIAL` | `profiles.controller.ts`, `profiles.service.ts` | ETag/versionado y auditoría completa sin evidencia | E1-11 (solo brecha reproducible) |
-| OPS-02 asignaciones y relevo `[)` | `PARCIAL` | `assignments.service.ts:11-14,79-103,136-156`; `assignments.int.spec.ts` | Historial por cursor e interfaz del coordinador sin prueba integrada | E1-11/02 historial |
-| OPS-03 sesiones, CAS, reaper | `PARCIAL` | `assignments.service.ts:241-435`; `0012`; pruebas de CAS y STALE | Reaper aún es timer con lock Redis 55 s (ver §3) | E1-04c |
+| OPS-01 CRUD de perfiles | `PARCIAL` | `profiles.controller.ts`, `profiles.service.ts`: versión optimista en el cuerpo (`WHERE version = $n`, no ETag) y auditoría de alta/cambio/baja; 409 ejercitado en `assignments.int.spec.ts:135` | Falta una prueba directa de versión vieja → 409 en el CRUD de perfiles | Prueba de conflicto de versión |
+| OPS-02 asignaciones y relevo `[)` | `PARCIAL` | `assignments.service.ts`; `GET /assignments` como historial paginado (página/tamaño) con prueba en `assignments.int.spec.ts:283-293` | El historial existe y está probado; falta la vista de historial en la web del coordinador | Vista web de historial |
+| OPS-03 sesiones, CAS, reaper | `PARCIAL` | `assignments.service.ts`; `0012`; pruebas de CAS y STALE; el reaper corre en el scheduler durable (`job_runs` con lease, sin lock Redis) | Solo queda el ensayo con dos workers | E1-04c sobre VPS |
 | OPS-04 proyección de perfiles/estado | `PARCIAL` | `GET /agent/profiles/assigned`; `operator-status.int.spec.ts` | Snapshot WS monotónico y telemetría de error incompletos (Fase C1 los revalida) | E1-12 + C1 |
 | OPS-05 materialización :05 y cruce de mes | `PARCIAL` (slice E1-04b verificado) | `jobs.service.ts:129-169`, `shift-schedule.ts`; `e1-04b-cierre-relevo-2026-09-09.md` | Falta reinicio real de API/worker con scheduler arrancando y overrides de fin de mes | E1-04b remate / E1-06 |
 | OPS-06 breaks, aviso durable y semáforo | `PARCIAL` (OQ-03) | `breaks.service.ts`, aviso por outbox `jobs.service.ts:171-196` | Autocierre por duración y reglas OQ-03 | Decisión externa + E1-11 |
@@ -44,7 +44,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | E1-04b materialización/cierre | `CERRADO` (slice) | `e1-04b-cierre-relevo-2026-09-09.md`; `checkpoint2-restart.int.spec.ts` | — | Conservar |
 | E1-04c reaper/avisos/particiones | `PARCIAL` (2026-09-22): el scheduler encola y reclama `job_runs` con lease (sin lock Redis), renueva durante la ejecución y registra fallo con backoff/DEAD; `durable-scheduler.int.spec.ts` | `jobs.service.ts`, `durable-job.*` | Falta el ensayo con dos workers sobre el VPS y la política de expiración de avisos | E1-04c sobre VPS + dos workers |
 | E1-05 superficie de outbox y reproceso | `PENDIENTE` | Claim/leases/backoff/DEAD en `outbox.service.ts:18-51`, `communication.worker.ts:86-118` | Sin endpoint ni UI de inspección/reproceso; sin métricas | E1-05a/b |
-| E1-06 checkpoint 3 | `PARCIAL` | `checkpoints-1-3-2026-09-07.md` | Reinicio de Redis y scheduler durable sin ejercitar | E1-06 |
+| E1-06 checkpoint 3 | `PARCIAL` | `checkpoints-1-3-2026-09-07.md`; scheduler durable ejercitado en `durable-scheduler.int.spec.ts`; reinicio de API en `checkpoint2-restart.int.spec.ts` | Falta reiniciar el servidor Redis con API y worker vivos (límites de auth, adaptador socket.io, puente) | Ensayo local de reinicio de Redis |
 | E1-13 canales/identidades/deriva | `PARCIAL` | Piloto en `rocketchat-bot-pilot-2026-09-07.md`; ADR 0010 | Escaneo de deriva y vinculación de canales sin implementar | E1-13 |
 | E1-14 programación/alerta urgente | `PARCIAL` | `communication.worker.ts:60-75`, `communication.int.spec.ts` | Recurrencia abierta en alcance; SLA <1 s sin medir | Decisión + E1-14 |
 | E1-15 bot permanente | `PARCIAL` | `bot.service.ts`, webhook con dedupe; piloto | Webhook/worker permanente y rotación de PAT sin runbook ejecutado | E1-15 smoke autorizado |
@@ -54,7 +54,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | Requisito | Estado | Evidencia | Brecha | Prueba |
 |---|---|---|---|---|
 | Retención OQ-08 | `EXTERNO` | `audit.retention_months=0` conserva todo; migración `0016` | Decisión de la clienta | Propuesta de Daniel + setting |
-| Rotación de claves | `PARCIAL` | `vault.service.ts` rotate/rotateEncryptionKey | Concurrencia y recifrado reanudable sin evidencia | E1-09a/b |
+| Rotación de claves | `PARCIAL` | `vault.service.ts` rotate/rotateEncryptionKey | Ver SEC-09: recifrado y reenvoltura de KEK no existen (no es falta de evidencia); `rotateKey` concurrente responde 500 | E1-09a/b |
 | Recuperación del vault | `PARCIAL` | `vault.int.spec.ts` | Restore con material de claves y reenvoltura de KEK sin ensayo | E1-09c |
 
 ## 5. Prueba física y aceptación final
@@ -76,7 +76,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | C1 WebSockets | `IMPLEMENTADO` (2026-09-22): vida 45–60 s, revalidación por conexión, `users.auth_version` en HTTP y WS, desconexión por usuario/equipo/rol, snapshot al reconectar, cliente con backoff, **renovación antes de reconectar cuando vence el JWT** y **puente Redis para los eventos del worker** | Evidencia `e1-c-realtime-and-limits-2026-09-21.md` (`realtime-server-close.int.spec.ts`, `realtime-device-access.int.spec.ts`, `realtime.service.spec.ts`); la prueba de carga de 30 sockets queda para el VPS |
 | C2 límites de autenticación | `IMPLEMENTADO` (2026-09-21): 5/cuenta, 30/certificado, 300/IP, refresh 60/sesión y 1.200/IP | Pruebas de 30 logins con un certificado incluidas |
 | D1 certificado en almacén Windows | `IMPLEMENTADO` (2026-09-22): transporte WinHTTP con selección explícita por huella SHA-256 del almacén Windows (sin exportar la clave), **redirecciones desactivadas con las constantes correctas del SDK (63/2)**, timeouts y errores saneados; CSR no exportable documentada en `CERTIFICATES.md`. Pendiente: prueba física Chrome+agente con la misma clave | `tools/test-winhttp-selection.py` cubre selección por huella y que un 302 local no se siga |
-| D2 instalador y operación | `PARCIAL` (2026-09-21): scripts de alta/baja de estación en `deploy/production/station/` (arranque automático, instancia única, `AutoSelectCertificateForUrls` con entrada propia y filtro por CN), Job Object `KILL_ON_JOB_CLOSE` del agente probado en `tools/test-agent-job-object.py`, y `cleanup_orphans()` como respaldo. Pendiente: empaquetado PyInstaller/Inno Setup y prueba física | Falta el paquete único por PC (`agency-os-station-setup.exe` con binarios `agency-os-helper.exe` y `agency-os-agent.exe`) y la validación en PC de oficina (Defender/políticas Chrome) |
+| D2 instalador y operación | `PARCIAL` (2026-09-21): scripts de alta/baja de estación en `deploy/production/station/` (arranque automático, instancia única, `AutoSelectCertificateForUrls` con entrada propia y filtro por CN), Job Object `KILL_ON_JOB_CLOSE` del agente probado en `tools/test-agent-job-object.py`, y `cleanup_orphans()` como respaldo. Empaquetado listo (2026-09-22): `tools/agent-build/` (PyInstaller `agent.spec`, Inno Setup `installer.iss`) genera `agency-os-station-setup.exe`. Pendiente: prueba física | Validación del instalador en PC de oficina (Defender/políticas Chrome) |
 | E VPS, backups B2 y restore | `ARTEFACTOS LISTOS` (2026-09-22): compose sin puertos públicos con `cloudflared` + worker + scheduler durable, redes `egress`/`internal` y límites de log, worker con `agency_worker_runtime` y grants del scheduler (migración `0022`), backup cifrado a B2 con Object Lock, globals para roles, manifiesto en B2 y `daily/` una vez por día, restore con privilegios (`--role=agency_owner`) y `--check` que exige `SUCCESS`. Pendiente: VPS, B2 y ensayo real | Evidencia `e1-e-backups-2026-09-21.md` |
 
 ## 7. Entradas externas que no bloquean la construcción
@@ -112,3 +112,20 @@ Esta sección prevalece sobre las descripciones anteriores de SEC-05, C1 y E en 
 Gates 2026-09-22 (con Fastify 5.12.5): `pnpm ci:verify` verde (205 unitarios backend,
 251 integraciones, 67 web), `pnpm test:contracts` 10/10, `pnpm test:requirements` 34/34 y
 `pnpm audit --prod` sin vulnerabilidades conocidas.
+
+## 10. Revisión contra el código y clasificación propuesta (2026-09-22)
+
+Se contrastó cada fila abierta con el código. Filas actualizadas por estar desfasadas: SEC-08
+(el cursor ya existe), SEC-09 (el binding de B2 ya está probado; el recifrado y la reenvoltura de KEK
+no existen), OPS-01, OPS-02 (historial ya expuesto y probado), OPS-03 (el reaper ya no usa lock
+Redis), E1-06 y D2 (el empaquetado ya existe). La clasificación es una **propuesta**: el alcance del
+acta (E1-19) lo deciden Daniel y la clienta.
+
+| Grupo | Filas | Qué falta |
+|---|---|---|
+| **A. Internos, propuestos como mínimo del acta** | E1-09c recuperación del vault; E1-06 checkpoint 3; SEC-07b atomicidad sin JWT; SEC-10 abuso del vault | Ensayo local de restore con la KEK (misma KEK recupera, otra KEK falla cerrado); reinicio del servidor Redis con API y worker vivos; `TransactionInterceptor` hoy omite las rutas sin `request.user` (login, enroll, estación), así que la auditoría no es atómica con la escritura; disparadores y receptor de alertas del vault |
+| **A'. Arreglos baratos** | SEC-09 `rotateKey` concurrente → 409; SEC-08 prueba del cursor; OPS-01 prueba de versión vieja | Una línea con `isPgError` y dos pruebas |
+| **B. Internos, candidatos a E2 o a negociar** | E1-05 outbox (inspección/reproceso); OPS-02 vista web de historial; OPS-04 snapshot monotónico; SEC-07a catálogo de acciones; SEC-09 recifrado a la DEK nueva y reenvoltura de KEK | Construcción nueva. Riesgo de no hacer la reenvoltura: si la KEK se filtra no hay procedimiento de rotación |
+| **C. Externos (VPS, Cloudflare, B2, PG gestionado, físico)** | SEC-03, SEC-04, E1-04c, OPS-05, C1 carga, D1, D2, INT-01, E1-16, E1-17, E1-18, E | Reglas mTLS y Transform Rule en Cloudflare, CIDR del túnel, 30 logins y 30 sockets, dos workers, restore real de B2 con KEK, prueba física en PCs de oficina |
+| **D. Decisiones de la clienta** | OQ-08 (SEC-08), OQ-03 (OPS-06), recurrencia (E1-14) | Retención de auditoría, autocierre de breaks por duración, recurrencia de mensajes |
+| **E. Rocket.Chat (servidor autorizado)** | E1-13, E1-14 SLA, E1-15 | Escaneo de deriva, medición <1 s y runbook del bot permanente; requieren el servidor del VPS de la clienta |
