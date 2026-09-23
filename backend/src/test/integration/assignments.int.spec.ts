@@ -31,7 +31,7 @@ beforeAll(async () => {
   ctx = await createTestContext();
   assignments = new AssignmentsService(ctx.database, new AuditService(ctx.database), new RealtimeService(ctx.database));
   profiles = new ProfilesService(ctx.database, new AuditService(ctx.database));
-  jobs = new JobsService(ctx.database, ctx.redis, new RealtimeService(ctx.database), new DrizzleEffectiveTimeRepository(ctx.database));
+  jobs = new JobsService(ctx.database, new RealtimeService(ctx.database), new DrizzleEffectiveTimeRepository(ctx.database));
 });
 
 afterAll(async () => {

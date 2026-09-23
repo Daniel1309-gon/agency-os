@@ -1,38 +1,100 @@
-import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { and, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
-import { RedisService } from '../../common/redis/redis.service.js';
 import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { buildScheduledRange, businessDateInBogota, shiftBusinessDate, weekdayForBusinessDate } from './shift-schedule.js';
 import { EFFECTIVE_TIME_REPOSITORY, type EffectiveTimeRepository } from '../shifts/effective-time.port.js';
+import { DurableJobService } from './durable-job.service.js';
+
+interface ScheduledJob {
+  name: string;
+  intervalMs: number;
+  run: () => Promise<unknown>;
+}
+
+interface ClaimedRun {
+  id: number;
+  jobName: string;
+  attempts: number;
+  leaseToken: string | null;
+}
 
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
   private static readonly MATERIALIZATION_LOOKBACK_DAYS = 1;
+  private static readonly MAX_ATTEMPTS = 5;
   private readonly timers: NodeJS.Timeout[] = [];
+  private ticking = false;
 
-  constructor(private readonly db: DatabaseService, private readonly redis: RedisService, private readonly realtime: RealtimeService, @Inject(EFFECTIVE_TIME_REPOSITORY) private readonly effectiveTimeRepository: EffectiveTimeRepository) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly realtime: RealtimeService,
+    @Inject(EFFECTIVE_TIME_REPOSITORY) private readonly effectiveTimeRepository: EffectiveTimeRepository,
+    @Optional() private readonly durable?: DurableJobService,
+  ) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
-    this.timers.push(setInterval(() => void this.runExclusive('sessions:reap', 55, () => this.reapSessions()), 60_000));
-    this.timers.push(setInterval(() => void this.runExclusive('cafeteria:expire-orders', 55, () => this.expireOrders()), 60_000));
-    this.timers.push(setInterval(() => void this.runExclusive('shifts:materialize', 55, async () => { await this.materializeShiftBacklog(); }), 60_000));
-    this.timers.push(setInterval(() => void this.runExclusive('shifts:open-close', 55, () => this.closeExpiredShifts()), 60_000));
-    this.timers.push(setInterval(() => void this.runExclusive('breaks:notify', 55, () => this.notifyUpcomingBreaks()), 60_000));
-    // Las particiones tienen que existir antes del primer INSERT del mes, no una hora
-    // después de arrancar; el resto del día basta con revisarlas cada hora.
-    void this.runExclusive('audit:partitions', 300, () => this.maintainAuditPartitions());
-    this.timers.push(setInterval(() => void this.runExclusive('audit:partitions', 300, () => this.maintainAuditPartitions()), 3_600_000));
+    // En produccion el scheduler corre solo en el worker dedicado; las APIs
+    // llevan JOBS_ENABLED=false para no duplicar materializacion ni cierres.
+    if (process.env.JOBS_ENABLED === 'false') return;
+    this.timers.push(setInterval(() => void this.schedulerTick(), 60_000));
+    void this.schedulerTick();
   }
 
   async onModuleDestroy(): Promise<void> { for (const timer of this.timers) clearInterval(timer); }
 
-  private async runExclusive(name: string, ttl: number, work: () => Promise<void>): Promise<void> {
-    const token = await this.redis.acquireLock(`agency:job:${name}`, ttl).catch(() => null);
-    if (!token) return;
-    try { await work(); } finally { await this.redis.releaseLock(`agency:job:${name}`, token).catch(() => undefined); }
+  private get schedule(): ScheduledJob[] {
+    return [
+      { name: 'sessions:reap', intervalMs: 60_000, run: () => this.reapSessions() },
+      { name: 'cafeteria:expire-orders', intervalMs: 60_000, run: () => this.expireOrders() },
+      { name: 'shifts:materialize', intervalMs: 60_000, run: () => this.materializeShiftBacklog() },
+      { name: 'shifts:open-close', intervalMs: 60_000, run: () => this.closeExpiredShifts() },
+      { name: 'breaks:notify', intervalMs: 60_000, run: () => this.notifyUpcomingBreaks() },
+      { name: 'audit:partitions', intervalMs: 3_600_000, run: () => this.maintainAuditPartitions() },
+    ];
+  }
+
+  /**
+   * El scheduler es durable: cada intervalo encola su `runKey` en `job_runs` y
+   * lo reclama con lease (SKIP LOCKED). Un worker que muere a mitad deja la
+   * ejecucion en PROCESSING y el siguiente la recupera al vencer el lease; el
+   * claim es la exclusion mutua, no hace falta lock en Redis.
+   */
+  private async schedulerTick(): Promise<void> {
+    if (this.ticking || !this.durable) return;
+    this.ticking = true;
+    try {
+      const now = Date.now();
+      for (const job of this.schedule) {
+        const scheduledFor = new Date(Math.floor(now / job.intervalMs) * job.intervalMs);
+        await this.durable.enqueue(job.name, String(scheduledFor.getTime()), scheduledFor).catch(() => undefined);
+      }
+      const claimed = await this.durable.claim().catch(() => [] as ClaimedRun[]);
+      for (const run of claimed) await this.executeRun(run);
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async executeRun(run: ClaimedRun): Promise<void> {
+    const leaseToken = run.leaseToken ?? '';
+    const job = this.schedule.find((candidate) => candidate.name === run.jobName);
+    if (!job) {
+      await this.durable?.complete(run.id, leaseToken).catch(() => undefined);
+      return;
+    }
+    const keepAlive = setInterval(() => void this.durable?.renew(run.id, leaseToken).catch(() => undefined), 20_000);
+    try {
+      await job.run();
+      await this.durable?.complete(run.id, leaseToken).catch(() => undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.durable?.fail(run.id, leaseToken, message, run.attempts, run.attempts >= JobsService.MAX_ATTEMPTS).catch(() => undefined);
+    } finally {
+      clearInterval(keepAlive);
+    }
   }
 
   /**

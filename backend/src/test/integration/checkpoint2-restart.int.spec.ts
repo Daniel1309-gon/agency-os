@@ -43,7 +43,7 @@ async function bootApi(): Promise<ApiInstance> {
     shifts: new ShiftsService(database, audit, realtime, effectiveTime),
     breaks: new BreaksService(database, audit, realtime),
     assignments: new AssignmentsService(database, audit, realtime),
-    jobs: new JobsService(database, redis, realtime, effectiveTime),
+    jobs: new JobsService(database, realtime, effectiveTime),
     async stop() {
       await database.onModuleDestroy();
       await redis.onModuleDestroy();

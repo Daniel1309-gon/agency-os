@@ -36,7 +36,7 @@ beforeAll(async () => {
   breaksService = new BreaksService(ctx.database, new AuditService(ctx.database), realtime);
   crews = new CrewsService(ctx.database, new AuditService(ctx.database));
   admin = new AdminService(ctx.database, ctx.config, new AuditService(ctx.database));
-  jobs = new JobsService(ctx.database, ctx.redis, realtime, new DrizzleEffectiveTimeRepository(ctx.database));
+  jobs = new JobsService(ctx.database, realtime, new DrizzleEffectiveTimeRepository(ctx.database));
   devicesService = new DevicesService(ctx.database, new AuditService(ctx.database));
   profilesService = new ProfilesService(ctx.database, new AuditService(ctx.database));
 });
