@@ -1,4 +1,24 @@
-# Plan — trabajo interno restante de la Entrega 1 (2026-09-23, pendiente de aprobación)
+# Plan — trabajo interno restante de la Entrega 1 (2026-09-23, ejecutado)
+
+## Estado (2026-09-23)
+
+Los nueve puntos están hechos en local, cada uno con su evidencia y su fila en
+`tasks/cierre-e1-matriz-2026-09-21.md`.
+
+| Punto | Commits | Notas |
+|---|---|---|
+| 1. Retención (OQ-08 parcial) | `c2bbc4b`, `57b637c` | `blocks` de OQ-08 → MET-03 |
+| 2. Breaks (OPS-06) | `70ab4b7`, `1b5b35d` | Corrección: el tope de 20 min también vale en el fin manual tardío y en ambos cierres de turno |
+| 3. Recurrentes (E1-14) | `a471d8d`, `c5bd547`, `388c327` | Corrección: la primera ocurrencia debe caer en un día elegido y no después de `until` (API y web) |
+| 4. E1-05 outbox | `17b8dd7`, `5c8aa97` | Cierra también E1-06. Se omitió «DEAD de las últimas 24 h» del resumen: `outbox_events` no guarda cuándo murió el evento |
+| 5. SEC-09a | `017f8ff`, `82f3eda` | Corrección: el script bloquea las filas mientras reenvuelve; enlaces del runbook |
+| 5b. SEC-10 | `3f6a43c`, `e3f4235`, `65d21ee` | Corrección: las consultas de la alerta pasan por el repositorio del vault (sin excepciones nuevas de arquitectura) |
+| 6. SEC-07b | `f57c47f`, `e49c7e7` | Prueba de auditoría fallida en login y enroll; webhook y estación sin prueba propia |
+| 7. SEC-07a | `516fcbb` | Catálogo en `@agency-os/shared`; la web ya no ofrece acciones inexistentes |
+| 8. OPS-02 | `8003e57` | La vista del historial ya existía; faltaban los filtros por operador y perfil |
+| 9. Pruebas A' | `bcc75c3` | Cursor de auditoría y 409 por versión vieja en perfiles |
+
+Pendiente fuera del código: push y CI del PR #1, y los gates externos (Rocket.Chat real, VPS/B2).
 
 ## Contexto
 
