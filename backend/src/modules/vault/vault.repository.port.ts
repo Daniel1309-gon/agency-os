@@ -94,7 +94,15 @@ export interface VaultRepository {
     operatorId: string;
   }): Promise<VaultAssignment | undefined>;
   recordCredentialAccess(record: VaultAccessRecord): Promise<void>;
-  markGrantReuse(grantId: string): Promise<void>;
+  /** Marca el reuso del grant y devuelve el perfil de la fila, si el actor la puede ver. */
+  markGrantReuse(grantId: string): Promise<string | undefined>;
+  /** Sesion LAUNCHING del mismo perfil preparada por otra estacion (SEC-10). */
+  findSessionPreparedByAnotherDevice(input: {
+    sessionId: string;
+    profileId: string;
+    operatorId?: string;
+    deviceId: string;
+  }): Promise<{ operatorId: string } | undefined>;
   currentCredential(profileId: string): Promise<VaultEncryptedCredential | undefined>;
   markGrantConsumed(grantId: string, consumedAt: Date): Promise<void>;
 }

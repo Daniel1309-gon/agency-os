@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VaultService } from './vault.service.js';
 import { VaultCryptoService } from './vault.crypto.js';
+import { VaultAlertService } from './vault-alerts.service.js';
 import type { ConfigService } from '../../config/config.service.js';
+import type { OutboxService } from '../outbox/outbox.service.js';
+import type { LoggerService } from '../../common/logger/logger.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
 import type { AuditService } from '../../common/audit/audit.service.js';
@@ -78,7 +81,8 @@ function harness(): Harness {
   } as unknown as VaultCryptoService;
 
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
-  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit, db.service), db, store, ttls, counters, decrypt };
+  const alerts = new VaultAlertService(db.service, redis, { enqueue: vi.fn(async () => 1) } as unknown as OutboxService, { warn: vi.fn(), debug: vi.fn() } as unknown as LoggerService);
+  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit, db.service, alerts), db, store, ttls, counters, decrypt };
 }
 
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */
@@ -326,6 +330,7 @@ describe('VaultService.credential-management authorization', () => {
       new VaultCryptoService(config, h.db.service),
       { record: vi.fn(async () => undefined) } as unknown as AuditService,
       h.db.service,
+      {} as unknown as VaultAlertService,
     );
     h.db.stub('encryption_keys').failsWith(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }));
 

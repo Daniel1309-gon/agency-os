@@ -10,8 +10,10 @@ import { DatabaseService } from '../dist/database/database.service.js';
 import { RedisService } from '../dist/common/redis/redis.service.js';
 import { AuditService } from '../dist/common/audit/audit.service.js';
 import { VaultCryptoService } from '../dist/modules/vault/vault.crypto.js';
+import { VaultAlertService } from '../dist/modules/vault/vault-alerts.service.js';
 import { DrizzleVaultRepository } from '../dist/modules/vault/vault.drizzle-repository.js';
 import { VaultService } from '../dist/modules/vault/vault.service.js';
+import { OutboxService } from '../dist/modules/outbox/outbox.service.js';
 
 const [mode, externalRef, secret] = process.argv.slice(2);
 if (!['seal', 'open'].includes(mode) || !externalRef || !secret) {
@@ -20,7 +22,8 @@ if (!['seal', 'open'].includes(mode) || !externalRef || !secret) {
 }
 
 const config = new ConfigService();
-const database = new DatabaseService(config, new LoggerService('warn'));
+const logger = new LoggerService('warn');
+const database = new DatabaseService(config, logger);
 await database.onModuleInit();
 const crypto = new VaultCryptoService(config, database);
 try {
@@ -29,7 +32,8 @@ try {
   if (mode === 'seal') {
     const { rows: [admin] } = await database.db.execute(sql`select u.id from users u join roles r on r.id = u.role_id where r.code = 'ADMIN' and u.deleted_at is null limit 1`);
     if (!admin) throw new Error('an ADMIN user is required to rotate the credential');
-    const vault = new VaultService(new DrizzleVaultRepository(database), new RedisService(config), crypto, new AuditService(database), database);
+    const redis = new RedisService(config);
+    const vault = new VaultService(new DrizzleVaultRepository(database), redis, crypto, new AuditService(database), database, new VaultAlertService(database, redis, new OutboxService(database), logger));
     const { version } = await vault.rotate(profile.id, { username: profile.login_email, secret, profileVersion: profile.version }, { id: admin.id, role: 'ADMIN' });
     console.log(`sealed ${externalRef} credential v${version}`);
   } else {

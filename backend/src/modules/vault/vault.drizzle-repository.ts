@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { DatabaseService } from '../../database/database.service.js';
 import {
@@ -216,11 +216,31 @@ export class DrizzleVaultRepository implements VaultRepository {
     await this.database.db.insert(credentialAccessLog).values(record);
   }
 
-  async markGrantReuse(grantId: string): Promise<void> {
-    await this.database.db
+  async markGrantReuse(grantId: string): Promise<string | undefined> {
+    const [row] = await this.database.db
       .update(credentialAccessLog)
       .set({ reuseAttempted: true })
-      .where(eq(credentialAccessLog.grantJti, grantId));
+      .where(eq(credentialAccessLog.grantJti, grantId))
+      .returning({ profileId: credentialAccessLog.profileId });
+    return row?.profileId;
+  }
+
+  async findSessionPreparedByAnotherDevice(input: {
+    sessionId: string;
+    profileId: string;
+    operatorId?: string;
+    deviceId: string;
+  }): Promise<{ operatorId: string } | undefined> {
+    return this.database.db.query.profileSessions.findFirst({
+      where: and(
+        eq(profileSessions.id, input.sessionId),
+        eq(profileSessions.profileId, input.profileId),
+        input.operatorId ? eq(profileSessions.operatorId, input.operatorId) : undefined,
+        ne(profileSessions.deviceId, input.deviceId),
+        eq(profileSessions.status, 'LAUNCHING'),
+      ),
+      columns: { operatorId: true },
+    });
   }
 
   async currentCredential(profileId: string): Promise<VaultEncryptedCredential | undefined> {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { managedDeviceSchema, readinessResponseSchema, type ManagedDevice, type ReadinessResponse, type UserSummary } from '@agency-os/shared';
+import { managedDeviceSchema, notificationRecordSchema, readinessResponseSchema, type ManagedDevice, type NotificationRecord, type ReadinessResponse, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { canManage, errorMessage } from '../OperationsManagement/management-view';
 import { formatSecurityDate, isDeviceOnline } from './security-view';
@@ -36,7 +36,9 @@ async function readPublicReadiness(): Promise<unknown> {
 export function SecurityOverview({ accessToken, user }: SecurityOverviewProps) {
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [devices, setDevices] = useState<ManagedDevice[]>([]);
+  const [alerts, setAlerts] = useState<NotificationRecord[]>([]);
   const [confirmingRevokeId, setConfirmingRevokeId] = useState<string | null>(null);
+  const [busyAlertId, setBusyAlertId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [busyDeviceId, setBusyDeviceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,11 +51,14 @@ export function SecurityOverview({ accessToken, user }: SecurityOverviewProps) {
     setIsLoading(true);
     setError(null);
     const deviceRequest = canManageDevices ? apiClient.request<unknown>('/devices') : Promise.resolve([]);
-    Promise.all([readPublicReadiness(), deviceRequest])
-      .then(([rawReadiness, rawDevices]) => {
+    const alertRequest = canManageDevices ? apiClient.request<unknown>('/notifications') : Promise.resolve([]);
+    Promise.all([readPublicReadiness(), deviceRequest, alertRequest])
+      .then(([rawReadiness, rawDevices, rawAlerts]) => {
         if (cancelled) return;
         setReadiness(readinessResponseSchema.parse(rawReadiness));
         setDevices(managedDeviceSchema.array().parse(rawDevices));
+        // El panel de Seguridad solo muestra las alertas de abuso del vault (SEC-10).
+        setAlerts(notificationRecordSchema.array().parse(rawAlerts).filter((item) => item.type === 'vault.abuse'));
       })
       .catch((nextError) => {
         if (!cancelled) setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar el estado de seguridad.');
@@ -63,6 +68,19 @@ export function SecurityOverview({ accessToken, user }: SecurityOverviewProps) {
       });
     return () => { cancelled = true; };
   }, [accessToken, canManageDevices]);
+
+  async function readAlert(alert: NotificationRecord) {
+    setBusyAlertId(alert.id);
+    setError(null);
+    try {
+      await apiClient.request(`/notifications/${alert.id}/read`, { method: 'PATCH' });
+      setAlerts((current) => current.filter((item) => item.id !== alert.id));
+    } catch (nextError) {
+      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos marcar la alerta como leída.');
+    } finally {
+      setBusyAlertId(null);
+    }
+  }
 
   async function revokeDevice(device: ManagedDevice) {
     setBusyDeviceId(device.id);
@@ -103,6 +121,20 @@ export function SecurityOverview({ accessToken, user }: SecurityOverviewProps) {
         <div className="security-checks" aria-label="Comprobaciones de salud">
           {checks.map(([name, ok]) => <span className={ok ? 'security-check is-ok' : 'security-check is-warning'} key={name}><i aria-hidden="true" />{name}: {ok ? 'listo' : 'revisar'}</span>)}
         </div>
+        {canManageDevices && <>
+          <div className="security-section-heading"><div><p className="panel-kicker">Vault</p><h3>Alertas de abuso</h3></div><span className="management-muted">Sin leer</span></div>
+          {!alerts.length && <p className="panel-state">Sin alertas de abuso del vault.</p>}
+          {alerts.length > 0 && <div className="security-table security-table--alerts" role="table" aria-label="Alertas de abuso del vault">
+            <div className="security-table__head" role="row"><span>Alerta</span><span>Cuándo</span><span>Acciones</span></div>
+            {alerts.map((alert) => <div className="security-table__row" role="row" key={alert.id}>
+              <div role="cell"><strong>{alert.title}</strong><small>{alert.body}</small></div>
+              <span className="management-muted" role="cell">{formatSecurityDate(alert.createdAt)}</span>
+              <div className="management-actions" role="cell">
+                <button className="row-action" type="button" onClick={() => void readAlert(alert)} disabled={busyAlertId === alert.id}>{busyAlertId === alert.id ? '…' : 'Marcar como leída'}</button>
+              </div>
+            </div>)}
+          </div>}
+        </>}
         {canManageDevices && <>
           <div className="security-section-heading"><div><p className="panel-kicker">Control de estaciones</p><h3>Dispositivos enrolados</h3></div><span className="management-muted">Señal reciente: 15 min</span></div>
           {!devices.length && <p className="panel-state">Todavía no hay estaciones enroladas.</p>}

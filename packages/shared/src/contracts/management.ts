@@ -181,6 +181,20 @@ export const ipAllowlistRecordSchema = z.object({
 }).strict();
 export type IpAllowlistRecord = z.infer<typeof ipAllowlistRecordSchema>;
 
+export const notificationRecordSchema = z.object({
+  id: z.string().uuid(),
+  type: z.string(),
+  title: z.string(),
+  body: z.string(),
+  severity: z.string(),
+  channels: z.string(),
+  referenceType: z.string().nullable(),
+  referenceId: z.string().uuid().nullable(),
+  readAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+}).strict();
+export type NotificationRecord = z.infer<typeof notificationRecordSchema>;
+
 export const readinessResponseSchema = z.object({
   status: z.string(),
   checks: z.record(z.boolean()),

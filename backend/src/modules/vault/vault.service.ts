@@ -13,6 +13,7 @@ import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { isPgError, PG_UNIQUE_VIOLATION } from '../../database/pg-error.js';
 import { VaultCryptoService } from './vault.crypto.js';
+import { VaultAlertService, type VaultAlertReason } from './vault-alerts.service.js';
 import { VAULT_REPOSITORY, type VaultRepository, type VaultScopeActor } from './vault.repository.port.js';
 import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInput } from './vault.schemas.js';
 
@@ -27,6 +28,13 @@ interface StationContext {
   ip?: string;
 }
 
+/** Motivos de denegacion que ademas disparan alerta de abuso del vault (SEC-10). */
+const ALERTABLE_DENY_REASONS: Record<string, VaultAlertReason> = {
+  RATE_LIMITED: 'RATE_LIMITED',
+  DEVICE_MISMATCH: 'DEVICE_MISMATCH',
+  OPERATOR_MISMATCH: 'OPERATOR_MISMATCH',
+};
+
 @Injectable()
 export class VaultService {
   constructor(
@@ -35,6 +43,7 @@ export class VaultService {
     private readonly crypto: VaultCryptoService,
     private readonly audit: AuditService,
     private readonly database: DatabaseService,
+    private readonly alerts: VaultAlertService,
   ) {}
 
   async rotate(profileId: string, input: CredentialRotationInput, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date }> {
@@ -115,7 +124,21 @@ export class VaultService {
           operatorId: context.userId,
         })
       : undefined;
-    if (!assignment || !session) {
+    if (!session) {
+      const foreignSession = await this.repository.findSessionPreparedByAnotherDevice({
+        sessionId: input.sessionId,
+        profileId: input.profileId,
+        operatorId: context.userId,
+        deviceId: context.deviceId,
+      });
+      if (foreignSession) {
+        await this.deny(input.profileId, context, 'DEVICE_MISMATCH');
+        throw new ForbiddenException('Session was prepared by a different station');
+      }
+      await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
+      throw new ForbiddenException('No active assignment for this profile');
+    }
+    if (!assignment) {
       await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
       throw new ForbiddenException('No active assignment for this profile');
     }
@@ -144,8 +167,14 @@ export class VaultService {
       throw new ConflictException('Grant expired or already consumed');
     }
     const grant = JSON.parse(raw) as { profileId: string; sessionId: string; userId: string; deviceId: string; assignmentId: string };
-    if (grant.userId !== context.userId) throw new ForbiddenException('Grant is not assigned to this operator');
-    if (grant.deviceId !== context.deviceId) throw new ForbiddenException('Grant is not assigned to this device');
+    if (grant.userId !== context.userId) {
+      await this.deny(grant.profileId, context, 'OPERATOR_MISMATCH');
+      throw new ForbiddenException('Grant is not assigned to this operator');
+    }
+    if (grant.deviceId !== context.deviceId) {
+      await this.deny(grant.profileId, context, 'DEVICE_MISMATCH');
+      throw new ForbiddenException('Grant is not assigned to this device');
+    }
     if (!(await this.repository.findApprovedDevice(context.deviceId))) throw new ForbiddenException('Device is not approved');
     const session = await this.repository.findLaunchingSession({
       sessionId: grant.sessionId,
@@ -184,6 +213,14 @@ export class VaultService {
       notBefore: new Date(Date.now() - 60_000),
     });
     if (!prepared) {
+      const foreignSession = await this.repository.findSessionPreparedByAnotherDevice({
+        sessionId: input.sessionId,
+        profileId: input.profileId,
+        deviceId: context.deviceId,
+      });
+      if (foreignSession) {
+        await this.alerts.raise({ userId: foreignSession.operatorId, profileId: input.profileId, reason: 'DEVICE_MISMATCH' });
+      }
       await this.audit.record({
         actorType: 'DEVICE',
         actorDeviceId: context.deviceId,
@@ -192,7 +229,7 @@ export class VaultService {
         entityId: input.profileId,
         result: 'DENIED',
         ip: context.ip,
-        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: 'HANDOFF_EXPIRED' },
+        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: foreignSession ? 'DEVICE_MISMATCH' : 'HANDOFF_EXPIRED' },
       });
       throw new ForbiddenException('Credential handoff is unavailable');
     }
@@ -232,10 +269,12 @@ export class VaultService {
    * escribe en una transaccion propia para que el rollback del request no la borre.
    */
   private async recordGrantReuse(grantId: string, context: RequestContext): Promise<void> {
+    let profileId: string | undefined;
     await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
-      await this.repository.markGrantReuse(grantId);
+      profileId = await this.repository.markGrantReuse(grantId);
       await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId, reused: true } });
     });
+    if (profileId) await this.alerts.raise({ userId: context.userId, profileId, reason: 'GRANT_REUSE' });
   }
 
   /**
@@ -248,5 +287,7 @@ export class VaultService {
       await this.repository.recordCredentialAccess({ profileId, userId: context.userId, purpose: 'LOGIN_INJECTION', granted: false, denyReason: reason, ip: context.ip });
       await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.denied', entityType: 'profile', entityId: profileId, result: 'DENIED', ip: context.ip, metadata: { profileId, denyReason: reason } });
     });
+    const alertReason = ALERTABLE_DENY_REASONS[reason];
+    if (alertReason) await this.alerts.raise({ userId: context.userId, profileId, reason: alertReason });
   }
 }

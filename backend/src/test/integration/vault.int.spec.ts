@@ -3,9 +3,11 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { VaultService } from '../../modules/vault/vault.service.js';
 import { VaultCryptoService } from '../../modules/vault/vault.crypto.js';
+import { VaultAlertService } from '../../modules/vault/vault-alerts.service.js';
 import { DrizzleVaultRepository } from '../../modules/vault/vault.drizzle-repository.js';
 import { AuditService } from '../../common/audit/audit.service.js';
-import { credentialAccessLog, auditLog, profileAssignments, profileSessions, ttProfileCredentials, ttProfiles } from '../../database/schema/index.js';
+import { OutboxService } from '../../modules/outbox/outbox.service.js';
+import { credentialAccessLog, auditLog, notifications, outboxEvents, profileAssignments, profileSessions, rocketchatChannels, ttProfileCredentials, ttProfiles } from '../../database/schema/index.js';
 import {
   createDevice,
   createProfile,
@@ -40,7 +42,14 @@ interface Scenario {
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  vault = new VaultService(new DrizzleVaultRepository(ctx.database), ctx.redis, new VaultCryptoService(ctx.config, ctx.database), new AuditService(ctx.database), ctx.database);
+  vault = new VaultService(
+    new DrizzleVaultRepository(ctx.database),
+    ctx.redis,
+    new VaultCryptoService(ctx.config, ctx.database),
+    new AuditService(ctx.database),
+    ctx.database,
+    new VaultAlertService(ctx.database, ctx.redis, new OutboxService(ctx.database), ctx.logger),
+  );
 });
 
 afterAll(async () => {
@@ -57,7 +66,7 @@ afterEach(() => {
 });
 
 /** Operador en turno, con dispositivo aprobado, asignacion vigente y sesion viva. */
-async function scenario(options: { profileStatus?: string; sessionStatus?: string } = {}): Promise<Scenario> {
+async function scenario(options: { profileStatus?: string; sessionStatus?: string; username?: string } = {}): Promise<Scenario> {
   const admin = await createUser(ctx, { role: 'ADMIN' });
   const operator = await createUser(ctx);
   const other = await createUser(ctx);
@@ -87,7 +96,7 @@ async function scenario(options: { profileStatus?: string; sessionStatus?: strin
     })
     .returning({ id: profileSessions.id });
 
-  await vault.rotate(profile.id, { username: 'perfil@talky.test', secret: SECRET, profileVersion: 0 }, { id: admin.id, role: 'ADMIN' });
+  await vault.rotate(profile.id, { username: options.username ?? 'perfil@talky.test', secret: SECRET, profileVersion: 0 }, { id: admin.id, role: 'ADMIN' });
 
   return {
     adminId: admin.id,
@@ -313,9 +322,11 @@ describe('grant denials are recorded with their reason', () => {
       { profileId: s.profileId, sessionId: s.sessionId },
       { userId: s.operatorId, deviceId: sharedStation.id, ip: '10.20.30.40' },
     )).rejects.toThrow(ForbiddenException);
+    // La sesion existe pero la preparo otra estacion: es el motivo especifico de
+    // SEC-10, no un NO_ASSIGNMENT generico.
     expect(
       (await ctx.db.select({ denyReason: credentialAccessLog.denyReason }).from(credentialAccessLog).where(eq(credentialAccessLog.granted, false)))[0],
-    ).toEqual({ denyReason: 'NO_ASSIGNMENT' });
+    ).toEqual({ denyReason: 'DEVICE_MISMATCH' });
   });
 
   it('rejects a session whose stored Chrome directory no longer matches the profile binding', async () => {
@@ -341,6 +352,19 @@ describe('grant denials are recorded with their reason', () => {
       { profileId: s.profileId, sessionId: s.sessionId },
       { userId: s.operatorId, deviceId: secondStation.id, ip: '10.20.30.40' },
     )).rejects.toThrow(ForbiddenException);
+  });
+
+  it('does not let a revoked device obtain a grant', async () => {
+    // Revocacion: la baja del dispositivo corta grants, sockets y refresh.
+    const s = await scenario();
+    await ctx.pool.query('UPDATE devices SET status = $1 WHERE id = $2', ['REVOKED', s.deviceId]);
+
+    await expect(vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s))).rejects.toThrow(ForbiddenException);
+    const denials = await ctx.db
+      .select({ denyReason: credentialAccessLog.denyReason })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.granted, false));
+    expect(denials).toEqual([{ denyReason: 'DEVICE_NOT_APPROVED' }]);
   });
 
   it('rate limits after 30 grants in the hour and records RATE_LIMITED', async () => {
@@ -413,6 +437,104 @@ describe('denials survive the request transaction', () => {
   });
 });
 
+describe('vault abuse alerts (SEC-10)', () => {
+  async function registerAlertsChannel(): Promise<void> {
+    await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'room-alertas', name: 'alertas', type: 'GROUP', purpose: 'ALERTS', isActive: true });
+  }
+
+  function alertsFor(userId: string) {
+    return ctx.db
+      .select({ type: notifications.type, body: notifications.body, referenceId: notifications.referenceId })
+      .from(notifications)
+      .where(eq(notifications.userId, userId));
+  }
+
+  function queuedAlertMessages() {
+    return ctx.db.select({ id: outboxEvents.id }).from(outboxEvents).where(eq(outboxEvents.eventType, 'rocketchat.message.send'));
+  }
+
+  it('alerts once per operator and profile when the grant rate limit is exceeded', async () => {
+    const s = await scenario();
+    await registerAlertsChannel();
+    for (let i = 0; i < 30; i += 1) {
+      await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    }
+
+    await expect(vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s))).rejects.toMatchObject({ status: 429 });
+    await expect(vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s))).rejects.toMatchObject({ status: 429 });
+
+    const alerts = await alertsFor(s.adminId);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ type: 'vault.abuse', referenceId: s.profileId });
+    expect(alerts[0].body).toContain('límite de 30 emisiones');
+    expect(await queuedAlertMessages()).toHaveLength(1);
+
+    // Otra pareja (operador, perfil) abre su propia ventana de deduplicación.
+    const other = await scenario({ username: 'otro-perfil@talky.test' });
+    for (let i = 0; i < 30; i += 1) {
+      await vault.grant({ profileId: other.profileId, sessionId: other.sessionId }, contextFor(other));
+    }
+    await expect(vault.grant({ profileId: other.profileId, sessionId: other.sessionId }, contextFor(other))).rejects.toMatchObject({ status: 429 });
+
+    expect((await alertsFor(other.adminId)).map((row) => row.referenceId)).toEqual([other.profileId]);
+    expect(await queuedAlertMessages()).toHaveLength(2);
+  });
+
+  it('alerts on grant reuse and suppresses the repeat inside the window', async () => {
+    const s = await scenario();
+    await registerAlertsChannel();
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    await vault.redeem({ grantId }, contextFor(s));
+
+    await expect(vault.redeem({ grantId }, contextFor(s))).rejects.toThrow(ConflictException);
+    expect(await alertsFor(s.adminId)).toHaveLength(1);
+    await expect(vault.redeem({ grantId }, contextFor(s))).rejects.toThrow(ConflictException);
+    expect(await alertsFor(s.adminId)).toHaveLength(1);
+    expect(await queuedAlertMessages()).toHaveLength(1);
+  });
+
+  it('records the denial and alerts when a grant is used from another station', async () => {
+    const s = await scenario();
+    await registerAlertsChannel();
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    const foreignStation = await createDevice(ctx, { operatorId: s.otherOperatorId });
+
+    await expect(vault.redeem({ grantId }, { userId: s.operatorId, deviceId: foreignStation.id, ip: '10.20.30.41' })).rejects.toThrow(ForbiddenException);
+    const denials = await ctx.db
+      .select({ denyReason: credentialAccessLog.denyReason })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.granted, false));
+    expect(denials).toEqual([{ denyReason: 'DEVICE_MISMATCH' }]);
+    expect(await alertsFor(s.adminId)).toHaveLength(1);
+    // El grant no se quema: la estación legítima todavía puede canjearlo.
+    await expect(vault.redeem({ grantId }, contextFor(s))).resolves.toMatchObject({ secret: SECRET });
+  });
+
+  it('records the denial and alerts when another operator redeems the grant', async () => {
+    const s = await scenario();
+    await registerAlertsChannel();
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+
+    await expect(vault.redeem({ grantId }, { userId: s.otherOperatorId, deviceId: s.deviceId, ip: '10.20.30.42' })).rejects.toThrow(ForbiddenException);
+    const denials = await ctx.db
+      .select({ denyReason: credentialAccessLog.denyReason })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.granted, false));
+    expect(denials).toEqual([{ denyReason: 'OPERATOR_MISMATCH' }]);
+    expect(await alertsFor(s.adminId)).toHaveLength(1);
+  });
+
+  it('keeps the in-app notification when no ALERTS channel is registered', async () => {
+    const s = await scenario();
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    await vault.redeem({ grantId }, contextFor(s));
+
+    await expect(vault.redeem({ grantId }, contextFor(s))).rejects.toThrow(ConflictException);
+    expect(await alertsFor(s.adminId)).toHaveLength(1);
+    expect(await queuedAlertMessages()).toHaveLength(0);
+  });
+});
+
 describe('the secret never reaches the logs', () => {
   it('emits nothing containing the credential during a full grant and redeem at debug level', async () => {
     // Criterio de entrega de PLAN.md §9.
@@ -424,6 +546,7 @@ describe('the secret never reaches the logs', () => {
         new VaultCryptoService(debugCtx.config, debugCtx.database),
         new AuditService(debugCtx.database),
         debugCtx.database,
+        new VaultAlertService(debugCtx.database, debugCtx.redis, new OutboxService(debugCtx.database), debugCtx.logger),
       );
       const s = await scenario();
 

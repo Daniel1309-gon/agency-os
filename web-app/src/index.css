@@ -3148,6 +3148,12 @@ a:focus-visible {
   grid-template-columns: minmax(170px, 1.2fr) minmax(150px, 1fr) minmax(135px, 0.95fr) minmax(105px, 0.75fr) minmax(130px, 0.85fr);
 }
 
+.security-table--alerts .security-table__head,
+.security-table--alerts .security-table__row {
+  grid-template-columns: minmax(320px, 3fr) minmax(150px, 1fr) minmax(170px, 0.9fr);
+  min-width: 640px;
+}
+
 .security-result,
 .security-device-status {
   width: fit-content;
