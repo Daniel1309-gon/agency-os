@@ -140,7 +140,9 @@ services:
     networks:
       - data
     depends_on:
-      migrate:
+      # En serie con bootstrap-app: ambos cambian la ACL del esquema public y
+      # en paralelo Postgres puede fallar con "tuple concurrently updated".
+      bootstrap-app:
         condition: service_completed_successfully
     command: ["node", "scripts/db-bootstrap-worker.mjs"]
 
