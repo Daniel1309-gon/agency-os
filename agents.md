@@ -397,9 +397,10 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   réplica manual y las imágenes se publican en GHCR. Topología objetivo: dos nodos en la misma región
   con replicación y balanceo, ~US$33/mes dentro de los ~US$155 autorizados.
 - **Decisiones de cierre de E1 (2026-09-23), confirmadas por Daniel con la clienta:**
-  (1) auditoría: **30 días** — `audit.retention_months = 1` sobre las particiones mensuales
-  (conserva entre 30 y ~61 días); resuelve la parte de auditoría de OQ-08 (la retención de datos raw
-  sigue abierta). (2) Breaks (parte de OQ-03): **sin breaks programados**; el operador inicia el suyo
+  (1) auditoría: **al menos 30 días** — `audit.retention_months = 2` sobre las particiones mensuales
+  (conserva ~59–92 días; con `= 1` el piso sería 28 días por febrero, y se prefirió esto a un corte por
+  días por simplicidad); resuelve la parte de auditoría de OQ-08, que queda `PARTIAL` (la retención
+  de datos raw sigue abierta). (2) Breaks (parte de OQ-03): **sin breaks programados**; el operador inicia el suyo
   cuando quiere, **máximo 20 min con cierre automático**, uno en las primeras 4 h y otro en las 4 h
   siguientes contadas desde la hora **programada** del turno; si no lo toma, lo pierde; turnos de 8 h
   y el tiempo extra no tiene break (score y aprobación de icebreakers de OQ-03 siguen abiertos).

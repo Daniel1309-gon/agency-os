@@ -138,7 +138,7 @@ aprobación para ejecutar).
 
 | Punto | Decisión | Efecto en esta matriz |
 |---|---|---|
-| OQ-08 (auditoría) | 30 días: `audit.retention_months = 1` | SEC-08 deja de estar bloqueada por la clienta; la retención de datos raw sigue abierta, por eso OQ-08 no se marca resuelta |
+| OQ-08 (auditoría) | Al menos 30 días: `audit.retention_months = 2` (~59–92 días; con `= 1` el piso sería 28 días) | SEC-08 deja de estar bloqueada por la clienta; OQ-08 pasa a `PARTIAL` porque la retención de datos raw sigue abierta |
 | OQ-03 (breaks) | Sin breaks programados; el operador inicia, máx. 20 min con cierre automático, uno por ventana de 4 h desde la hora programada; si no lo toma, lo pierde; turnos de 8 h, extra sin break | OPS-06 pasa a construcción interna; score/aprobación de icebreakers siguen abiertos en OQ-03 |
 | E1-14 (recurrencia) | Mensajes puntuales y recurrentes por Rocket.Chat, con formulario web | Recurrencia y formulario pasan a construcción interna; la medición del SLA sigue en el servidor real |
 | Alcance E1 | Quedan: OPS-02, SEC-07a, SEC-09a, E1-05. Pasan a E2: OPS-04, SEC-09b | El grupo B de §10 queda resuelto |

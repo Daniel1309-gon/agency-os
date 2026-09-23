@@ -5,7 +5,9 @@
 La revisión de la matriz de cierre (`tasks/cierre-e1-matriz-2026-09-21.md` §10) dejó trabajo interno
 abierto y decisiones de la clienta. Daniel confirmó el 2026-09-23:
 
-- Auditoría: **30 días** (aprovechar la retención mensual ya construida).
+- Auditoría: **al menos 30 días**, con `audit.retention_months = 2` sobre la retención mensual ya
+  construida (conserva ~59–92 días). Se eligió por simplicidad frente a un corte por días.
+- OQ-08 queda `PARTIAL`: auditoría resuelta, retención de datos raw abierta.
 - Breaks: el operador los inicia cuando quiere; **máx. 20 min con cierre automático**; uno en las
   primeras 4 h del turno y otro en las 4 h siguientes; **si no lo toma, lo pierde**; turnos de 8 h;
   **sin breaks programados**; el tiempo extra no tiene break.
@@ -15,18 +17,19 @@ abierto y decisiones de la clienta. Daniel confirmó el 2026-09-23:
 - Ventanas de break desde la hora **programada** del turno.
 - SEC-10: alertas al canal privado de administración en Rocket.Chat + registro en la web.
 
-Commit local pendiente de push: `4f8e472` (caída de Redis, E1-06).
+Rama subida hasta `e0213ba` (incluye la caída de Redis de E1-06 y el registro de decisiones).
 
 ## Orden de trabajo (un commit por punto, gates en cada uno)
 
-### 0. Push de `4f8e472`
-
-### 1. Retención de auditoría a 30 días (OQ-08)
+### 1. Retención de auditoría (OQ-08 parcial)
 - `audit_log_maintain` ya borra particiones completas con `month < mes_actual - retention_months`.
-  Con `retention_months = 1` se conservan el mes actual y el anterior: **mínimo 30 días**, hasta ~61.
-- Migración `0023`: `UPDATE app_settings SET value = '1' WHERE key = 'audit.retention_months'`
-  (el seed usa `onConflictDoNothing`, no cambiaría bases existentes). Seed: default `1`.
-- Cerrar OQ-08 en el registro de preguntas abiertas y en la matriz.
+  Con `retention_months = 1` el piso real sería la duración del mes siguiente (28 días con febrero),
+  por eso se usa **`retention_months = 2`**: piso ~59 días, máximo ~92. Sin cambios en la función.
+- Migración `0023`: `UPDATE app_settings SET value = '2' WHERE key = 'audit.retention_months'`
+  (el seed usa `onConflictDoNothing`, no cambiaría bases existentes). Seed: default `2`.
+- `tasks/requirements-catalog.json` y `tasks/requirements-matrix.md`: OQ-08 → `PARTIAL`, pregunta
+  reducida a la retención de datos raw y `blocks` movido de SEC-08 a la tarea de almacenamiento raw
+  del ETL de Tableau (FR-19, E2; confirmar cuál de MET-03…06). `pnpm test:requirements` en verde.
 
 ### 2. Breaks por iniciativa del operador (OPS-06)
 - `POST /breaks/start` (OPERADOR, `@RequireShift`): crea e inicia el break en el turno
@@ -53,6 +56,23 @@ Commit local pendiente de push: `4f8e472` (caída de Redis, E1-06).
 - En `communication.worker.ts:enqueueDueScheduled`, al encolar una ocurrencia recurrente se inserta
   la siguiente como fila `PENDING` en la misma transacción: cada ocurrencia tiene su propio evento
   de outbox y su propia idempotencia. Endpoint para cancelar la serie.
+- Semántica (Bogotá, UTC−5 fijo, sin horario de verano; reusar `businessDateInBogota`,
+  `shiftBusinessDate` y `weekdayForBusinessDate` de `jobs/shift-schedule.ts`): DAILY cada día local;
+  WEEKLY solo en los días elegidos; `until` es fecha local **inclusiva**.
+- **Ocurrencias vencidas sin encolar** (worker caído): solo existe una fila `PENDING` por serie, así
+  que nunca hay ráfagas. Al procesarla con retraso, en una transacción:
+  1. esa fila pasa a `SKIPPED` con motivo en `last_error`, p. ej. «3 ocurrencias omitidas
+     (20–22 sep) por caída del worker» — **una sola fila**, no una por ocurrencia perdida;
+  2. si la ocurrencia **más reciente** ya vencida está dentro de la gracia (60 min), se crea **una**
+     fila para ella y se encola (el conteo del motivo la excluye);
+  3. se crea la siguiente ocurrencia **futura** como `PENDING`.
+  Fuera de la gracia no se envía nada vencido.
+- Los mensajes **puntuales** se envían aunque lleguen tarde (comportamiento actual); lo ya encolado
+  en el outbox siempre se reintenta hasta `DEAD`.
+- Pruebas: serie DAILY con worker detenido 3 días (fuera de gracia) → una sola fila `SKIPPED` con
+  el conteo y el rango en el motivo, ningún envío y la siguiente ocurrencia futura `PENDING`; retraso
+  de 20 min → se envía esa ocurrencia; WEEKLY respeta días; `until` incluye su último día y no se
+  crea ocurrencia después de él.
 - Web: formulario mínimo (coordinador/admin) para mensajes puntuales o recurrentes a un canal o a un
   operador, con lista de pendientes y cancelación. Reusa los contratos compartidos de `@agency-os/shared`.
 
@@ -86,10 +106,14 @@ Commit local pendiente de push: `4f8e472` (caída de Redis, E1-06).
 - Acción: evento de outbox `rocketchat.message.send` al canal privado de administración
   (registrado con el endpoint existente de canales, con propósito de seguridad) + fila en
   `notifications` para verla en Seguridad de la web. Deduplicación por (operador, perfil, motivo)
-  en una ventana corta para no inundar el canal.
+  con `SET NX EX` en Redis, ventana por gravedad: **60 min** para `RATE_LIMITED` (igual al límite de
+  grants) y **15 min** para reuso de grant y grant/handoff desde otra estación. La primera alerta sale
+  al instante; auditoría y `credential_access_log` siguen registrando cada denegación, la alerta
+  remite al panel de Seguridad.
 - Revocación: la política es la baja de dispositivo y la desactivación de usuario ya existentes;
   se documenta y se prueba que cortan grants, sockets y refresh.
-- Prueba de integración: 31.º grant → alerta encolada una sola vez; reuso → alerta.
+- Prueba de integración: 31.º y 32.º grant → una sola alerta; reuso → alerta, segundo reuso dentro
+  de 15 min → sin alerta nueva; otro operador o perfil → alerta propia.
 
 ### 6. SEC-07b — Atomicidad de auditoría en rutas sin JWT
 - Rutas: `auth/login`, `auth/refresh`, `devices/enroll`, `communication/events` (webhook) y las de
