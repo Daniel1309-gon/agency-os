@@ -8,7 +8,16 @@ export const messageSchema = messageFields.refine((value) => Boolean(value.chann
 export const scheduledMessageSchema = messageFields.extend({
   scheduledFor: z.string().datetime({ offset: true }),
   recurrenceRule: recurrenceRuleSchema.optional(),
-}).refine((value) => Boolean(value.channelId) !== Boolean(value.targetUserId), 'Exactly one message target is required');
+}).refine((value) => Boolean(value.channelId) !== Boolean(value.targetUserId), 'Exactly one message target is required')
+  .refine((value) => {
+    // La primera ocurrencia es `scheduledFor`: tiene que caer en un dia elegido y no
+    // despues de `until`. Bogota es UTC-5 fijo, sin horario de verano.
+    const rule = value.recurrenceRule;
+    if (!rule) return true;
+    const local = new Date(new Date(value.scheduledFor).getTime() - 5 * 3_600_000);
+    if (rule.until && local.toISOString().slice(0, 10) > rule.until) return false;
+    return rule.frequency !== 'WEEKLY' || Boolean(rule.weekdays?.includes(local.getUTCDay()));
+  }, 'The first occurrence must fall on a selected weekday and not after until');
 
 /**
  * Regla guardada como JSON en `scheduled_messages.recurrence_rule`. Un valor

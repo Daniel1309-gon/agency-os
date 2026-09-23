@@ -19,9 +19,12 @@ describe('scheduled message form', () => {
   });
 
   it('adds the weekly rule only with the selected days, sorted and deduplicated', () => {
-    const payload = buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY', weekdays: [5, 1, 5], until: '2026-12-31' });
+    const payload = buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY', weekdays: [5, 3, 5], until: '2026-12-31' });
 
-    expect(payload.recurrenceRule).toEqual({ frequency: 'WEEKLY', weekdays: [1, 5], until: '2026-12-31' });
+    expect(payload.recurrenceRule).toEqual({ frequency: 'WEEKLY', weekdays: [3, 5], until: '2026-12-31' });
+    // El 23 de septiembre de 2026 es miércoles.
+    expect(() => buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY', weekdays: [1] })).toThrow('días elegidos');
+    expect(() => buildScheduledMessagePayload({ ...base, frequency: 'DAILY', until: '2026-09-22' })).toThrow('anterior al primer envío');
     expect(() => buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY' })).toThrow('al menos un día');
     expect(() => buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY', weekdays: [1], until: '31/12/2026' })).toThrow('fecha límite');
   });

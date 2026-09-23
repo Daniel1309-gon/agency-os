@@ -40,7 +40,9 @@ export function buildScheduledMessagePayload(values: ScheduledMessageFormValues)
     if (values.until) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(values.until)) throw new Error('La fecha límite no es válida.');
       rule.until = values.until;
+      if (values.scheduledFor.slice(0, 10) > values.until) throw new Error('La fecha límite no puede ser anterior al primer envío.');
     }
+    if (rule.weekdays && !rule.weekdays.includes(new Date(values.scheduledFor).getDay())) throw new Error('El primer envío debe caer en uno de los días elegidos.');
     payload.recurrenceRule = rule;
   }
   return payload;

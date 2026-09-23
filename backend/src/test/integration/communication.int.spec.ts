@@ -80,7 +80,8 @@ function stableBotAuditMetadata(rows: Array<{ metadata: unknown }>): Array<Recor
 
 describe('Rocket.Chat durable delivery', () => {
   it('accepts a structured recurrence rule and rejects a free-form one', () => {
-    const base = { targetUserId: '00000000-0000-0000-0000-000000000001', body: 'Recurring', scheduledFor: new Date(Date.now() + 60_000).toISOString() };
+    // Miercoles 23 sep 2026, 09:05 en Bogota.
+    const base = { targetUserId: '00000000-0000-0000-0000-000000000001', body: 'Recurring', scheduledFor: '2026-09-23T14:05:00.000Z' };
 
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY' } }).success).toBe(true);
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY', weekdays: [1, 3] } }).success).toBe(true);
@@ -88,6 +89,12 @@ describe('Rocket.Chat durable delivery', () => {
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY' } }).success).toBe(false);
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', weekdays: [1] } }).success).toBe(false);
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', until: '23/09/2026' } }).success).toBe(false);
+    // La primera ocurrencia tiene que caer en un dia elegido y no despues de until.
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY', weekdays: [1] } }).success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', until: '2026-09-22' } }).success).toBe(false);
+    expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY', until: '2026-09-23' } }).success).toBe(true);
+    // 23:30 del martes en Bogota ya es miercoles en UTC: cuenta el dia local.
+    expect(scheduledMessageSchema.safeParse({ ...base, scheduledFor: '2026-09-23T04:30:00.000Z', recurrenceRule: { frequency: 'WEEKLY', weekdays: [2] } }).success).toBe(true);
   });
 
   it('keeps coordinators inside their currently managed crew channels', async () => {
