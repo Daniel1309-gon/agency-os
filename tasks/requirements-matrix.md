@@ -79,7 +79,7 @@ pregunta continúa abierta.
 | OQ-05 | `OPEN` | Responsable Tableau del cliente | 2026-09-18 | MET-04, MET-05 | Data contract de worksheet plana horaria. |
 | OQ-06 | `OPEN` | Responsable Tableau del cliente | 2026-09-18 | MET-04, MET-05 | Zona horaria de las marcas Tableau. |
 | OQ-07 | `OPEN` | Clienta decide; Daniel modela | 2026-09-25 | MET-05, PAY-04 | Frontera nocturna y pertenencia al periodo. |
-| OQ-08 | `OPEN` | Clienta decide; Daniel propone | 2026-08-31 | SEC-08 | Retención legal/operativa de auditoría y raw. |
+| OQ-08 | `PARTIAL` | Clienta decide; Daniel propone | 2026-08-31 | MET-03 | Auditoría resuelta en al menos 30 días (`audit.retention_months = 2`, ~59–92); queda la retención de los datos raw de Tableau. |
 | OQ-09 | `OPEN` | Clienta decide; Daniel modela | 2026-10-02 | PAY-02, PAY-04 | Fórmulas exactas de pago, metas, bonos y eventos. |
 | OQ-10 | `RESOLVED` | Clienta decidio; Daniel documenta | 2026-08-28 | — | Canales de cuadrilla privados; membresia manual del coordinador con deteccion de deriva; salir quita el historial; alerta urgente por DM al coordinador. Ver [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md). |
 | OQ-11 | `OPEN` | Clienta autoriza; Daniel ejecuta spike | 2026-09-11 | INT-02, INT-03 | Gates Feature #9/FR-39 y límites permitidos. |

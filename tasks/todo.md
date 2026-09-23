@@ -140,7 +140,7 @@ en `tasks/requirements-catalog.json` y se verifica con `pnpm test:requirements`.
 - [ ] **OQ-05** Data contract Tableau.
 - [ ] **OQ-06** Timezone Tableau.
 - [ ] **OQ-07** Frontera nocturna/periodo.
-- [ ] **OQ-08** Retención de auditoría/raw.
+- [ ] **OQ-08** Retención de los datos raw de Tableau (MET-03). La auditoría quedó resuelta en al menos 30 días: `audit.retention_months = 2` por migración `0023`.
 - [ ] **OQ-09** Fórmulas de pago/bonos/eventos.
 - [x] **OQ-10** Cuenta de servicio y reglas Rocket.Chat. Resuelta en [ADR 0010](../docs/decisions/0010-rocketchat-channels-membership-and-routing.md).
 - [ ] **OQ-11** Gates Feature #9/FR-39.

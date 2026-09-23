@@ -707,12 +707,12 @@
     },
     {
       "id": "OQ-08",
-      "status": "OPEN",
-      "question": "Retención legal y operativa de auditoría y datos raw",
+      "status": "PARTIAL",
+      "question": "Retención legal y operativa de los datos raw de Tableau; la auditoría quedó resuelta en al menos 30 días (audit.retention_months = 2)",
       "owner": "Clienta (decide) + Daniel (propone)",
       "dueDate": "2026-08-31",
       "blocks": [
-        "SEC-08"
+        "MET-03"
       ]
     },
     {

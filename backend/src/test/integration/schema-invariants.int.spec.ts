@@ -398,6 +398,27 @@ describe('audit_log is partitioned by month and stays append-only in every parti
     expect((await ctx.pool.query('SELECT to_regclass($1) AS present', [old])).rows[0].present).toBeNull();
   });
 
+  it('keeps the current month plus two back and drops the third one (retention_months = 2)', async () => {
+    // El setting vigente desde OQ-08 parcial: dos meses completos garantizan los
+    // 30 dias pedidos (piso ~59, techo ~92), sin tocar audit_log_maintain.
+    const partitionFor = async (monthsBack: number): Promise<string> => {
+      const tag = await ctx.pool.query<{ tag: string }>(
+        "SELECT to_char(date_trunc('month', now() AT TIME ZONE 'UTC') - make_interval(months => $1), 'YYYY_MM') AS tag",
+        [monthsBack],
+      );
+      return `audit_log_${tag.rows[0].tag}`;
+    };
+    const thirdBack = await partitionFor(3);
+    const secondBack = await partitionFor(2);
+    await ctx.pool.query("SELECT audit_log_ensure_partition(to_date($1, 'YYYY_MM'))", [thirdBack.slice('audit_log_'.length)]);
+    await ctx.pool.query("SELECT audit_log_ensure_partition(to_date($1, 'YYYY_MM'))", [secondBack.slice('audit_log_'.length)]);
+
+    const result = await ctx.pool.query<{ result: { dropped: string[] } }>('SELECT audit_log_maintain(2, 2) AS result');
+    expect(result.rows[0].result.dropped).toContain(thirdBack);
+    expect(result.rows[0].result.dropped).not.toContain(secondBack);
+    expect((await ctx.pool.query('SELECT to_regclass($1) AS present', [secondBack])).rows[0].present).toBe(secondBack);
+  });
+
   it('creates the current month and the next two, and never drops the default partition', async () => {
     const result = await ctx.pool.query('SELECT audit_log_maintain(2, 1) AS result');
     expect(result.rows[0].result.dropped).not.toContain('audit_log_default');

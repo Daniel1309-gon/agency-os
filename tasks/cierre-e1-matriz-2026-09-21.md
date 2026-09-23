@@ -15,7 +15,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | SEC-05 principal y lifecycle del dispositivo | `CERRADO` (2026-09-21): identidad por huella SHA-256 del certificado mTLS, inventario `devices` con estado/vencimiento, enrolamiento con certificado no registrado y código de un solo uso, revocación que corta sockets y refresh tokens | `client-cert.ts`, `devices.service.ts`, migración `0020`; `guards.int.spec.ts`, `device-enroll.int.spec.ts`, `devices.int.spec.ts` | — | Conservar como regresión |
 | SEC-06 turno y overrides | `CERRADO` | `shift-access.service*`, migración `0011`, `shift-access.int.spec.ts` | — | Conservar como regresión |
 | SEC-07 escritor central de auditoría | `PARCIAL` | `common/audit/audit.service.ts` (whitelist fail-closed); atomicidad vía `TransactionInterceptor` | Faltan catálogo por acción y prueba de atomicidad en rutas sin JWT (login, station) | E1-07a/07b |
-| SEC-08 partición, inmutabilidad y retención | `PARCIAL` | Migración `0016`, `schema-invariants.int.spec.ts`; `retention_months=0`; `GET /admin/audit-log` con cursor (`admin.service.ts:103-107`) | El cursor existe pero ninguna prueba lo cubre; decisión de retención OQ-08 pendiente | Prueba del cursor; OQ-08 es externa |
+| SEC-08 partición, inmutabilidad y retención | `PARCIAL` | Migración `0016`, `schema-invariants.int.spec.ts`; `audit.retention_months=2` (migración `0023`, ~59–92 días); `GET /admin/audit-log` con cursor (`admin.service.ts:103-107`) | El cursor existe pero ninguna prueba lo cubre | Prueba del cursor (E1-07a) |
 | SEC-09 vault (grant/redeem/rotación) | `PARCIAL` | `vault.int.spec.ts` (incluye binding de operador/estación, ventana de 60 s y redeem único de B2), `vault.crypto.ts`, DEK versionadas | La rotación de credencial está protegida por la versión del perfil (CAS), pero ninguna prueba cubre dos rotaciones concurrentes; `rotateKey` concurrente choca con la PK de `encryption_keys` y responde 500; no existe recifrado a la DEK nueva (las credenciales viejas quedan en su versión) ni reenvoltura de la KEK (`VAULT_KEK` única). El restore con KEK quedó ensayado (fila «Recuperación del vault») | E1-09a/b |
 | SEC-10 abuso y revocación del vault | `PENDIENTE` | Límite 30/h por (operador, perfil) `vault.service.ts:132-136` | Sin alertas durables ni política de revocación probada | E1-10 |
 | SEC-11 guard 500 ≠ 401 | `CERRADO` | `guards.ts:66-80` corregido; `guards.spec.ts`, `api-client.test.ts`; `e1-01-2026-09-08.md` | — | Conservar como regresión |
@@ -53,7 +53,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 
 | Requisito | Estado | Evidencia | Brecha | Prueba |
 |---|---|---|---|---|
-| Retención OQ-08 | `EXTERNO` | `audit.retention_months=0` conserva todo; migración `0016` | Decisión de la clienta | Propuesta de Daniel + setting |
+| Retención OQ-08 | `PARCIAL` | Migración `0023` y seed: `audit.retention_months = 2` (~59–92 días, garantiza los 30 días pedidos); prueba en `schema-invariants.int.spec.ts` | Queda la retención de los datos raw de Tableau (MET-03, E2) | Activación ya hecha; sin gate propio |
 | Rotación de claves | `PARCIAL` | `vault.service.ts` rotate/rotateEncryptionKey | Ver SEC-09: recifrado y reenvoltura de KEK no existen (no es falta de evidencia); `rotateKey` concurrente responde 500 | E1-09a/b |
 | Recuperación del vault | `CERRADO` en local (2026-09-23) | Ensayo con esquema real en `e1-e-backups-2026-09-21.md`: backup del script real, restore en PostgreSQL vacío sin errores, credencial sintética abierta con la KEK custodiada y fallo cerrado con otra KEK (`backend/scripts/vault-restore-check.mjs`) | El mismo ensayo sobre VPS/B2 queda en E; la reenvoltura de KEK sigue en SEC-09 | `open` tras cada restore (README de backup) |
 
@@ -87,7 +87,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | CIDR del túnel y del proxy | Daniel/proveedor | Gate E1-16 |
 | Certificados de ensayo y cuentas Cloudflare | Daniel | Fases B/D |
 | PC de oficina y credenciales autorizadas | Operación/clienta | INT-01 y pruebas físicas |
-| Decisión OQ-08 (retención de auditoría) | Clienta | Activación de borrado |
+| Decisión OQ-08 (retención de datos raw de Tableau) | Clienta | MET-03 (E2) |
 
 ## 8. Orden de ejecución adoptado
 
