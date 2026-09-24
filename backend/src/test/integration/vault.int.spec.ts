@@ -414,6 +414,26 @@ describe('denials survive the request transaction', () => {
     expect(audit).toEqual([{ action: 'vault.credential.denied', result: 'DENIED' }]);
   });
 
+  it('does not exhaust the pool when more denials than connections arrive at once', async () => {
+    // Cada peticion retiene una conexion (la del interceptor) y la denegacion pide
+    // otra. Con el mismo pool, 10 denegaciones concurrentes se esperaban entre si.
+    const s = await scenario();
+    await ctx.pool.query('UPDATE devices SET status = $1 WHERE id = $2', ['REVOKED', s.deviceId]);
+
+    const results = await Promise.allSettled(Array.from({ length: 15 }, () =>
+      ctx.database.withRequestContext(s.operatorId, 'OPERADOR', () =>
+        vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s)),
+      ),
+    ));
+
+    expect(results.map((result) => result.status === 'rejected' && result.reason instanceof ForbiddenException)).toEqual(Array(15).fill(true));
+    const denials = await ctx.db
+      .select({ denyReason: credentialAccessLog.denyReason })
+      .from(credentialAccessLog)
+      .where(eq(credentialAccessLog.granted, false));
+    expect(denials).toEqual(Array(15).fill({ denyReason: 'DEVICE_NOT_APPROVED' }));
+  }, 20_000);
+
   it('keeps reuse_attempted and its audit row after the request rolls back', async () => {
     const s = await scenario();
     const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));

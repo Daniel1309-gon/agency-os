@@ -21,6 +21,11 @@ export function assertLeastPrivilegedRuntimeRole(role: RuntimeRoleSecurity): voi
   }
 }
 
+/** Conexiones reservadas para `independentTransaction`; ver su comentario. */
+const INDEPENDENT_POOL_MAX = 2;
+/** Quien no consigue conexion en este tiempo falla en vez de esperar para siempre. */
+const POOL_CONNECTION_TIMEOUT_MS = 5_000;
+
 interface DatabaseContext {
   database: NodePgDatabase<typeof schema>;
   afterCommit: Array<() => Promise<void>>;
@@ -29,7 +34,9 @@ interface DatabaseContext {
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private pool: Pool | null = null;
+  private independentPool: Pool | null = null;
   private _db: NodePgDatabase<typeof schema> | null = null;
+  private _independentDb: NodePgDatabase<typeof schema> | null = null;
   private readonly requestContext = new AsyncLocalStorage<DatabaseContext>();
 
   constructor(
@@ -48,8 +55,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`DATABASE_${runtimeRole.toUpperCase()}_URL is required for DATABASE_RUNTIME_ROLE=${runtimeRole}`);
     }
     const url = configuredRuntimeUrl || this.config.get('DATABASE_URL');
-    this.pool = new Pool({ connectionString: url });
+    this.pool = new Pool({ connectionString: url, connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS });
+    this.independentPool = new Pool({ connectionString: url, max: INDEPENDENT_POOL_MAX, connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS });
     this._db = drizzle({ client: this.pool, schema });
+    this._independentDb = drizzle({ client: this.independentPool, schema });
     try {
       await this.pool.query('SELECT 1');
       if (this.config.get('NODE_ENV') === 'production') {
@@ -81,15 +90,18 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error('Database connection failed', { err: String(err) });
       await this.pool.end().catch(() => undefined);
+      await this.independentPool.end().catch(() => undefined);
       this.pool = null;
+      this.independentPool = null;
       this._db = null;
+      this._independentDb = null;
       throw err;
     }
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.pool) {
-      await this.pool.end();
+      await Promise.all([this.pool.end(), this.independentPool?.end()]);
       this.logger.info('Database pool closed');
     }
   }
@@ -127,20 +139,31 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Ejecuta el callback en su propia transaccion, sobre otra conexion del pool y
-   * con su propio contexto RLS, sin reutilizar la transaccion del request en
-   * curso. Es para registros que deben sobrevivir al rollback de una peticion que
-   * termina en error: las denegaciones del vault se escriben justo antes de
-   * lanzar la excepcion, y el `TransactionInterceptor` revierte la transaccion
-   * completa del handler.
+   * Ejecuta el callback en su propia transaccion, con su propio contexto RLS, sin
+   * reutilizar la transaccion del request en curso. Es para registros que deben
+   * sobrevivir al rollback de una peticion que termina en error: las denegaciones
+   * del vault se escriben justo antes de lanzar la excepcion, y el
+   * `TransactionInterceptor` revierte la transaccion completa del handler.
    *
-   * ponytail: una segunda conexion por denegacion; solo corre en caminos de
-   * denegacion, medir el pool si algun dia deja de ser raro.
+   * Usa un pool reservado: el request ya retiene una conexion del principal y, si
+   * esta pidiera otra del mismo pool, 10 denegaciones concurrentes se esperarian
+   * entre si para siempre.
+   *
+   * Invariante: el callback no debe tocar filas que la transaccion del request ya
+   * modifico o bloqueo. Esperaria un lock que el request retiene, y Postgres no
+   * puede detectar ese bloqueo porque el request espera en la aplicacion, no en la
+   * base. Hoy se cumple: las denegaciones insertan en `credential_access_log`,
+   * `audit_log`, `notifications` y `outbox_events`, y `markGrantReuse` actualiza
+   * una fila que el request no toco antes.
+   *
+   * ponytail: dos conexiones reservadas por proceso; si las denegaciones
+   * concurrentes empiezan a esperar el timeout en este pool, subir
+   * INDEPENDENT_POOL_MAX.
    */
   async independentTransaction<T>(userId: string, roleCode: string, callback: () => Promise<T>): Promise<T> {
-    if (!this._db) throw new Error('Database not initialized');
+    if (!this._independentDb) throw new Error('Database not initialized');
     const afterCommit: Array<() => Promise<void>> = [];
-    const result = await this._db.transaction(async (transaction) => {
+    const result = await this._independentDb.transaction(async (transaction) => {
       await transaction.execute(sql`select set_config('app.user_id', ${userId}, true)`);
       await transaction.execute(sql`select set_config('app.role_code', ${roleCode}, true)`);
       return this.requestContext.run({ database: transaction as unknown as NodePgDatabase<typeof schema>, afterCommit }, callback);
