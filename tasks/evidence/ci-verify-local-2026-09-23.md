@@ -75,3 +75,14 @@ Pruebas nuevas de esta corrida: 15 denegaciones concurrentes sobre un pool de 10
 y los helpers de hora de Bogotá en la web (`management-view.test.ts`,
 `scheduled-messages-view.test.ts`).
 
+**Las pruebas fallan sin su arreglo** (revisión del arquitecto sobre `1ed6daa`; se quitó el arreglo,
+se corrió solo la prueba y se restauró el archivo):
+
+| Arreglo retirado | Prueba | Resultado sin el arreglo |
+|---|---|---|
+| `independentTransaction` vuelve al pool principal | `vault.int.spec.ts` › *does not exhaust the pool…* | **FAIL** a los 5,4 s: las 15 llamadas no terminan todas en `ForbiddenException`; el timeout de conexión corta la espera circular |
+| Sin la guarda `if (!due.length) return;` | `communication.int.spec.ts` › *…when the app clock lags the database* | **FAIL**: `expected 'PENDING' not to be 'PENDING'`; el mensaje puntual se revierte con el lote |
+
+En la web no se retiró el arreglo: bajo `TZ=UTC`, el `toIsoDateTime('2026-08-27T06:05')` anterior
+devolvía `2026-08-27T06:05:00.000Z` y la prueba espera `11:05Z`, así que falla por construcción.
+
