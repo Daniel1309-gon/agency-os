@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { eq } from 'drizzle-orm';
@@ -233,6 +233,34 @@ describe('recurring scheduled messages', () => {
     expect(series[1].scheduledFor.toISOString()).toBe(new Date(start.getTime() + 3 * DAY_MS).toISOString());
     expect(requests).toEqual([]);
     await expect(ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).resolves.toEqual([]);
+  });
+
+  it('leaves the series pending and keeps the batch when the app clock lags the database', async () => {
+    const { actor, channelId } = await seriesActor();
+    const { communication, worker } = services();
+    const seriesAt = new Date(Date.now() - 10_000);
+    await communication.schedule({ channelId, body: 'Serie adelantada', scheduledFor: seriesAt.toISOString(), recurrenceRule: { frequency: 'DAILY' } }, actor);
+    const oneOff = await communication.schedule({ channelId, body: 'Puntual del mismo lote', scheduledFor: new Date(Date.now() - 5_000).toISOString() }, actor);
+
+    // El SELECT usa el now() de Postgres; la app va un minuto atrasada.
+    const real = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(real - 60_000);
+    try {
+      // Se comprueba el estado en la base, no si el tick lanza.
+      await worker.tick().catch(() => undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const afterLag = await rows();
+    const series = afterLag.find((row) => row.body === 'Serie adelantada');
+    expect(series).toMatchObject({ status: 'PENDING', scheduledFor: seriesAt });
+    expect(afterLag.find((row) => row.id === oneOff.id)?.status).not.toBe('PENDING');
+
+    await worker.tick();
+    const caughtUp = (await rows()).filter((row) => row.body === 'Serie adelantada');
+    expect(caughtUp.map((row) => row.status)).toEqual([expect.stringMatching(/^(QUEUED|SENT)$/), 'PENDING']);
   });
 
   it('sends the latest occurrence when the delay is inside the grace window', async () => {

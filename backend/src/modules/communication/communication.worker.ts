@@ -98,6 +98,10 @@ export class CommunicationWorker implements OnModuleInit, OnModuleDestroy {
    */
   private async advanceSeries(message: ScheduledMessageRow, rule: RecurrenceRule, now: Date): Promise<void> {
     const due = occurrencesUpTo(message.scheduledFor, now, rule);
+    // El SELECT filtra con el now() de Postgres y esto usa el reloj de la app: si la
+    // app va atrasada, la ocurrencia todavía no venció aquí. Queda PENDING y la toma
+    // el próximo tick; lanzar revertiría el lote completo.
+    if (!due.length) return;
     const latest = due[due.length - 1];
     const fresh = now.getTime() - latest.getTime() <= RECURRENCE_GRACE_MS ? latest : null;
     const skipped = fresh ? due.slice(0, -1) : due;
