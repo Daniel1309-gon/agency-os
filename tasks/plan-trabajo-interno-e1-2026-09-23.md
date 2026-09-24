@@ -17,6 +17,7 @@ Los nueve puntos están hechos en local, cada uno con su evidencia y su fila en
 | 7. SEC-07a | `516fcbb` | Catálogo en `@agency-os/shared`; la web ya no ofrece acciones inexistentes |
 | 8. OPS-02 | `8003e57` | La vista del historial ya existía; faltaban los filtros por operador y perfil |
 | 9. Pruebas A' | `bcc75c3` | Cursor de auditoría y 409 por versión vieja en perfiles |
+| Correcciones de la revisión | `627089d`, `817cb37`, `78a6ba6` | Pool reservado para las transacciones independientes y timeout en ambos pools; guarda de reloj en `advanceSeries`; la web de gestión pasa a hora de Bogotá. Detalle en [`plan-correcciones-revision-e1-2026-09-23.md`](plan-correcciones-revision-e1-2026-09-23.md) |
 
 Pendiente fuera del código: push y CI del PR #1, y los gates externos (Rocket.Chat real, VPS/B2).
 

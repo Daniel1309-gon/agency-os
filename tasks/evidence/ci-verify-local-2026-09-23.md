@@ -43,3 +43,35 @@ aplicaron en orden sobre base vacía.
 
 Los gates externos de siempre: VPS/B2, reglas mTLS en Cloudflare, capacidad y prueba física, registro
 del canal `ALERTS` en el Rocket.Chat real y el acta de cierre (E1-16 a E1-19).
+
+---
+
+## Corrida sobre las correcciones de la revisión — `78a6ba6`
+
+Estado: **PASS** (`exit 0`). Ejecución local, no en GitHub Actions. Rama `codex/delivery1-backend`,
+commit `78a6ba6` (incluye `627089d`, `817cb37` y `78a6ba6` de
+[`plan-correcciones-revision-e1-2026-09-23.md`](../plan-correcciones-revision-e1-2026-09-23.md)).
+Node 24.12.0, pnpm 10.29.2, Windows 11. PostgreSQL 16 y Redis 7 vía `docker-compose.yml`, sin otra
+carga en paralelo.
+
+| Etapa | Resultado |
+|---|---|
+| `test:requirements` | 34/34; trazabilidad de 44 requisitos y 13 preguntas abiertas |
+| `extension:check` | checks del manifiesto y política de extensión |
+| `helper:test` | paquetes Go del helper local en verde |
+| `build` | shared, backend y frontend OK |
+| `test:contracts:run` | 10/10, incluidos snapshot OpenAPI y matriz ruta × política |
+| `lint` | backend 35 excepciones explícitas; frontend OK |
+| `typecheck` | shared, backend y frontend OK |
+| `test` (unit) | backend 214/214 en 36 archivos; frontend 77/77 en 13, ahora en `TZ=UTC` |
+| `pnpm audit --prod --audit-level high` | `No known vulnerabilities found` |
+| `db:migrate` | `Database migrations applied` |
+| `db:seed:verify` | seed ejecutado dos veces, idempotente |
+| `db:check` | `Everything's fine` |
+| `test:integration` | **276/276 en 24 archivos**, 210 s |
+
+Pruebas nuevas de esta corrida: 15 denegaciones concurrentes sobre un pool de 10
+(`vault.int.spec.ts`), serie recurrente con el reloj de la app atrasado (`communication.int.spec.ts`)
+y los helpers de hora de Bogotá en la web (`management-view.test.ts`,
+`scheduled-messages-view.test.ts`).
+

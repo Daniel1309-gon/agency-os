@@ -414,6 +414,11 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   **Ejecutado en local el 2026-09-23** (los nueve puntos, con evidencia por fila). Hallazgo de paso:
   `AuditService` descarta sin avisar las claves de `metadata` fuera de su lista; el catálogo de
   SEC-07a (`packages/shared/src/contracts/audit-actions.ts`) cierra las acciones, pero no las claves.
+  **Correcciones de la revisión (2026-09-23):** las transacciones independientes (denegaciones y
+  alertas del vault) compartían el pool del request: 10 denegaciones concurrentes lo bloqueaban para
+  siempre. Ahora tienen un pool propio de 2 conexiones y los dos pools tienen timeout de conexión
+  (5 s). La web de gestión (mensajes, turnos, overrides y relevos) envía y muestra hora de Bogotá, ya no
+  la del navegador; sus pruebas corren en UTC.
 - **Hallazgos del ensayo de restore (2026-09-23):** el restore con `--no-owner --role=agency_owner`
   fallaba sobre el esquema real (no puede crear `citext`/`btree_gist`/`pgcrypto`); se restaura como
   superusuario conservando dueños. En PostgreSQL gestionado (sin superusuario) hay que verificar que el
