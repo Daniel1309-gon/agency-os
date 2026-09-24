@@ -280,7 +280,6 @@ export function crossesMidnightFrom(startTime: string, endTime: string): boolean
   return start !== null && end !== null && end < start;
 }
 
-
 export interface CrewFormValues {
   name: string;
   coordinatorId: string;
