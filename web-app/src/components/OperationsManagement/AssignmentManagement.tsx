@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { assignmentHistoryResponseSchema, managedUserSchema, profileListResponseSchema, type AssignmentRecord, type ManagedUser, type ProfileRecord, type UserSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
-import { buildAssignmentWindows, canManage, errorMessage, formatRange, groupAssignmentRecords, parseRange, toLocalDateTime, WEEKDAYS, type AssignmentGroup, type AssignmentScheduleInput } from './management-view';
+import { buildAssignmentWindows, calendarWeekday, canManage, errorMessage, formatRange, groupAssignmentRecords, parseRange, toLocalDateTime, WEEKDAYS, type AssignmentGroup, type AssignmentScheduleInput } from './management-view';
 
 interface AssignmentManagementProps {
   accessToken: string | null;
@@ -22,8 +22,8 @@ function localTime(value: Date): string {
   return toLocalDateTime(value).slice(11, 16);
 }
 
-const timeFormatter = new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit' });
-const dateFormatter = new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+const timeFormatter = new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+const dateFormatter = new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Bogota' });
 const weekdayLabels = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 
 function groupSchedule(group: AssignmentGroup): { time: string; dates: string; days: string } {
@@ -33,7 +33,7 @@ function groupSchedule(group: AssignmentGroup): { time: string; dates: string; d
   const start = new Date(first.from);
   const end = new Date(first.to);
   const lastStart = new Date(last.from);
-  const days = [...new Set(group.records.map((item) => new Date(parseRange(item.validRange)?.from ?? item.createdAt).getDay()))]
+  const days = [...new Set(group.records.map((item) => calendarWeekday(localDate(new Date(parseRange(item.validRange)?.from ?? item.createdAt)))))]
     .sort((left, right) => left - right)
     .map((day) => weekdayLabels[day])
     .join(', ');
@@ -119,7 +119,7 @@ export function AssignmentManagement({ accessToken, user, onNavigate }: Assignme
     const nextOperator = operators.find((operator) => operator.id !== item.operatorId)?.id ?? operators[0]?.id ?? '';
     const handoffAt = range ? new Date(range.to) : new Date();
     const handoffEnd = new Date(handoffAt.getTime() + 8 * 60 * 60 * 1000);
-    setForm({ profileId: item.profileId, operatorId: nextOperator, fromDate: localDate(handoffAt), toDate: localDate(handoffAt), weekdays: [handoffAt.getDay()], dailyFrom: localTime(handoffAt), dailyTo: localTime(handoffEnd) });
+    setForm({ profileId: item.profileId, operatorId: nextOperator, fromDate: localDate(handoffAt), toDate: localDate(handoffAt), weekdays: [calendarWeekday(localDate(handoffAt))], dailyFrom: localTime(handoffAt), dailyTo: localTime(handoffEnd) });
     setError(null);
     setNotice(`Relevo preparado para ${profileById.get(item.profileId)?.displayName ?? 'el perfil'}. Verifica el operador y las fechas antes de guardar.`);
     setIsFormOpen(true);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssignmentWindows, buildCrewMemberPayload, buildCrewPayload, buildShiftTemplatePayload, canManage, crossesMidnightFrom, daySpanLabel, formatRange, groupAssignmentRecords, shiftTimeLabel, toIsoDateTime, weekdaySummary, type ShiftTemplateFormValues } from './management-view';
+import { buildAssignmentWindows, buildCrewMemberPayload, buildCrewPayload, buildShiftTemplatePayload, calendarWeekday, canManage, crossesMidnightFrom, daySpanLabel, formatRange, groupAssignmentRecords, localDateString, shiftTimeLabel, toIsoDateTime, toLocalDateTime, weekdaySummary, type ShiftTemplateFormValues } from './management-view';
 import type { AssignmentRecord } from '@agency-os/shared';
 
 const validTemplate: ShiftTemplateFormValues = {
@@ -183,5 +183,29 @@ describe('shift template labels', () => {
   it('shortens API timestamps and marks the overnight flag', () => {
     expect(shiftTimeLabel('06:05:00', '14:05:00', false)).toBe('06:05–14:05');
     expect(shiftTimeLabel('22:05:00', '06:05:00', true)).toBe('22:05–06:05 (+1 día)');
+  });
+});
+
+describe('Bogota wall-clock helpers', () => {
+  it('runs in UTC like CI, so a browser zone bug cannot hide', () => {
+    expect(new Date(2026, 0, 1).getTimezoneOffset()).toBe(0);
+  });
+
+  it('sends wall-clock input as Bogota time', () => {
+    expect(toIsoDateTime('2026-08-27T06:05')).toBe('2026-08-27T11:05:00.000Z');
+    expect(toIsoDateTime('2026-08-27T21:30')).toBe('2026-08-28T02:30:00.000Z');
+    expect(() => toIsoDateTime('not-a-date')).toThrow('La fecha y hora no son válidas.');
+  });
+
+  it('prefills inputs with the Bogota wall clock and calendar day', () => {
+    expect(toLocalDateTime(new Date('2026-08-27T03:30:00.000Z'))).toBe('2026-08-26T22:30');
+    expect(localDateString(new Date('2026-08-27T03:30:00.000Z'))).toBe('2026-08-26');
+    expect(calendarWeekday('2026-09-23')).toBe(3);
+  });
+
+  it('shows ranges in Bogota time', () => {
+    const label = formatRange('[2026-08-27T11:05:00.000Z,2026-08-27T19:05:00.000Z)');
+    expect(label).toMatch(/06:05/);
+    expect(label).toMatch(/02:05\s*p/);
   });
 });

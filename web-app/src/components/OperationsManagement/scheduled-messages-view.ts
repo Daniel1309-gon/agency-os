@@ -1,5 +1,5 @@
 import type { RecurrenceRule, ScheduledMessageStatus } from '@agency-os/shared';
-import { toIsoDateTime, weekdaySummary } from './management-view';
+import { calendarWeekday, toIsoDateTime, weekdaySummary } from './management-view';
 
 export interface ScheduledMessageFormValues {
   channelId: string;
@@ -42,7 +42,7 @@ export function buildScheduledMessagePayload(values: ScheduledMessageFormValues)
       rule.until = values.until;
       if (values.scheduledFor.slice(0, 10) > values.until) throw new Error('La fecha límite no puede ser anterior al primer envío.');
     }
-    if (rule.weekdays && !rule.weekdays.includes(new Date(values.scheduledFor).getDay())) throw new Error('El primer envío debe caer en uno de los días elegidos.');
+    if (rule.weekdays && !rule.weekdays.includes(calendarWeekday(values.scheduledFor.slice(0, 10)))) throw new Error('El primer envío debe caer en uno de los días elegidos.');
     payload.recurrenceRule = rule;
   }
   return payload;

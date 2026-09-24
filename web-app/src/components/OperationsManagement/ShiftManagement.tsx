@@ -166,6 +166,7 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
             <label><span>Plantilla</span><select value={shiftForm.templateId} onChange={(event) => updateShiftField('templateId', event.target.value)}><option value="">Sin plantilla</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.startTime}–{item.endTime}</option>)}</select></label>
             <label className="management-form__wide"><span>Notas</span><textarea rows={2} maxLength={1000} value={shiftForm.notes} onChange={(event) => updateShiftField('notes', event.target.value)} /></label>
           </div>
+          <p className="management-form__hint">Las horas se interpretan en America/Bogota.</p>
           {!templates.length && <p className="management-form__hint">Todavía no hay plantillas activas. {canManageShifts ? 'Crea la primera arriba y aparecerá en esta lista.' : 'Pide a un coordinador que cree una.'}</p>}
           {canManageShifts ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingShift}>{isSavingShift ? 'Creando…' : 'Crear turno'} <Plus className="h-4 w-4" aria-hidden="true" /></button></div> : <p className="management-form__hint">Tu rol puede consultar la cobertura, pero no crear turnos.</p>}
         </form>
@@ -179,6 +180,7 @@ export function ShiftManagement({ accessToken, user }: ShiftManagementProps) {
             <label><span>Hasta</span><input required type="datetime-local" value={overrideForm.validTo} onChange={(event) => updateOverrideField('validTo', event.target.value)} /></label>
             <label className="management-form__wide"><span>Motivo</span><textarea required rows={3} maxLength={1000} value={overrideForm.reason} onChange={(event) => updateOverrideField('reason', event.target.value)} placeholder="Describe por qué se autoriza la excepción" /></label>
           </div>
+          <p className="management-form__hint">Las horas se interpretan en America/Bogota.</p>
           {canApproveOverrides ? <div className="management-form__actions"><button className="primary-button" type="submit" disabled={isSavingOverride}>{isSavingOverride ? 'Creando…' : 'Crear override'} <Plus className="h-4 w-4" aria-hidden="true" /></button></div> : <p className="management-form__hint">Tu rol no tiene permiso para aprobar overrides.</p>}
         </form>
       </div>}

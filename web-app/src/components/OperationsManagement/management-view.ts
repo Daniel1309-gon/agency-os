@@ -1,5 +1,9 @@
 import type { AssignmentRecord, UserSummary } from '@agency-os/shared';
 
+/** Bogotá es UTC−5 fijo, sin horario de verano; el backend aplica la misma regla en `jobs/shift-schedule.ts`. */
+const BOGOTA_OFFSET = '-05:00';
+const BOGOTA_OFFSET_MS = 5 * 3_600_000;
+
 export interface AssignmentScheduleInput {
   fromDate: string;
   toDate: string;
@@ -40,10 +44,14 @@ export function clockMinutes(value: string, allowSeconds = true): number | null 
   return minutes > 1439 ? null : minutes;
 }
 
-/** Fecha de hoy en horario local, como la esperan los inputs `type="date"`. */
+/** Fecha de calendario de Bogotá, como la esperan los inputs `type="date"`. */
 export function localDateString(date: Date = new Date()): string {
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return toLocalDateTime(date).slice(0, 10);
+}
+
+/** Día de la semana (0 domingo) de una fecha de calendario, sin pasar por la zona del navegador. */
+export function calendarWeekday(value: string): number {
+  return parseCalendarDate(value).getUTCDay();
 }
 
 /** Orden de presentación lunes → domingo. La API usa 0 para domingo. */
@@ -77,8 +85,8 @@ export function buildAssignmentWindows(input: AssignmentScheduleInput): Assignme
       ? calendarDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1)))
       : startDate;
     windows.push({
-      validFrom: new Date(`${startDate}T${input.dailyFrom}:00-05:00`).toISOString(),
-      validTo: new Date(`${endDate}T${input.dailyTo}:00-05:00`).toISOString(),
+      validFrom: new Date(`${startDate}T${input.dailyFrom}:00${BOGOTA_OFFSET}`).toISOString(),
+      validTo: new Date(`${endDate}T${input.dailyTo}:00${BOGOTA_OFFSET}`).toISOString(),
     });
   }
   if (!windows.length) throw new Error('No hay fechas que coincidan con los días seleccionados.');
@@ -89,17 +97,19 @@ export function canManage(permissions: string[], permission: string): boolean {
   return permissions.includes('*') || permissions.includes(permission);
 }
 
+/** Hora de pared de Bogotá (`YYYY-MM-DDTHH:mm` de un input `datetime-local`) a instante ISO. */
 export function toIsoDateTime(value: string): string {
-  const parsed = new Date(value);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) throw new Error('La fecha y hora no son válidas.');
+  const parsed = new Date(`${value.length === 16 ? `${value}:00` : value}${BOGOTA_OFFSET}`);
   if (Number.isNaN(parsed.getTime())) throw new Error('La fecha y hora no son válidas.');
   return parsed.toISOString();
 }
 
+/** Instante a hora de pared de Bogotá, como la espera un input `datetime-local`. */
 export function toLocalDateTime(value: Date | string): string {
   const date = typeof value === 'string' ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) throw new Error('La fecha y hora no son válidas.');
-  const pad = (part: number) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return new Date(date.getTime() - BOGOTA_OFFSET_MS).toISOString().slice(0, 16);
 }
 
 export function parseRange(range: string | null): { from: string; to: string } | null {
@@ -124,9 +134,9 @@ export interface AssignmentGroup {
   records: AssignmentRecord[];
 }
 
+/** Día calendario de Bogotá del instante, en milisegundos UTC de medianoche. */
 function localDay(value: string): number {
-  const date = new Date(value);
-  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return parseCalendarDate(localDateString(new Date(value))).getTime();
 }
 
 /** Collapses consecutive concrete windows for the table while keeping each record for actions. */
@@ -171,7 +181,7 @@ export function formatRange(range: string | null): string {
   const from = new Date(parsed.from);
   const to = new Date(parsed.to);
   if (from.getUTCFullYear() === 2000 && to.getUTCFullYear() === 2100) return 'Vigencia abierta';
-  const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+  const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota' };
   return `${from.toLocaleString('es-CO', options)} — ${to.toLocaleString('es-CO', options)}`;
 }
 
@@ -270,7 +280,6 @@ export function crossesMidnightFrom(startTime: string, endTime: string): boolean
   return start !== null && end !== null && end < start;
 }
 
-const BOGOTA_OFFSET = '-05:00';
 
 export interface CrewFormValues {
   name: string;

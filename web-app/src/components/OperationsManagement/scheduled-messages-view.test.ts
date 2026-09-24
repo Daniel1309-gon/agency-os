@@ -8,7 +8,7 @@ describe('scheduled message form', () => {
     expect(buildScheduledMessagePayload(base)).toEqual({
       targetUserId: base.targetUserId,
       body: 'Aviso',
-      scheduledFor: new Date('2026-09-23T14:05').toISOString(),
+      scheduledFor: '2026-09-23T19:05:00.000Z',
     });
   });
 
@@ -27,6 +27,14 @@ describe('scheduled message form', () => {
     expect(() => buildScheduledMessagePayload({ ...base, frequency: 'DAILY', until: '2026-09-22' })).toThrow('anterior al primer envío');
     expect(() => buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY' })).toThrow('al menos un día');
     expect(() => buildScheduledMessagePayload({ ...base, frequency: 'WEEKLY', weekdays: [1], until: '31/12/2026' })).toThrow('fecha límite');
+  });
+
+  it('checks the weekday on the Bogota calendar, not the UTC one', () => {
+    // Miércoles 21:30 en Bogotá ya es jueves en UTC.
+    const payload = buildScheduledMessagePayload({ ...base, scheduledFor: '2026-09-23T21:30', frequency: 'WEEKLY', weekdays: [3] });
+
+    expect(payload.scheduledFor).toBe('2026-09-24T02:30:00.000Z');
+    expect(payload.recurrenceRule).toEqual({ frequency: 'WEEKLY', weekdays: [3] });
   });
 
   it('omits weekdays for a daily rule', () => {
