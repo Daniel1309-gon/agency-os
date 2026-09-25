@@ -24,3 +24,5 @@ tools/agent-build/dist-installer/
 
 # Binario auxiliar compilado por Go para empaquetar la estación.
 local-helper/build/
+
+.codegraph/
