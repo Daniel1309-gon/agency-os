@@ -38,6 +38,17 @@ docker buildx imagetools inspect ghcr.io/<owner>/agency-os-api:latest
 # copiar el digest a AGENCY_OS_API_IMAGE en .env.production, igual para web y backup
 ```
 
+## Preparar el VPS
+
+1. Instalar Docker Engine y el plugin Compose (guía oficial de Docker para la distribución).
+2. Firewall: no abrir puertos entrantes salvo SSH. La única entrada pública es el túnel de
+   Cloudflare, que sale del VPS; PostgreSQL y Redis no se publican.
+3. Llevar al VPS solo `compose.production.yml` y `deploy/production/` (el VPS no compila), respetando
+   esas rutas relativas.
+4. Crear `deploy/production/.env.production` desde el ejemplo y ejecutar
+   `chmod 600 deploy/production/.env.production`.
+5. `docker login ghcr.io` (ver [Imágenes](#imágenes)).
+
 ## Primer despliegue
 
 ```sh
@@ -46,15 +57,23 @@ export COMPOSE='docker compose --env-file deploy/production/.env.production -f c
 # 1. Migraciones y roles (una vez, con el perfil ops)
 $COMPOSE --profile ops run --rm ops
 
-# 2. Crear roles de runtime y worker (bootstrap; requiere DATABASE_URL de owner)
+# 2. Seed: roles, permisos, settings, feature flags y el primer admin (BOOTSTRAP_ADMIN_*)
+$COMPOSE --profile ops run --rm ops node dist/database/seeds/seed.js
+
+# 3. Crear roles de runtime y worker (bootstrap; requiere DATABASE_URL de owner)
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-runtime.mjs
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-worker.mjs
 
-# 3. Arrancar el stack y los backups
+# 4. Allowlist inicial de IP para el admin (BOOTSTRAP_IP_CIDR); solo actúa si no hay ninguna activa
+$COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-ip.mjs
+
+# Después del bootstrap, vaciar BOOTSTRAP_ADMIN_PASSWORD en .env.production.
+
+# 5. Arrancar el stack y los backups
 $COMPOSE up -d
 $COMPOSE --profile backup up -d backup
 
-# 4. Verificar
+# 6. Verificar
 curl -fsS https://erp.globalcompany.company/health/ready
 $COMPOSE ps
 $COMPOSE exec backup backup-postgres.sh --check
