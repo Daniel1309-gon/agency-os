@@ -163,6 +163,96 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST https://erp.globalcompany.compa
 La aplica Daniel en la consola de la zona; el repositorio no despliega reglas de
 Cloudflare.
 
+## mTLS definitivo: reglas de Cloudflare para producción (runbook de consola)
+
+Cierre de la referencia de la evidencia B1/B2 (2026-09-21): las reglas WAF y de
+transformación que el guard `backend/src/common/auth/client-cert.ts` espera. La
+aplica Daniel en la consola de la zona `globalcompany.company`; el repositorio no
+despliega reglas de Cloudflare.
+
+**Prerrequisito:** en `deploy/production/.env.production`, `TRUSTED_PROXY_CIDRS` debe
+llevar las IP reales de los saltos del túnel dentro de la red Docker del VPS (el
+ejemplo trae `172.28.0.10/32,172.28.0.11/32`); confirmarlas con `docker network
+inspect <red>` tras el primer arranque. El guard rechaza como `UNTRUSTED_SOURCE`
+cualquier `Client-Cert` que no venga de esos saltos.
+
+### Paso 1 — WAF: excepción de health
+
+La regla Skip de la sección anterior
+(`(http.request.method eq "GET" and starts_with(http.request.uri.path, "/health/"))`
+→ Skip: *All remaining custom rules* y *Client Certificate*). Debe quedar por
+encima de la exigencia mTLS.
+
+### Paso 2 — WAF: exigencia mTLS sobre el resto
+
+Mantener la exigencia ya vigente de la zona (SSL/TLS → Client Certificates). Si se
+prefiere regla custom en lugar del toggle de zona: expresión
+`(not cf.tls_client_auth.cert_verified or cf.tls_client_auth.cert_revoked)` →
+acción **Block**, sobre `/*`, por debajo de la excepción de health. Una sola de las
+dos formas, no ambas. Cubre web, API y el handshake de WebSocket: certificado
+ausente, inválido, de emisor inesperado o revocado se bloquea en el borde.
+
+El enrolamiento (`POST /devices/enroll`) no necesita excepción: la PC presenta su
+certificado en el handshake y el guard lo acepta sin estar registrado
+(`@AllowUnregisteredClientCert`); el código de un solo uso es el segundo factor.
+
+### Paso 3 — Transform: cabecera `Client-Cert` (RFC 9440)
+
+Reglas → Transform Rules → Modify Request Header. Dos reglas con condiciones
+excluyentes (el orden entre ellas no altera el resultado):
+
+**T1 — eliminar la cabecera aportada cuando el certificado no pasa:**
+
+- Expresión: `not cf.tls_client_auth.cert_verified or cf.tls_client_auth.cert_revoked`
+- Operación: **Remove header** `Client-Cert`
+
+**T2 — escribirla desde el borde cuando sí pasa:**
+
+- Expresión: `cf.tls_client_auth.cert_verified and not cf.tls_client_auth.cert_revoked`
+- Operación: **Set dynamic** header `Client-Cert` con valor `cf.tls_client_auth.cert_rfc9440`
+
+El backend espera exactamente ese formato (RFC 9440: `:<base64 del DER>:`; huella
+SHA-256 hex minúscula sobre el DER). Ningún cliente puede falsificar la identidad:
+sin certificado T1 elimina la cabecera en el borde, y con certificado válido T2 la
+sobrescribe con el DER real.
+
+### Paso 4 — Webhook de Rocket.Chat
+
+La ruta `POST /api/v1/rocketchat/bot/events` es pública y valida un token
+compartido (un token inválido se descarta en silencio). El Droplet de Rocket.Chat no
+presenta certificado cliente — los webhooks salientes de Rocket.Chat no soportan
+mTLS cliente; confirmar contra la 8.7.0 de producción. Sin excepción, la exigencia
+del paso 2 lo bloquearía.
+
+- Expresión: `(http.request.method eq "POST" and http.request.uri.path eq "/api/v1/rocketchat/bot/events")`
+- Acción: **Skip** → *All remaining custom rules* y *Client Certificate*
+- Ubicación: debajo de la excepción de health, encima de la exigencia.
+- Acotar por IP del Droplet (`and ip.src in {<ip-del-droplet>}`) es opcional y mejor;
+  la IP de un Droplet es estable. El token compartido sigue siendo la compuerta
+  real: rotarlo como cualquier secreto.
+
+Alternativa descartada salvo prueba en contrario: certificado cliente para el
+Droplet registrado como dispositivo `ADMIN` — no existe soporte conocido en
+Rocket.Chat para presentarlo.
+
+### Verificación posterior
+
+```sh
+# sin certificado: 200 solo en health; 403 en el resto
+curl -s -o /dev/null -w "%{http_code}\n" https://erp.globalcompany.company/health/ready
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://erp.globalcompany.company/api/v1/auth/login
+# sin certificado + cabecera falsificada: 403 (T1 la elimina en el borde)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://erp.globalcompany.company/api/v1/auth/login \
+  -H 'Client-Cert: :ZmFrZQ==:'
+# con certificado válido: ciclo completo de estación con tools/mtls-pilot-cycle.py contra producción
+# con certificado válido + cabecera propia: el ciclo sigue OK — T2 sobrescribe con el DER real
+# revocación: Revoke en la consola → 403 en el siguiente handshake (detección medida ~11 s en el piloto)
+# webhook: token válido → 2xx; inválido → descarte silencioso
+```
+
+Registrar en `tasks/evidence/` la fecha de aplicación, capturas de las reglas y
+resultados de la verificación.
+
 ## Verificación rápida
 
 ```sh
