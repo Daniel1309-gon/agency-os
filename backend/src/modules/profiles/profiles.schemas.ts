@@ -5,7 +5,7 @@ export const profileCreateSchema = z.object({
   loginEmail: z.string().trim().email().max(320),
   externalRef: z.string().trim().max(160).optional(),
   country: z.string().regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()).optional(),
-  chromeProfileDir: z.string().trim().max(160).optional(),
+  chromeProfileDir: z.string().trim().regex(/^(Default|Profile \d{1,3})$/, 'Invalid Chrome profile directory').optional(),
   notes: z.string().max(2000).optional(),
 });
 

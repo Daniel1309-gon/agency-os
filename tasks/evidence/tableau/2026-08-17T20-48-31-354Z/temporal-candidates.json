@@ -1,0 +1,49 @@
+[
+  {
+    "viewId": "5af593e6-1a3a-4661-b10b-26467ba4e287",
+    "name": "Revenue detailed (SourceID)",
+    "contentUrl": "Passport_16741406948180/sheets/RevenuedetailedSourceID",
+    "status": 200,
+    "contentType": "text/csv",
+    "bytes": 391924,
+    "sha256": "acf6c6c761dc51d4899eee29cae3fdc26fbb7e7fca58ff03fbfab00de8ffd711",
+    "durationMs": 13471,
+    "schema": {
+      "headers": [
+        "Date aggregated",
+        "id trusted user",
+        "Max Hour",
+        "revenue_TU_services_title_1",
+        "revenue_TU_services_title_2",
+        "source_ID_alert",
+        "SourceID",
+        "Diff with last n aggregated dates",
+        "Revenue"
+      ],
+      "rowCount": 1539,
+      "temporalHeaders": [
+        "Date aggregated",
+        "Max Hour",
+        "Diff with last n aggregated dates"
+      ],
+      "temporalSample": [
+        "29/06/2026 00:00:00",
+        "06/07/2026 00:00:00",
+        "13/07/2026 00:00:00",
+        "20/07/2026 00:00:00",
+        "27/07/2026 00:00:00"
+      ],
+      "temporalDistinctCount": 9,
+      "temporalMin": "29/06/2026 00:00:00",
+      "temporalMax": "Todo",
+      "hasTemporalColumn": true
+    },
+    "crosstab": {
+      "status": 200,
+      "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 45413,
+      "sha256": "7be0bb17a5781dd7e3fbdb4ead5637182f591326c89c4e3ce87432b0df9726a5",
+      "durationMs": 6445
+    }
+  }
+]

@@ -6,6 +6,7 @@ import * as schema from '../schema/index.js';
 import { appSettings, featureFlags, permissions, rolePermissions, roles } from '../schema/index.js';
 import { users } from '../schema/index.js';
 import { hashPassword } from '../../common/auth/crypto.js';
+import { rolePermissionCodes } from './role-permissions.js';
 
 const permissionDefinitions = [
   ['users.read', 'users', 'Read users'],
@@ -21,6 +22,7 @@ const permissionDefinitions = [
   ['vault.credential.issue', 'vault', 'Issue a one-use credential grant'],
   ['vault.rotate', 'vault', 'Rotate profile credentials'],
   ['vault.read_meta', 'vault', 'Read credential metadata'],
+  ['vault.keys.rotate', 'vault', 'Rotate vault encryption keys'],
   ['devices.manage', 'devices', 'Manage devices'],
   ['shifts.read', 'shifts', 'Read shifts'],
   ['shifts.manage', 'shifts', 'Manage shifts'],
@@ -40,6 +42,7 @@ const permissionDefinitions = [
   ['security.manage', 'security', 'Manage IP allowlist'],
   ['audit.read', 'audit', 'Read audit log'],
   ['settings.manage', 'settings', 'Manage settings and feature flags'],
+  ['outbox.manage', 'outbox', 'Inspect and requeue outbox events'],
 ] as const;
 
 const roleDefinitions = [
@@ -52,9 +55,13 @@ const roleDefinitions = [
 
 async function seed(): Promise<void> {
   const config = new ConfigService();
-  const pool = new Pool({ connectionString: config.get('DATABASE_URL') });
+  const pool = new Pool({ connectionString: config.get('DATABASE_URL'), max: 1 });
   const db = drizzle({ client: pool, schema });
   try {
+    const ownerRole = process.env.DATABASE_OWNER_ROLE ?? 'agency_owner';
+    if (!/^[a-z_][a-z0-9_]*$/.test(ownerRole)) throw new Error('DATABASE_OWNER_ROLE contains an invalid PostgreSQL identifier');
+    const ownerExists = await pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [ownerRole]);
+    if (ownerExists.rowCount) await pool.query(`SET ROLE "${ownerRole}"`);
     await db.insert(roles).values(roleDefinitions.map(([code, name, hierarchyLevel, isSystem]) => ({ code, name, hierarchyLevel, isSystem }))).onConflictDoUpdate({
       target: roles.code,
       set: { name: sql`excluded.name`, hierarchyLevel: sql`excluded.hierarchy_level`, isSystem: sql`excluded.is_system` },
@@ -68,13 +75,22 @@ async function seed(): Promise<void> {
     const permissionRows = await db.select({ id: permissions.id, code: permissions.code }).from(permissions);
     const permissionIds = new Map(permissionRows.map((row) => [row.code, row.id]));
     const all = permissionDefinitions.map(([code]) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
-    const coordinator = ['users.read', 'crews.read', 'crews.manage', 'profiles.read', 'profiles.create', 'profiles.update', 'vault.credential.issue', 'vault.read_meta', 'devices.manage', 'shifts.read', 'shifts.manage', 'shifts.approve_overtime', 'operators.monitor', 'metrics.audit', 'icebreaker.review', 'payroll.read', 'cafeteria.manage', 'chat.manage', 'audit.read'];
-    const operator = ['profiles.read', 'vault.credential.issue', 'vault.read_meta', 'shifts.read', 'payroll.read'];
-    const cafeteria = ['cafeteria.manage', 'chat.manage'];
     const rolePermissionRows = roleRows.flatMap((role) => {
-      const codes = role.code === 'ADMIN' || role.code === 'DIRECTOR_OPERATIVO' ? all : role.code === 'COORDINADOR' ? coordinator.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id)) : role.code === 'OPERADOR' ? operator.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id)) : cafeteria.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
+      const configured = rolePermissionCodes[role.code as keyof typeof rolePermissionCodes] ?? [];
+      const codes = configured.includes('*')
+        ? all
+        : configured.map((code) => permissionIds.get(code)).filter((id): id is string => Boolean(id));
       return codes.map((permissionId) => ({ roleId: role.id, permissionId }));
     });
+    // System-role permissions are policy, not additive seed data. Reconcile
+    // them so a permission removed from role-permissions.ts is also revoked
+    // on an idempotent deployment; onConflictDoNothing alone would preserve
+    // stale grants forever.
+    for (const role of roleRows) {
+      if (rolePermissionCodes[role.code as keyof typeof rolePermissionCodes]) {
+        await db.delete(rolePermissions).where(sql`${rolePermissions.roleId} = ${role.id}`);
+      }
+    }
     if (rolePermissionRows.length) await db.insert(rolePermissions).values(rolePermissionRows).onConflictDoNothing();
     const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
     const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
@@ -89,6 +105,7 @@ async function seed(): Promise<void> {
       { key: 'metrics.reconciliation_tolerance', value: 0.01, description: 'Allowed points difference', isSecret: false },
       { key: 'auth.login_rate_limit', value: { max: 5, windowSeconds: 900 }, description: 'Login rate limit', isSecret: false },
       { key: 'shifts.grace_minutes', value: 0, description: 'Shift handoff grace period', isSecret: false },
+      { key: 'audit.retention_months', value: 2, description: 'Months of audit_log to keep; the client set at least 30 days, and two full months guarantee them (OQ-08 partial)', isSecret: false },
     ]).onConflictDoNothing();
     await db.insert(featureFlags).values([
       { key: 'fr39.interactions', isEnabled: false, description: 'Interaction automation gated by spike' },

@@ -103,4 +103,41 @@ describe('VaultCryptoService', () => {
 
     expect(db.inserted('encryption_keys')).toHaveLength(1);
   });
+
+  it('rotates the active key version instead of keeping encryption pinned to version one', async () => {
+    const { service, db } = crypto();
+
+    await service.rotateKey();
+
+    expect(db.inserted('encryption_keys')).toHaveLength(1);
+    expect(db.inserted('encryption_keys')[0]).toMatchObject({ version: 2 });
+  });
+
+  it('rewraps a DEK so it opens with the new KEK and no longer with the old one', async () => {
+    // SEC-09a: rotar la KEK no re-cifra credenciales, solo reenvuelve cada DEK.
+    const oldKek = 'la-kek-vieja-de-pruebas-de-mas-de-32-caracteres';
+    const newKek = 'la-kek-nueva-de-pruebas-de-mas-de-32-caracteres';
+    const before = crypto(oldKek);
+    const encrypted = await before.service.encrypt('secreto', PROFILE_A);
+    const stored = publishGeneratedKey(before.db);
+
+    const rewrapped = crypto(newKek).service.rewrap(stored.wrappedDek, oldKek);
+    expect(rewrapped).toHaveLength(60);
+
+    const withNew = crypto(newKek);
+    withNew.db.stub('encryption_keys').findFirst({ ...stored, wrappedDek: rewrapped });
+    expect(await withNew.service.decrypt(encrypted)).toBe('secreto');
+
+    const withOld = crypto(oldKek);
+    withOld.db.stub('encryption_keys').findFirst({ ...stored, wrappedDek: rewrapped });
+    await expect(withOld.service.decrypt(encrypted)).rejects.toThrow();
+  });
+
+  it('refuses to rewrap a DEK that does not open with the previous KEK', async () => {
+    const { service, db } = crypto();
+    await service.encrypt('secreto', PROFILE_A);
+    const stored = publishGeneratedKey(db);
+
+    expect(() => service.rewrap(stored.wrappedDek, 'una-kek-que-no-es-la-anterior-32+')).toThrow();
+  });
 });

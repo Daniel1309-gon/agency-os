@@ -1,0 +1,8 @@
+{
+  "slug": "turnos",
+  "version": 1,
+  "question": "¿Cómo consulto mi turno?",
+  "answer": "Consulta tu turno en el panel de Agency OS. Si no aparece o necesitas reportar una corrección, contacta a tu coordinador. El bot no modifica turnos.",
+  "keywords": ["turno", "horario", "jornada", "consulto mi turno"],
+  "crewIds": []
+}

@@ -33,13 +33,13 @@ Key things to know before touching this repo:
 
 ## Repository layout
 
-pnpm workspace (Node ≥22, pnpm ≥10). Members are declared in `pnpm-workspace.yaml`:
+pnpm workspace (Node ≥22, pnpm 10.29.2). Members are declared in `pnpm-workspace.yaml`:
 
 | Path | Package | State |
 |---|---|---|
 | `backend/` | `@agency-os/api` | NestJS on Fastify. Built out: 25 modules wired in `src/app.module.ts`, Drizzle schema + 4 migrations, seeds, unit and integration suites |
 | `packages/shared/` | `@agency-os/shared` | Zod schemas shared with the other components (`configSchema` lives here) |
-| `web-app/` | — | Declared in the workspace, still empty |
+| `web-app/` | `agency-os-web` | React/Vite dashboard with build, lint, typecheck and unit-test gates |
 | `extension/` | — | **Not** a workspace member. Spike code: Python launchers and an unpacked Chrome extension, kept as evidence for the pending technical spike |
 
 ## Commands
@@ -50,10 +50,12 @@ Infrastructure first — Postgres 16 on 5432 and Redis 7 on 6379:
 docker compose up -d
 ```
 
-Then copy `.env.example` to `backend/.env`. The check that matches what CI actually runs:
+Then copy `backend/.env.example` to `backend/.env`, install from the single workspace lockfile and
+run the same gates as CI:
 
 ```bash
-pnpm build && pnpm typecheck && pnpm --filter @agency-os/api lint && pnpm --filter @agency-os/api test:all
+pnpm install --frozen-lockfile
+pnpm ci:verify
 ```
 
 Per task, from the root:
@@ -61,11 +63,17 @@ Per task, from the root:
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Backend in watch mode (tsc + node --watch) |
-| `pnpm build` | Builds `@agency-os/shared`, then `@agency-os/api` |
-| `pnpm typecheck` / `pnpm test` | Recursive over every workspace member |
-| `pnpm lint` | **Currently fails.** See the note below — use the `--filter @agency-os/api` form |
+| `pnpm build` | Builds shared contracts, backend and frontend |
+| `pnpm lint` / `pnpm typecheck` / `pnpm test` | Runs the corresponding workspace gate; `test` is unit-only |
+| `pnpm test:integration` | Runs the backend integration suite against real PostgreSQL and Redis |
+| `pnpm test:contracts` | Builds the backend and verifies the reviewed OpenAPI snapshot plus the route × policy matrix |
+| `pnpm test:requirements` | Verifies FR-01…FR-39, five NFR groups, evidence links and the OQ register |
+| `pnpm ci:quality` | Build, lint, typecheck, unit tests and production dependency audit |
+| `pnpm ci:database` | Backend build, migrations, minimum seed twice (idempotence), schema check and real integration tests |
+| `pnpm ci:verify` | Full local equivalent of unified CI; loads `backend/.env` and recreates the integration database |
 | `pnpm db:generate` | drizzle-kit generate, after changing the schema |
 | `pnpm db:migrate` | Applies pending migrations |
+| `pnpm --filter @agency-os/api openapi:update` | Regenerates the reviewed OpenAPI snapshot and human route policy matrix after an approved contract change |
 | `pnpm db:studio` | drizzle-kit studio |
 
 Backend-only, via `pnpm --filter @agency-os/api <script>`:
@@ -78,23 +86,21 @@ Backend-only, via `pnpm --filter @agency-os/api <script>`:
 | `db:seed` | Seeds roles, permissions, settings and feature flags. `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` also create the first admin |
 | `start` | Runs the built `dist/main.js` |
 
-Two traps in the recursive scripts:
-
-- **`pnpm test` at the root does not run the integration suite.** `pnpm -r test` only reaches each
-  member's `test` script, which is the unit one (and in `packages/shared` it is an `echo`
-  placeholder). CI runs both as separate steps; run `pnpm --filter @agency-os/api test:all` before
-  considering a backend change done.
-- **`pnpm lint` at the root fails**, and has nothing to do with the backend: `packages/shared`
-  declares `eslint src --ext .ts`, but ESLint is not installed in the workspace. CI dodges this by
-  running `pnpm --filter @agency-os/api lint`, so the failure is invisible there. The backend's own
-  lint works. Either install ESLint for `shared` or drop the script — until then, do not read a red
-  root `lint` as a backend problem.
+`pnpm test` deliberately remains unit-only. Use `pnpm ci:verify` before merge so migrations, seed,
+schema invariants and the PostgreSQL/Redis integration suite cannot be skipped.
 
 ## Conventions the tooling enforces
 
-- **`lint` is a custom script**, not ESLint: [`backend/scripts/lint.mjs`](backend/scripts/lint.mjs)
-  walks `backend/src` and fails on `SELECT *`, on `sql.raw(`, and on `console.log(`. It scans test
-  files too. There is no ESLint or Prettier check wired into CI.
+- **`lint` is a custom AST script**, not ESLint: [`backend/scripts/lint.mjs`](backend/scripts/lint.mjs)
+  uses [`backend/scripts/architecture-rules.mjs`](backend/scripts/architecture-rules.mjs) and the
+  TypeScript Compiler API to reject executable `SELECT *`, `sql.raw()` and `console.log()` calls,
+  direct schema imports from module code, and private cross-module imports. Historical exceptions
+  are exact fingerprints in [`backend/architecture-baseline.json`](backend/architecture-baseline.json);
+  stale or new exceptions fail CI.
+- **Module boundaries:** application services depend on a domain port; only a domain-specific
+  `*.drizzle-repository.ts` adapter may import the Drizzle schema. Cross-module consumers use a
+  public `*.module.ts`, `*.port.ts` or `*.contracts.ts` surface. The vault pilot is documented in
+  [`docs/decisions/0001-module-boundaries-and-domain-repositories.md`](docs/decisions/0001-module-boundaries-and-domain-repositories.md).
 - **Two TypeScript configs.** `backend/tsconfig.json` is the typecheck config: `noEmit`, and it
   covers `src` plus the root `*.config.ts` files. `backend/tsconfig.build.json` is the one that
   emits, and it excludes `src/**/*.spec.ts` and `src/test` so no test code reaches `dist/`. Anything
@@ -134,7 +140,7 @@ Per agents.md §2 and §5, and PLAN.md:
   (`--profile-directory`), not Playwright `BrowserContext` or incognito (incognito windows within
   one Chrome instance share cookies — ruled out). What is in the directory today is spike code, not
   the product.
-- **`web-app/`** — the admin/coordination/"cafetería" dashboard. Not started.
+- **`web-app/`** — the React/Vite admin, coordination and "cafetería" dashboard, included in every workspace quality gate.
 - An **isolated AI service** (FastAPI) that validates and scores operator-written icebreakers —
   kept separate from the NestJS backend. The backend talks to it through `AiEngineClient` and falls
   back to local rule evaluation when `AI_ENGINE_URL` is unset.

@@ -1,0 +1,8 @@
+{
+  "slug": "reporte-de-incidentes",
+  "version": 1,
+  "question": "¿Cómo reporto un incidente?",
+  "answer": "Describe el problema a tu coordinador o a administración e incluye la hora, el perfil afectado y el mensaje de error. No pegues contraseñas, tokens ni capturas que los expongan. El bot es informativo y no abre ni modifica incidentes.",
+  "keywords": ["incidente", "error", "reportar", "reporto", "problema"],
+  "crewIds": []
+}

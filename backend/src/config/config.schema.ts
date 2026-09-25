@@ -5,6 +5,9 @@ export const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
   DATABASE_APP_URL: z.string().url().optional().or(z.literal('')).default(''),
+  DATABASE_WORKER_URL: z.string().url().optional().or(z.literal('')).default(''),
+  DATABASE_READONLY_URL: z.string().url().optional().or(z.literal('')).default(''),
+  DATABASE_RUNTIME_ROLE: z.enum(['app', 'worker', 'readonly']).default('app'),
   REDIS_URL: z.string().url(),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
@@ -16,6 +19,9 @@ export const configSchema = z.object({
   // CIDR/IPs of the reverse proxy hops whose forwarded headers Fastify may trust.
   // Empty means direct-socket IPs only; never trust X-Forwarded-* implicitly.
   TRUSTED_PROXY_CIDRS: z.string().default(''),
+  // Explicit development escape hatch: resolves every request to this device
+  // fingerprint when no mTLS header is present. Rejected in production.
+  DEV_CLIENT_CERT_FINGERPRINT: z.string().regex(/^[0-9a-f]{64}$/).optional().or(z.literal('')).default(''),
   REQUIRE_SHIFT_FOR_AUTH: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
   EXTENSION_ID: z.string().regex(/^[a-p]{32}$/).optional().or(z.literal('')).default(''),
   TABLEAU_API_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),
@@ -24,6 +30,9 @@ export const configSchema = z.object({
   AI_ENGINE_TOKEN: z.string().optional().or(z.literal('')).default(''),
   ROCKETCHAT_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),
   ROCKETCHAT_TOKEN: z.string().optional().or(z.literal('')).default(''),
+  ROCKETCHAT_USER_ID: z.string().optional().or(z.literal('')).default(''),
+  ROCKETCHAT_WEBHOOK_SECRET: z.string().optional().or(z.literal('')).default(''),
+  ROCKETCHAT_BOT_TRIGGER: z.string().trim().min(1).max(80).default('ayuda'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VaultService } from './vault.service.js';
-import type { VaultCryptoService } from './vault.crypto.js';
+import { VaultCryptoService } from './vault.crypto.js';
+import { VaultAlertService } from './vault-alerts.service.js';
+import type { ConfigService } from '../../config/config.service.js';
+import type { OutboxService } from '../outbox/outbox.module.js';
+import type { LoggerService } from '../../common/logger/logger.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
-import { hashToken } from '../../common/auth/crypto.js';
 import type { RedisService } from '../../common/redis/redis.service.js';
 import type { AuditService } from '../../common/audit/audit.service.js';
+import { DrizzleVaultRepository } from './vault.drizzle-repository.js';
 
 const OPERATOR = '11111111-1111-1111-1111-111111111111';
 const OTHER_OPERATOR = '99999999-9999-9999-9999-999999999999';
@@ -13,7 +17,6 @@ const PROFILE = '22222222-2222-2222-2222-222222222222';
 const SESSION = '33333333-3333-3333-3333-333333333333';
 const ASSIGNMENT = '44444444-4444-4444-4444-444444444444';
 const DEVICE = '55555555-5555-5555-5555-555555555555';
-const DEVICE_TOKEN = 'device-token-de-pruebas';
 
 interface Harness {
   service: VaultService;
@@ -53,6 +56,16 @@ function harness(): Harness {
       counters.set(key, next);
       return next;
     },
+    async acquireLock(key: string, seconds: number) {
+      if (store.has(key)) return null;
+      const token = `lock-${key}`;
+      store.set(key, token);
+      ttls.set(key, seconds);
+      return token;
+    },
+    async releaseLock(key: string, token: string) {
+      if (store.get(key) === token) store.delete(key);
+    },
   } as unknown as RedisService;
 
   const decrypt = vi.fn(async () => 'la-contrasena-del-perfil');
@@ -68,18 +81,19 @@ function harness(): Harness {
   } as unknown as VaultCryptoService;
 
   const audit = { record: vi.fn(async () => undefined) } as unknown as AuditService;
-  return { service: new VaultService(db.service, redis, crypto, audit), db, store, ttls, counters, decrypt };
+  const alerts = new VaultAlertService(new DrizzleVaultRepository(db.service), db.service, redis, { enqueue: vi.fn(async () => 1) } as unknown as OutboxService, { warn: vi.fn(), debug: vi.fn() } as unknown as LoggerService);
+  return { service: new VaultService(new DrizzleVaultRepository(db.service), redis, crypto, audit, db.service, alerts), db, store, ttls, counters, decrypt };
 }
 
 /** Estado en el que un grant debe salir bien: dispositivo, perfil, sesion y asignacion vigentes. */
 function happyPath(db: FakeDatabase): void {
-  db.stub('devices').findFirst({ id: DEVICE, tokenHash: hashToken(DEVICE_TOKEN), status: 'APPROVED', assignedOperatorId: OPERATOR });
-  db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null });
-  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, status: 'ACTIVE', assignmentId: ASSIGNMENT });
+  db.stub('devices').findFirst({ id: DEVICE, status: 'APPROVED' });
+  db.stub('tt_profiles').findFirst({ id: PROFILE, status: 'ACTIVE', deletedAt: null, chromeProfileDir: 'Profile 3' });
+  db.stub('profile_sessions').findFirst({ id: SESSION, profileId: PROFILE, operatorId: OPERATOR, deviceId: DEVICE, status: 'LAUNCHING', assignmentId: ASSIGNMENT, chromeProfileDir: 'Profile 3', version: 1, startedAt: new Date() });
   db.stub('profile_assignments').select([{ id: ASSIGNMENT }]);
 }
 
-const context = { userId: OPERATOR, deviceToken: DEVICE_TOKEN, ip: '10.0.0.5' };
+const context = { userId: OPERATOR, deviceId: DEVICE, ip: '10.0.0.5' };
 const grantInput = { profileId: PROFILE, sessionId: SESSION };
 
 describe('VaultService.grant', () => {
@@ -125,13 +139,12 @@ describe('VaultService.grant', () => {
     expect(Object.keys(logged)).not.toContain('secret');
   });
 
-  it('denies a device that is not approved for this operator', async () => {
+  it('denies a session bound to another station certificate', async () => {
     happyPath(h.db);
-    h.db.stub('devices').findFirst({ id: DEVICE, status: 'APPROVED', assignedOperatorId: OTHER_OPERATOR });
+    h.db.stub('profile_sessions').findFirst(undefined);
 
     await expect(h.service.grant(grantInput, context)).rejects.toThrow(ForbiddenException);
-    // Sin dispositivo valido no hay nada que auditar contra un perfil concreto.
-    expect(h.db.inserted('credential_access_log')).toHaveLength(0);
+    expect(h.db.inserted('credential_access_log')[0]).toMatchObject({ granted: false, denyReason: 'NO_ASSIGNMENT' });
   });
 
   it('denies an inactive profile and records PROFILE_INACTIVE', async () => {
@@ -221,9 +234,8 @@ describe('VaultService.redeem', () => {
 
   it('rejects a grant redeemed from a different device', async () => {
     const { grantId } = await h.service.grant(grantInput, context);
-    h.db.stub('devices').findFirst(undefined);
 
-    await expect(h.service.redeem({ grantId }, { ...context, deviceToken: 'otro-token' })).rejects.toThrow(
+    await expect(h.service.redeem({ grantId }, { ...context, deviceId: 'otro-dispositivo' })).rejects.toThrow(
       ForbiddenException,
     );
     expect(h.decrypt).not.toHaveBeenCalled();
@@ -247,5 +259,81 @@ describe('VaultService.redeem', () => {
       username: 'perfil@talky.test',
       secret: 'la-contrasena-del-perfil',
     });
+  });
+});
+
+describe('VaultService.handoff', () => {
+  let h: Harness;
+
+  beforeEach(() => {
+    h = harness();
+    happyPath(h.db);
+    h.db.stub('tt_profile_credentials').findFirst({
+      profileId: PROFILE,
+      username: 'perfil@talky.test',
+      secretCiphertext: Buffer.from('c'),
+      secretNonce: Buffer.from('n'),
+      secretTag: Buffer.from('t'),
+      keyVersion: 1,
+      aadContext: `${PROFILE}:1`,
+      isCurrent: true,
+    });
+  });
+
+  it('derives the operator from a recent prepared session and returns the credential to the station', async () => {
+    const result = await h.service.handoff(grantInput, { deviceId: DEVICE, ip: '10.0.0.5' });
+
+    expect(result).toEqual({
+      username: 'perfil@talky.test',
+      secret: 'la-contrasena-del-perfil',
+      sessionVersion: 1,
+    });
+    expect(h.ttls.get(`vault:handoff:${SESSION}`)).toBeLessThanOrEqual(60);
+  });
+
+  it('rejects replay of the station handoff without decrypting the secret twice', async () => {
+    await h.service.handoff(grantInput, { deviceId: DEVICE, ip: '10.0.0.5' });
+
+    await expect(
+      h.service.handoff(grantInput, { deviceId: DEVICE, ip: '10.0.0.5' }),
+    ).rejects.toThrow(ConflictException);
+    expect(h.decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a session that is no longer inside the short handoff window', async () => {
+    h.db.stub('profile_sessions').findFirst(undefined);
+
+    await expect(
+      h.service.handoff(grantInput, { deviceId: DEVICE, ip: '10.0.0.5' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(h.decrypt).not.toHaveBeenCalled();
+  });
+});
+
+describe('VaultService.credential-management authorization', () => {
+  it('rejects credential rotation and metadata access outside manager roles', async () => {
+    const h = harness();
+    const actor = { id: OPERATOR, role: 'OPERADOR' };
+
+    await expect(h.service.rotate(PROFILE, { username: 'perfil@talky.test', secret: 'nueva', profileVersion: 0 }, actor)).rejects.toThrow(ForbiddenException);
+    await expect(h.service.meta(PROFILE, actor)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('translates a concurrent key rotation into 409 instead of 500', async () => {
+    // Dos rotaciones simultaneas calculan la misma version y chocan con la PK de
+    // encryption_keys: el SQLSTATE tiene que salir como conflicto, no como 500.
+    const h = harness();
+    const config = { get: () => 'kek-de-pruebas-de-mas-de-32-caracteres' } as unknown as ConfigService;
+    const service = new VaultService(
+      new DrizzleVaultRepository(h.db.service),
+      {} as unknown as RedisService,
+      new VaultCryptoService(config, h.db.service),
+      { record: vi.fn(async () => undefined) } as unknown as AuditService,
+      h.db.service,
+      {} as unknown as VaultAlertService,
+    );
+    h.db.stub('encryption_keys').failsWith(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }));
+
+    await expect(service.rotateEncryptionKey(OPERATOR)).rejects.toThrow(ConflictException);
   });
 });

@@ -1,6 +1,0 @@
-[
-  { "id": 1, "perfil": "Agency1", "email": "perfil1@demo.com", "password": "DemoPass1#123" },
-  { "id": 2, "perfil": "Agency2", "email": "perfil2@demo.com", "password": "DemoPass2#456" },
-  { "id": 3, "perfil": "Agency3", "email": "perfil3@demo.com", "password": "DemoPass3#789" },
-  { "id": 4, "perfil": "Agency4", "email": "perfil4@demo.com", "password": "DemoPass4#abc" }
-]

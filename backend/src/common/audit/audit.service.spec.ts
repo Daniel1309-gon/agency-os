@@ -17,8 +17,8 @@ describe('AuditService', () => {
       metadata: {
         profileId: '00000000-0000-0000-0000-000000000002',
         grantId: 'grant-1',
-        password: 'must-not-survive',
-        nested: { token: 'must-not-survive', reason: 'allowed' },
+        extra: 'must-not-survive',
+        nested: { extra: 'must-not-survive', reason: 'allowed' },
       },
     });
 
@@ -28,5 +28,18 @@ describe('AuditService', () => {
         metadata: { profileId: '00000000-0000-0000-0000-000000000002', grantId: 'grant-1' },
       }),
     ]);
+  });
+
+  it('fails closed when a secret field is passed, including when nested', async () => {
+    const fake = createFakeDatabase();
+    const audit = new AuditService(fake.service);
+
+    await expect(audit.record({
+      actorType: 'USER',
+      action: 'vault.credential.issued',
+      result: 'SUCCESS',
+      metadata: { context: { password: 'must-not-survive' } },
+    })).rejects.toThrow(/forbidden secret field/);
+    expect(fake.inserted('audit_log')).toHaveLength(0);
   });
 });

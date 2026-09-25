@@ -36,4 +36,11 @@ describe('ZodValidationPipe', () => {
     expect(() => pipe.transform(undefined, metadata)).toThrow(BadRequestException);
     expect(() => pipe.transform('nope', metadata)).toThrow(BadRequestException);
   });
+
+  it('does not apply a method-scoped body schema to params or custom decorators', () => {
+    const pipe = new ZodValidationPipe(z.object({ status: z.string() }));
+    expect(pipe.transform('route-id', { type: 'param' } as ArgumentMetadata)).toBe('route-id');
+    const claims = { sub: 'user-id', role: 'OPERADOR' };
+    expect(pipe.transform(claims, { type: 'custom' } as ArgumentMetadata)).toBe(claims);
+  });
 });

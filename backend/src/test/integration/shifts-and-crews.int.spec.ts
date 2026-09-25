@@ -1,12 +1,22 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DrizzleEffectiveTimeRepository } from '../../modules/shifts/effective-time.drizzle-repository.js';
+import { EFFECTIVE_TIME_FORMULA_VERSION } from '../../modules/shifts/effective-time.port.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { ShiftsService } from '../../modules/shifts/shifts.service.js';
 import { BreaksService } from '../../modules/breaks/breaks.service.js';
 import { CrewsService } from '../../modules/crews/crews.service.js';
 import { AdminService } from '../../modules/admin/admin.service.js';
-import { breaks, shifts } from '../../database/schema/index.js';
-import { createTestContext, createUser, destroyTestContext, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
+import { AuditService } from '../../common/audit/audit.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
+import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { AuthService } from '../../modules/auth/auth.service.js';
+import { JobsService } from '../../modules/jobs/jobs.service.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
+import { DevicesService } from '../../modules/devices/devices.service.js';
+import { ProfilesService } from '../../modules/profiles/profiles.service.js';
+import { auditLog, breaks, crewMembers, crews as crewRows, outboxEvents, profileAssignments, profileSessions, shiftTemplates, shifts, ttProfiles } from '../../database/schema/index.js';
+import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, isoOffset, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 /**
  * Estos servicios traducen constraints de Postgres a 409. La traduccion solo se
@@ -18,18 +28,55 @@ let shiftsService: ShiftsService;
 let breaksService: BreaksService;
 let crews: CrewsService;
 let admin: AdminService;
+let jobs: JobsService;
+let devicesService: DevicesService;
+let profilesService: ProfilesService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  shiftsService = new ShiftsService(ctx.database);
-  breaksService = new BreaksService(ctx.database);
-  crews = new CrewsService(ctx.database);
-  admin = new AdminService(ctx.database, ctx.config);
+  const realtime = new RealtimeService(ctx.database);
+  shiftsService = new ShiftsService(ctx.database, new AuditService(ctx.database), realtime, new DrizzleEffectiveTimeRepository(ctx.database));
+  breaksService = new BreaksService(ctx.database, new AuditService(ctx.database), realtime);
+  crews = new CrewsService(ctx.database, new AuditService(ctx.database), new AuthVersionService(ctx.database, realtime));
+  admin = new AdminService(ctx.database, ctx.config, new AuditService(ctx.database), new AuthVersionService(ctx.database, realtime));
+  jobs = new JobsService(ctx.database, realtime, new DrizzleEffectiveTimeRepository(ctx.database));
+  devicesService = new DevicesService(
+    ctx.database,
+    new AuditService(ctx.database),
+    realtime,
+    new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, realtime), new AuditService(ctx.database)),
+  );
+  profilesService = new ProfilesService(ctx.database, new AuditService(ctx.database));
 });
 
 afterAll(async () => {
   await destroyTestContext(ctx);
 });
+
+/**
+ * FR-17 mide trabajo, no presencia: sin sesion de perfil abierta el tiempo efectivo es cero.
+ * Por eso las pruebas de tiempo efectivo tienen que abrir una sesion real.
+ */
+async function openSession(operatorId: string, from: Date, to: Date | null): Promise<void> {
+  const profile = await createProfile(ctx);
+  const [assignment] = await ctx.db.insert(profileAssignments).values({
+    profileId: profile.id,
+    operatorId,
+    validRange: halfOpen(from, to ?? new Date(from.getTime() + 86_400_000)),
+    status: 'ACTIVE',
+    assignedBy: operatorId,
+  }).returning({ id: profileAssignments.id });
+  await ctx.db.insert(profileSessions).values({
+    profileId: profile.id,
+    operatorId,
+    assignmentId: assignment.id,
+    chromeProfileDir: 'Profile 1',
+    status: to ? 'ENDED' : 'ACTIVE',
+    startedAt: from,
+    endedAt: to,
+    lastHeartbeatAt: to ?? from,
+  });
+}
 
 beforeEach(async () => {
   await resetDatabase(ctx);
@@ -37,8 +84,19 @@ beforeEach(async () => {
 });
 
 describe('ShiftsService', () => {
+  it('limits coordinators to operators in their current crews', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Managed shifts', coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+
+    await expect(shiftsService.create({ operatorId: managed.id, businessDate: '2026-08-17', scheduledFrom: isoOffset(-30), scheduledTo: isoOffset(30) }, coordinator.id)).resolves.toMatchObject({ operatorId: managed.id });
+    await expect(shiftsService.create({ operatorId: outsider.id, businessDate: '2026-08-17', scheduledFrom: isoOffset(-30), scheduledTo: isoOffset(30) }, coordinator.id)).rejects.toThrow('outside the actor crew scope');
+  });
+
   it('turns an overlapping shift into a 409', async () => {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) };
 
@@ -50,7 +108,7 @@ describe('ShiftsService', () => {
   });
 
   it('allows back to back shifts and rejects an inverted window', async () => {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const boundary = isoOffset(60);
 
@@ -67,8 +125,8 @@ describe('ShiftsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('records the effective minutes when the shift closes', async () => {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+  it('records the effective minutes when the shift closes, discounting the break', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = await shiftsService.create(
       { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
@@ -78,15 +136,37 @@ describe('ShiftsService', () => {
     await shiftsService.start(shift.id, operator.id);
     expect(await shiftsService.current(operator.id)).toMatchObject({ id: shift.id, status: 'IN_PROGRESS' });
 
-    await ctx.db.update(shifts).set({ actualStartAt: new Date(Date.now() - 45 * 60_000) }).where(eq(shifts.id, shift.id));
+    // Sesion abierta hace 45 minutos y un descanso de 15 dentro de ella: 45 - 15 = 30.
+    await openSession(operator.id, new Date(Date.now() - 45 * 60_000), null);
+    await ctx.db.insert(breaks).values({
+      shiftId: shift.id,
+      type: 'REST',
+      status: 'COMPLETED',
+      startedAt: new Date(Date.now() - 30 * 60_000),
+      endedAt: new Date(Date.now() - 15 * 60_000),
+    });
+
     const closed = await shiftsService.end(shift.id, operator.id);
 
     expect(closed.status).toBe('COMPLETED');
-    expect(closed.effectiveMinutes).toBe(45);
+    expect(closed.effectiveMinutes).toBe(30);
+  });
+
+  it('does not pay a shift where no session was ever opened', async () => {
+    // Consecuencia explicita de la formula de FR-17: presencia sin trabajo no suma minutos.
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const shift = await shiftsService.create(
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
+      actor.id,
+    );
+    await shiftsService.start(shift.id, operator.id);
+
+    expect((await shiftsService.end(shift.id, operator.id)).effectiveMinutes).toBe(0);
   });
 
   it('refuses to start a shift twice or to close one that never started', async () => {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = await shiftsService.create(
       { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
@@ -99,7 +179,7 @@ describe('ShiftsService', () => {
   });
 
   it('does not let one operator start another operator shift', async () => {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const intruder = await createUser(ctx);
     const shift = await shiftsService.create(
@@ -109,77 +189,343 @@ describe('ShiftsService', () => {
 
     await expect(shiftsService.start(shift.id, intruder.id)).rejects.toThrow(NotFoundException);
   });
+
+  it('does not let an operator start a future shift early', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const shift = await shiftsService.create(
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(60), scheduledTo: isoOffset(120) },
+      actor.id,
+    );
+
+    await expect(shiftsService.start(shift.id, operator.id)).rejects.toThrow(NotFoundException);
+  });
 });
 
 describe('BreaksService', () => {
-  async function shiftWithBreak(): Promise<{ operatorId: string; shiftId: string; breakId: string }> {
-    const actor = await createUser(ctx, { role: 'COORDINADOR' });
+  /** Turno en curso con hora programada relativa; por defecto, 1 h dentro de la ventana 1. */
+  async function activeShift(scheduledFromMinutes = -60, durationMinutes = 8 * 60): Promise<{ operatorId: string; shiftId: string }> {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const shift = await shiftsService.create(
-      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(scheduledFromMinutes), scheduledTo: isoOffset(scheduledFromMinutes + durationMinutes) },
       actor.id,
     );
-    const [row] = await ctx.db.insert(breaks).values({ shiftId: shift.id, type: 'SCHEDULED', status: 'PENDING' }).returning({ id: breaks.id });
-    return { operatorId: operator.id, shiftId: shift.id, breakId: row.id };
+    await shiftsService.start(shift.id, operator.id);
+    return { operatorId: operator.id, shiftId: shift.id };
   }
 
-  it('measures the break from start to end', async () => {
-    const s = await shiftWithBreak();
-    await breaksService.start(s.breakId, s.operatorId);
-    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 20 * 60_000) }).where(eq(breaks.id, s.breakId));
+  const autoClose = () => (jobs as unknown as { autoCloseBreaks(): Promise<void> }).autoCloseBreaks();
 
-    const ended = await breaksService.end(s.breakId, s.operatorId);
-    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 20 });
+  it('starts a break by operator initiative inside the first window', async () => {
+    const s = await activeShift();
+
+    const started = await breaksService.startNew(s.operatorId);
+
+    expect(started).toMatchObject({ shiftId: s.shiftId, status: 'IN_PROGRESS' });
+    expect(started.startedAt).toBeInstanceOf(Date);
+    expect(await breaksService.list(s.shiftId, s.operatorId)).toHaveLength(1);
   });
 
-  it('refuses to start a break twice or to end one that never started', async () => {
-    const s = await shiftWithBreak();
-    await expect(breaksService.end(s.breakId, s.operatorId)).rejects.toThrow(NotFoundException);
-    await breaksService.start(s.breakId, s.operatorId);
-    await expect(breaksService.start(s.breakId, s.operatorId)).rejects.toThrow(ConflictException);
+  it('rejects a second break in the same window', async () => {
+    const s = await activeShift();
+    const first = await breaksService.startNew(s.operatorId);
+
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Operator already has an active break');
+    await breaksService.end(first.id, s.operatorId);
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Break already taken in this window');
   });
 
-  it('does not let an operator take somebody else break', async () => {
-    const s = await shiftWithBreak();
-    const intruder = await createUser(ctx);
-    await expect(breaksService.start(s.breakId, intruder.id)).rejects.toThrow(ConflictException);
-    expect(await breaksService.list(s.shiftId, intruder.id)).toHaveLength(0);
+  it('allows the second break in the following window', async () => {
+    // Turno programado hace 5 h: la ventana vigente es la 2.
+    const s = await activeShift(-5 * 60);
+    // Break de la ventana 1, tomado hace 4.5 h.
+    await ctx.db.insert(breaks).values({ shiftId: s.shiftId, type: 'REST', status: 'COMPLETED', startedAt: new Date(Date.now() - 4.5 * 3_600_000), endedAt: new Date(Date.now() - 4.5 * 3_600_000 + 20 * 60_000), durationMinutes: 20 });
+
+    const second = await breaksService.startNew(s.operatorId);
+
+    expect(second).toMatchObject({ status: 'IN_PROGRESS' });
+    expect(await breaksService.list(s.shiftId, s.operatorId)).toHaveLength(2);
+  });
+
+  it('rejects any break after the first eight hours of the shift', async () => {
+    const s = await activeShift(-9 * 60, 10 * 60);
+
+    await expect(breaksService.startNew(s.operatorId)).rejects.toThrow('Breaks are only available during the first eight hours of the shift');
+  });
+
+  it('closes the break automatically at twenty minutes', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+
+    await autoClose();
+    const [running] = await ctx.db.select({ status: breaks.status }).from(breaks).where(eq(breaks.id, started.id));
+    expect(running.status).toBe('IN_PROGRESS');
+
+    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 21 * 60_000) }).where(eq(breaks.id, started.id));
+    await autoClose();
+
+    const [closed] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, started.id));
+    expect(closed).toMatchObject({ status: 'COMPLETED', durationMinutes: 20 });
+    expect(closed.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('lets the operator end the break before the automatic close', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    await ctx.db.update(breaks).set({ startedAt: new Date(Date.now() - 7 * 60_000) }).where(eq(breaks.id, started.id));
+
+    const ended = await breaksService.end(started.id, s.operatorId);
+
+    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 7 });
+  });
+
+  it('caps a late manual end at twenty minutes', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    const startedAt = new Date(Date.now() - 35 * 60_000);
+    await ctx.db.update(breaks).set({ startedAt }).where(eq(breaks.id, started.id));
+
+    const ended = await breaksService.end(started.id, s.operatorId);
+
+    expect(ended).toMatchObject({ status: 'COMPLETED', durationMinutes: 20, endedAt: new Date(startedAt.getTime() + 20 * 60_000) });
+  });
+
+  it('closes the active break when the shift ends', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+
+    await shiftsService.end(s.shiftId, s.operatorId);
+
+    const [row] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt }).from(breaks).where(eq(breaks.id, started.id));
+    expect(row.status).toBe('COMPLETED');
+    expect(row.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('caps an overdue break at twenty minutes when the shift ends', async () => {
+    const s = await activeShift();
+    const started = await breaksService.startNew(s.operatorId);
+    const startedAt = new Date(Date.now() - 40 * 60_000);
+    await ctx.db.update(breaks).set({ startedAt }).where(eq(breaks.id, started.id));
+
+    await shiftsService.end(s.shiftId, s.operatorId);
+
+    const [row] = await ctx.db.select({ endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, started.id));
+    expect(row).toEqual({ endedAt: new Date(startedAt.getTime() + 20 * 60_000), durationMinutes: 20 });
+  });
+});
+
+describe('JobsService', () => {
+  it('materializes one overnight shift from an active crew template and is idempotent', async () => {
+    const operator = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Night crew' }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({
+      crewId: crew.id,
+      userId: operator.id,
+      validRange: halfOpen(new Date('2026-08-23T00:00:00.000Z'), new Date('2026-08-25T00:00:00.000Z')),
+    });
+    const [template] = await ctx.db.insert(shiftTemplates).values({
+      name: 'Sunday night',
+      crewId: crew.id,
+      startTime: '22:05:00',
+      endTime: '06:05:00',
+      crossesMidnight: true,
+      weekdays: [0],
+      breakMinutes: 0,
+      validFrom: '2026-08-23',
+      isActive: true,
+    }).returning({ id: shiftTemplates.id });
+
+    await expect((jobs as unknown as { materializeShifts(businessDate: string): Promise<number> }).materializeShifts('2026-08-23')).resolves.toBe(1);
+    await expect((jobs as unknown as { materializeShifts(businessDate: string): Promise<number> }).materializeShifts('2026-08-23')).resolves.toBe(0);
+
+    const rows = await ctx.db.select({ operatorId: shifts.operatorId, businessDate: shifts.businessDate, scheduledRange: shifts.scheduledRange, status: shifts.status }).from(shifts).where(eq(shifts.templateId, template.id));
+    expect(rows).toEqual([{
+      operatorId: operator.id,
+      businessDate: '2026-08-23',
+      scheduledRange: '["2026-08-24 03:05:00+00","2026-08-24 11:05:00+00")',
+      status: 'SCHEDULED',
+    }]);
+  });
+
+  it('closes a shift exactly at its upper boundary and finalizes its breaks', async () => {
+    const operator = await createUser(ctx);
+    const start = new Date('2026-08-23T06:05:00.000Z');
+    const end = new Date('2026-08-23T14:05:00.000Z');
+    const [missedShift] = await ctx.db.insert(shifts).values({
+      operatorId: operator.id,
+      businessDate: '2026-08-22',
+      scheduledRange: halfOpen(new Date('2026-08-22T22:05:00.000Z'), start),
+      status: 'SCHEDULED',
+    }).returning({ id: shifts.id });
+    const [shift] = await ctx.db.insert(shifts).values({
+      operatorId: operator.id,
+      businessDate: '2026-08-23',
+      scheduledRange: halfOpen(start, end),
+      status: 'IN_PROGRESS',
+      actualStartAt: start,
+    }).returning({ id: shifts.id });
+    const [breakRow] = await ctx.db.insert(breaks).values({
+      shiftId: shift.id,
+      type: 'REST',
+      status: 'IN_PROGRESS',
+      startedAt: new Date('2026-08-23T13:00:00.000Z'),
+    }).returning({ id: breaks.id });
+    await openSession(operator.id, start, null);
+
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(end);
+
+    const [closedShift] = await ctx.db.select({ status: shifts.status, actualEndAt: shifts.actualEndAt, effectiveMinutes: shifts.effectiveMinutes }).from(shifts).where(eq(shifts.id, shift.id));
+    // El break quedo abierto hasta el cierre (worker caido): cuenta solo su tope de 20 min.
+    expect(closedShift).toMatchObject({ status: 'COMPLETED', actualEndAt: end, effectiveMinutes: 460 });
+    const [missed] = await ctx.db.select({ status: shifts.status }).from(shifts).where(eq(shifts.id, missedShift.id));
+    expect(missed.status).toBe('MISSED');
+    const [closedBreak] = await ctx.db.select({ status: breaks.status, endedAt: breaks.endedAt, durationMinutes: breaks.durationMinutes }).from(breaks).where(eq(breaks.id, breakRow.id));
+    expect(closedBreak).toMatchObject({ status: 'COMPLETED', endedAt: new Date('2026-08-23T13:20:00.000Z'), durationMinutes: 20 });
+  });
+
+  it('recovers overdue shifts at their own boundaries across the month without adding outage time', async () => {
+    const operator = await createUser(ctx);
+    const from = new Date('2026-08-31T19:05:00.000Z');
+    const midnightShift = new Date('2026-09-01T03:05:00.000Z');
+    const end = new Date('2026-09-01T11:05:00.000Z');
+    const recovery = new Date('2026-09-01T12:30:00.000Z');
+    const rows = await ctx.db.insert(shifts).values([
+      { operatorId: operator.id, businessDate: '2026-08-31', scheduledRange: halfOpen(from, midnightShift), status: 'IN_PROGRESS', actualStartAt: from },
+      { operatorId: operator.id, businessDate: '2026-08-31', scheduledRange: halfOpen(midnightShift, end), status: 'IN_PROGRESS', actualStartAt: midnightShift },
+    ]).returning({ id: shifts.id });
+    await openSession(operator.id, from, null);
+    for (const [index, boundary] of [midnightShift, end].entries()) {
+      await ctx.db.insert(breaks).values({ shiftId: rows[index].id, type: 'REST', status: 'IN_PROGRESS', startedAt: new Date(boundary.getTime() - 15 * 60_000) });
+    }
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(recovery);
+    await (jobs as unknown as { closeExpiredShifts(at: Date): Promise<void> }).closeExpiredShifts(new Date(recovery.getTime() + 60_000));
+    for (const [index, boundary] of [midnightShift, end].entries()) {
+      const [shift] = await ctx.db.select().from(shifts).where(eq(shifts.id, rows[index].id));
+      const [rest] = await ctx.db.select().from(breaks).where(eq(breaks.shiftId, rows[index].id));
+      expect(shift).toMatchObject({ businessDate: '2026-08-31', actualEndAt: boundary, effectiveMinutes: 465 });
+      expect(rest).toMatchObject({ endedAt: boundary, durationMinutes: 15 });
+    }
   });
 });
 
 describe('CrewsService', () => {
-  it('turns an overlapping crew membership into a 409', async () => {
+  it('lists only current members within the actor scope and reflects removal', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const principal = { sub: actor.id, role: 'ADMIN' };
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const outsider = await createUser(ctx, { role: 'COORDINADOR' });
     const operator = await createUser(ctx);
-    const alpha = await crews.create({ name: 'Alpha' });
-    const beta = await crews.create({ name: 'Beta' });
+    const crew = await crews.create({ name: 'Members', coordinatorId: coordinator.id }, principal);
+    await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(-180), validTo: isoOffset(-120) }, principal);
+    const current = await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(60) }, principal);
+    await crews.addMember(crew.id, { userId: operator.id, validFrom: isoOffset(120), validTo: isoOffset(180) }, principal);
+    for (const viewer of [principal, { sub: actor.id, role: 'DIRECTOR_OPERATIVO' }, { sub: coordinator.id, role: 'COORDINADOR' }]) {
+      expect(await crews.listMembers(crew.id, viewer)).toEqual([current]);
+    }
+    await expect(crews.listMembers(crew.id, { sub: outsider.id, role: 'COORDINADOR' })).rejects.toThrow('outside the actor scope');
+    await expect(crews.listMembers(crew.id, { sub: operator.id, role: 'OPERADOR' })).rejects.toThrow('outside the actor scope');
+    await crews.remove(crew.id, operator.id, principal);
+    expect(await crews.listMembers(crew.id, principal)).toEqual([]);
+  });
+
+  it('turns an overlapping crew membership into a 409', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const principal = { sub: actor.id, role: 'ADMIN' };
+    const operator = await createUser(ctx);
+    const alpha = await crews.create({ name: 'Alpha' }, principal);
+    const beta = await crews.create({ name: 'Beta' }, principal);
     const window = { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(600) };
 
-    await crews.addMember(alpha.id, window);
-    const error = await crews.addMember(beta.id, window).catch((thrown) => thrown);
+    await crews.addMember(alpha.id, window, principal);
+    const error = await crews.addMember(beta.id, window, principal).catch((thrown) => thrown);
 
     expect(error).toBeInstanceOf(ConflictException);
     expect((error as ConflictException).getStatus()).toBe(409);
   });
 
   it('closes the membership window on removal, so the operator can move crew', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const principal = { sub: actor.id, role: 'ADMIN' };
     const operator = await createUser(ctx);
-    const alpha = await crews.create({ name: 'Alpha' });
-    const beta = await crews.create({ name: 'Beta' });
+    const alpha = await crews.create({ name: 'Alpha' }, principal);
+    const beta = await crews.create({ name: 'Beta' }, principal);
 
-    await crews.addMember(alpha.id, { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(600) });
-    await crews.remove(alpha.id, operator.id);
+    await crews.addMember(alpha.id, { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(600) }, principal);
+    await crews.remove(alpha.id, operator.id, principal);
 
-    await expect(crews.addMember(beta.id, { userId: operator.id, validFrom: isoOffset(1), validTo: isoOffset(600) })).resolves.toBeDefined();
+    await expect(crews.addMember(beta.id, { userId: operator.id, validFrom: isoOffset(1), validTo: isoOffset(600) }, principal)).resolves.toBeDefined();
   });
 
   it('rejects removing somebody who is not a current member', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const principal = { sub: actor.id, role: 'ADMIN' };
     const operator = await createUser(ctx);
-    const alpha = await crews.create({ name: 'Alpha' });
-    await expect(crews.remove(alpha.id, operator.id)).rejects.toThrow(NotFoundException);
+    const alpha = await crews.create({ name: 'Alpha' }, principal);
+    await expect(crews.remove(alpha.id, operator.id, principal)).rejects.toThrow(NotFoundException);
+  });
+
+  it('prevents a coordinator from managing another coordinator crew', async () => {
+    const first = await createUser(ctx, { role: 'COORDINADOR' });
+    const second = await createUser(ctx, { role: 'COORDINADOR' });
+    const operator = await createUser(ctx);
+    const [foreignCrew] = await ctx.db.insert(crewRows).values({ name: 'Foreign', coordinatorId: second.id }).returning({ id: crewRows.id });
+
+    await expect(crews.addMember(foreignCrew.id, { userId: operator.id, validFrom: isoOffset(-60), validTo: isoOffset(600) }, { sub: first.id, role: 'COORDINADOR' })).rejects.toThrow('outside the actor scope');
+    await expect(crews.list({ sub: first.id, role: 'COORDINADOR' })).resolves.toEqual([]);
   });
 });
 
 describe('AdminService', () => {
+  it('limits a coordinator user directory to self and current crew members', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Managed users', coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+
+    const result = await admin.listUsers({ sub: coordinator.id, role: 'COORDINADOR' });
+
+    expect(result.map((user) => user.id).sort()).toEqual([coordinator.id, managed.id].sort());
+    expect(result.map((user) => user.id)).not.toContain(outsider.id);
+  });
+
+  it('pages the audit log with a stable cursor, tie-breaking equal timestamps by id', async () => {
+    const reader = await createUser(ctx, { role: 'ADMIN' });
+    const actor = await createUser(ctx);
+    const same = new Date('2026-09-20T15:00:00.000Z');
+    await ctx.db.insert(auditLog).values([
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: new Date('2026-09-20T14:00:00.000Z') },
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: same },
+      { actorType: 'USER', actorUserId: actor.id, action: 'cursor.test', result: 'SUCCESS', occurredAt: same },
+    ]);
+    const all = await admin.audit({ action: 'cursor.test', limit: '10' }, { sub: reader.id, role: 'ADMIN' });
+    expect(all.data).toHaveLength(3);
+
+    const first = await admin.audit({ action: 'cursor.test', limit: '2' }, { sub: reader.id, role: 'ADMIN' });
+    expect(first.pagination.nextCursor).toEqual(expect.any(String));
+    const second = await admin.audit({ action: 'cursor.test', limit: '2', cursor: first.pagination.nextCursor! }, { sub: reader.id, role: 'ADMIN' });
+
+    expect([...first.data, ...second.data].map((row) => row.id)).toEqual(all.data.map((row) => row.id));
+    expect(second.pagination.nextCursor).toBeNull();
+  });
+
+  it('limits coordinator audit reads to actors in their crew at event time', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Managed audit', coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+    await ctx.db.insert(auditLog).values([
+      { actorType: 'USER', actorUserId: managed.id, action: 'scope.test', result: 'SUCCESS' },
+      { actorType: 'USER', actorUserId: outsider.id, action: 'scope.test', result: 'SUCCESS' },
+    ]);
+
+    const rows = await admin.audit({ action: 'scope.test' }, { sub: coordinator.id, role: 'COORDINADOR' });
+
+    expect(rows.data).toEqual([expect.objectContaining({ actorUserId: managed.id })]);
+  });
+
   it('turns a duplicate email into a 409', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const input = { email: 'nueva@agency.test', fullName: 'Nueva', password: 'una-contrasena-inicial', roleCode: 'OPERADOR' };
@@ -219,5 +565,130 @@ describe('AdminService', () => {
     await expect(
       admin.createUser({ email: 'x@agency.test', fullName: 'X', password: 'una-contrasena', roleCode: 'NO_EXISTE' }, actor.id),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ProfilesService', () => {
+  it('rejects an update carrying a stale version with a 409 and keeps the newer data', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const claims = { sub: actor.id, role: 'ADMIN' as const };
+    const created = await profilesService.create({ displayName: 'Versioned', loginEmail: 'versioned@talky.test' }, claims);
+
+    const updated = await profilesService.update(created.id, { displayName: 'First writer', version: created.version }, claims);
+    expect(updated.version).toBe(created.version + 1);
+    await expect(profilesService.update(created.id, { displayName: 'Stale writer', version: created.version }, claims)).rejects.toThrow(ConflictException);
+
+    const [row] = await ctx.db.select({ displayName: ttProfiles.displayName, version: ttProfiles.version }).from(ttProfiles).where(eq(ttProfiles.id, created.id));
+    expect(row).toEqual({ displayName: 'First writer', version: updated.version });
+  });
+});
+
+describe('Delivery 1 crew-scoped resources', () => {
+  it('treats enrolled computers as shared office stations instead of crew-owned devices', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Managed devices', coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+    const ownDevice = await createDevice(ctx, { operatorId: managed.id });
+    const foreignDevice = await createDevice(ctx, { operatorId: outsider.id });
+    const actor = { sub: coordinator.id, role: 'COORDINADOR' };
+
+    await expect(devicesService.list(actor)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ownDevice.id }),
+      expect.objectContaining({ id: foreignDevice.id }),
+    ]));
+    await expect(devicesService.get(foreignDevice.id, actor)).resolves.toMatchObject({ id: foreignDevice.id });
+    await expect(devicesService.create({ hostname: 'shared-host', label: 'Shared station', deviceKind: 'STATION' }, actor)).resolves.toMatchObject({ label: 'Shared station' });
+  });
+
+  it('shows profiles only through ownership or a current in-scope assignment', async () => {
+    const adminUser = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: 'Managed profiles', coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+    const visible = await createProfile(ctx, { displayName: 'Visible' });
+    const hidden = await createProfile(ctx, { displayName: 'Hidden' });
+    await ctx.db.insert(profileAssignments).values([
+      { profileId: visible.id, operatorId: managed.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)), status: 'ACTIVE', assignedBy: adminUser.id },
+      { profileId: hidden.id, operatorId: outsider.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)), status: 'ACTIVE', assignedBy: adminUser.id },
+    ]);
+
+    const coordinatorView = await profilesService.list({ sub: coordinator.id, role: 'COORDINADOR' });
+    const operatorView = await profilesService.list({ sub: managed.id, role: 'OPERADOR' });
+
+    expect(coordinatorView.data.map((profile) => profile.id)).toEqual([visible.id]);
+    expect(operatorView.data.map((profile) => profile.id)).toEqual([visible.id]);
+    await expect(profilesService.get(hidden.id, { sub: coordinator.id, role: 'COORDINADOR' })).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('effective-time report', () => {
+  async function seedReport() {
+    const adminUser = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const mine = await createUser(ctx);
+    const theirs = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crewRows).values({ name: `Report crew ${Date.now()}`, coordinatorId: coordinator.id }).returning({ id: crewRows.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: mine.id, validRange: halfOpen(isoOffset(-60), isoOffset(60)) });
+    await ctx.db.insert(shifts).values([
+      { operatorId: mine.id, businessDate: '2026-07-01', status: 'COMPLETED', effectiveMinutes: 400, scheduledRange: halfOpen('2026-07-01T11:05:00.000Z', '2026-07-01T19:05:00.000Z') },
+      { operatorId: mine.id, businessDate: '2026-07-02', status: 'COMPLETED', effectiveMinutes: 380, scheduledRange: halfOpen('2026-07-02T11:05:00.000Z', '2026-07-02T19:05:00.000Z') },
+      { operatorId: theirs.id, businessDate: '2026-07-01', status: 'COMPLETED', effectiveMinutes: 470, scheduledRange: halfOpen('2026-07-01T11:05:00.000Z', '2026-07-01T19:05:00.000Z') },
+    ]);
+    return { adminUser, coordinator, mine, theirs, crew };
+  }
+
+  const period = { from: '2026-07-01', to: '2026-07-31', page: 1, pageSize: 25 };
+
+  it('limits a coordinator to the operators of their own crew', async () => {
+    const { coordinator, mine, theirs } = await seedReport();
+
+    const report = await shiftsService.effectiveTime(period, coordinator.id);
+
+    expect(report.items.map((row) => row.operatorId)).toEqual([mine.id, mine.id]);
+    expect(report.byOperator).toEqual([{ operatorId: mine.id, shifts: 2, minutes: 780 }]);
+    expect(report.totalMinutes).toBe(780);
+    // Pedir explicitamente al operador ajeno no es una via de escape del scope.
+    await expect(shiftsService.effectiveTime({ ...period, operatorId: theirs.id }, coordinator.id))
+      .resolves.toMatchObject({ total: 0, totalMinutes: 0, items: [] });
+  });
+
+  it('lets an operator see only their own shifts', async () => {
+    const { mine } = await seedReport();
+
+    const report = await shiftsService.effectiveTime(period, mine.id);
+
+    expect(report.total).toBe(2);
+    expect(new Set(report.items.map((row) => row.operatorId))).toEqual(new Set([mine.id]));
+  });
+
+  it('paginates without losing the totals of the whole period', async () => {
+    const { adminUser, mine, theirs } = await seedReport();
+
+    const first = await shiftsService.effectiveTime({ ...period, page: 1, pageSize: 2 }, adminUser.id);
+    const second = await shiftsService.effectiveTime({ ...period, page: 2, pageSize: 2 }, adminUser.id);
+
+    expect(first.items).toHaveLength(2);
+    expect(second.items).toHaveLength(1);
+    // Los totales describen el periodo completo, no la pagina que se pidio.
+    expect(first.total).toBe(3);
+    expect(first.totalMinutes).toBe(1250);
+    expect(second.totalMinutes).toBe(1250);
+    expect(first.byOperator).toEqual(expect.arrayContaining([
+      { operatorId: mine.id, shifts: 2, minutes: 780 },
+      { operatorId: theirs.id, shifts: 1, minutes: 470 },
+    ]));
+    expect(first.formulaVersion).toBe(EFFECTIVE_TIME_FORMULA_VERSION);
+  });
+
+  it('lets an admin narrow the report down to one crew', async () => {
+    const { adminUser, mine, crew } = await seedReport();
+
+    const report = await shiftsService.effectiveTime({ ...period, crewId: crew.id }, adminUser.id);
+
+    expect(report.byOperator).toEqual([{ operatorId: mine.id, shifts: 2, minutes: 780 }]);
   });
 });

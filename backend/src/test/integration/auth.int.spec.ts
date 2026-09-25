@@ -2,13 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service.js';
 import { and, eq, isNull } from 'drizzle-orm';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { AuthService } from '../../modules/auth/auth.service.js';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { ShiftAccessService } from '../../common/auth/shift-access.service.js';
+import { AuthVersionService } from '../../common/auth/auth-version.service.js';
+import { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import { loginAttempts, refreshTokens, shifts, users } from '../../database/schema/index.js';
-import { verifyAccessToken } from '../../common/auth/crypto.js';
+import { hashToken, randomToken, verifyAccessToken } from '../../common/auth/crypto.js';
 import {
   TEST_JWT_SECRET,
+  createDevice,
   createTestContext,
   createUser,
   destroyTestContext,
@@ -22,7 +26,7 @@ let auth: AuthService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database));
+  auth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -46,11 +50,29 @@ async function storedUser(id: string) {
 }
 
 describe('AuthService.login', () => {
+  it('does not apply a successful login when the audit write fails', async () => {
+    // SEC-07b: en las rutas sin JWT la transaccion del interceptor no corre, asi
+    // que el camino de exito (escritura + auditoria) se cierra en una propia. El
+    // camino de fallo queda fuera a proposito: contador y bloqueo deben persistir.
+    const user = await createUser(ctx);
+    await ctx.db.update(users).set({ failedLoginCount: 3 }).where(eq(users.id, user.id));
+    const failingAudit = { record: async () => { throw new Error('audit down'); } } as unknown as AuditService;
+    const failingAuth = new AuthService(ctx.database, ctx.config, ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), failingAudit);
+
+    await expect(failingAuth.login({ email: user.email, password: user.password }, fromIp(42))).rejects.toThrow('audit down');
+
+    const stored = await storedUser(user.id);
+    expect(stored.failedLoginCount).toBe(3);
+    expect(stored.lastLoginAt).toBeNull();
+    const issued = await ctx.db.select({ id: refreshTokens.id }).from(refreshTokens).where(eq(refreshTokens.userId, user.id));
+    expect(issued).toHaveLength(0);
+  });
+
   it('blocks operator login and refresh outside an approved shift when the production policy is enabled', async () => {
     const previous = process.env.REQUIRE_SHIFT_FOR_AUTH;
     process.env.REQUIRE_SHIFT_FOR_AUTH = 'true';
     try {
-      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database));
+      const strictAuth = new AuthService(ctx.database, new ConfigService(), ctx.redis, new ShiftAccessService(ctx.database), new AuthVersionService(ctx.database, new RealtimeService(ctx.database)), new AuditService(ctx.database));
       const user = await createUser(ctx);
 
       await expect(strictAuth.login({ email: user.email, password: user.password }, fromIp(40))).rejects.toThrow(ForbiddenException);
@@ -136,15 +158,49 @@ describe('AuthService.login', () => {
     expect(after.lastLoginAt).toBeInstanceOf(Date);
   });
 
-  it('rate limits by ip and email after five attempts', async () => {
+  it('rate limits the account across distributed IPs after five attempts', async () => {
     const user = await createUser(ctx);
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await auth.login({ email: user.email, password: user.password }, fromIp(9)).catch(() => undefined);
+      await expect(auth.login({ email: user.email, password: user.password }, fromIp(9 + attempt))).resolves.toBeDefined();
     }
-    await expect(auth.login({ email: user.email, password: user.password }, fromIp(9))).rejects.toMatchObject({ status: 429 });
+    await expect(auth.login({ email: user.email, password: user.password }, fromIp(14))).rejects.toMatchObject({ status: 429 });
 
-    // Otra IP no arrastra el castigo de la primera.
-    await expect(auth.login({ email: user.email, password: user.password }, fromIp(10))).resolves.toBeDefined();
+    // Otra cuenta y otra IP no arrastran el castigo de la primera.
+    const other = await createUser(ctx);
+    await expect(auth.login({ email: other.email, password: other.password }, fromIp(15))).resolves.toBeDefined();
+  });
+
+  it('lets a shared office certificate start thirty logins in the same window', async () => {
+    // 30 operadores en la misma PC y la misma IP publica: el limite por cuenta
+    // sigue en 5, pero el certificado de la estacion admite 30 y la IP 300.
+    const station = await createDevice(ctx);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const operator = await createUser(ctx, { email: `turno-${attempt}@agency.test` });
+      await expect(auth.login(
+        { email: operator.email, password: operator.password },
+        fromIp(80),
+        undefined,
+        { id: station.id, fingerprint: station.fingerprint },
+      )).resolves.toBeDefined();
+    }
+
+    const extra = await createUser(ctx, { email: 'turno-extra@agency.test' });
+    await expect(auth.login(
+      { email: extra.email, password: extra.password },
+      fromIp(80),
+      undefined,
+      { id: station.id, fingerprint: station.fingerprint },
+    )).rejects.toMatchObject({ status: 429 });
+
+    // Una estacion distinta no hereda el castigo del certificado anterior.
+    const nextStation = await createDevice(ctx);
+    const nextOperator = await createUser(ctx, { email: 'turno-siguiente@agency.test' });
+    await expect(auth.login(
+      { email: nextOperator.email, password: nextOperator.password },
+      fromIp(81),
+      undefined,
+      { id: nextStation.id, fingerprint: nextStation.fingerprint },
+    )).resolves.toBeDefined();
   });
 
   it('refuses a disabled or soft-deleted user without saying why', async () => {
@@ -241,6 +297,16 @@ describe('AuthService refresh rotation', () => {
     expect(live).toHaveLength(0);
   });
 
+  it('refuses to rotate a device-bound token from another approved device', async () => {
+    const user = await createUser(ctx);
+    const deviceA = await createDevice(ctx, { operatorId: user.id });
+    const deviceB = await createDevice(ctx, { operatorId: user.id });
+    const tokens = await auth.login({ email: user.email, password: user.password }, fromIp(23), 'vitest', { id: deviceA.id, fingerprint: deviceA.fingerprint });
+
+    await expect(auth.refresh(tokens.refreshToken, fromIp(24), 'vitest', deviceB.id)).rejects.toThrow(UnauthorizedException);
+    await expect(auth.refresh(tokens.refreshToken, fromIp(24), 'vitest', deviceA.id)).resolves.toMatchObject({ accessToken: expect.any(String) });
+  });
+
   it('rejects an unknown or expired refresh token', async () => {
     const user = await createUser(ctx);
     const tokens = await auth.login({ email: user.email, password: user.password }, fromIp(22));
@@ -249,6 +315,22 @@ describe('AuthService refresh rotation', () => {
 
     await ctx.db.update(refreshTokens).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(refreshTokens.userId, user.id));
     await expect(auth.refresh(tokens.refreshToken)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rate limits refresh attempts per session across distributed IPs through Redis', async () => {
+    const user = await createUser(ctx);
+    const rawTokens = Array.from({ length: 61 }, () => randomToken());
+    await ctx.db.insert(refreshTokens).values(rawTokens.map((rawToken) => ({
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      familyId: randomUUID(),
+      expiresAt: new Date(Date.now() + 86_400_000),
+    })));
+
+    for (const [index, rawToken] of rawTokens.slice(0, 60).entries()) {
+      await expect(auth.refresh(rawToken, fromIp(26 + index))).resolves.toBeDefined();
+    }
+    await expect(auth.refresh(rawTokens[60], fromIp(56))).rejects.toMatchObject({ status: 429 });
   });
 
   it('stops refreshing once the user is no longer active', async () => {

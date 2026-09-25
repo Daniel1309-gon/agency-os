@@ -1,0 +1,21 @@
+services:
+  api:
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      CORS_ORIGINS: http://localhost:5173
+      TRUSTED_PROXY_CIDRS: ""
+      ROCKETCHAT_BASE_URL: ""
+      ROCKETCHAT_TOKEN: ""
+      ROCKETCHAT_USER_ID: ""
+      ROCKETCHAT_WEBHOOK_SECRET: ""
+
+  web:
+    build:
+      args:
+        VITE_API_BASE_URL: http://localhost:3000/api/v1
+        VITE_EXTENSION_ID: ${VITE_EXTENSION_ID}
+        VITE_LOCAL_AGENT_URL: http://127.0.0.1:45831
+    ports:
+      - "5173:80"

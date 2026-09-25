@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { CafeteriaService } from './cafeteria.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
@@ -11,6 +11,12 @@ const ACTOR = '33333333-3333-3333-3333-333333333333';
 function harness(): { service: CafeteriaService; db: FakeDatabase } {
   const db = createFakeDatabase();
   return { service: new CafeteriaService(db.service), db };
+}
+
+function realtimeHarness(): { service: CafeteriaService; db: FakeDatabase; realtime: { publishCafeteriaOrderChanged: ReturnType<typeof vi.fn> } } {
+  const db = createFakeDatabase();
+  const realtime = { publishCafeteriaOrderChanged: vi.fn().mockResolvedValue(undefined) };
+  return { service: new CafeteriaService(db.service, realtime as never), db, realtime };
 }
 
 function withOrder(db: FakeDatabase, status: string, totalCop = '15000.00'): void {
@@ -129,6 +135,18 @@ describe('CafeteriaService order state machine', () => {
 });
 
 describe('CafeteriaService.createOrder', () => {
+  it('publishes a created order only after the transaction resolves', async () => {
+    const { service, db, realtime } = realtimeHarness();
+    db.stub('cafeteria_orders').findFirst(undefined);
+    db.stub('cafeteria_products').findFirst({ id: 'p-1', name: 'Tinto', priceCop: '3500.00', isAvailable: true });
+    db.stub('cafeteria_orders').returning([{ id: ORDER, orderNumber: 8, status: 'PLACED', totalCop: '3500.00' }]);
+
+    await service.createOrder({ items: [{ productId: 'p-1', quantity: 1 }] }, OPERATOR, 'key-event');
+
+    expect(db.transactions()).toBe(1);
+    expect(realtime.publishCafeteriaOrderChanged).toHaveBeenCalledWith(ORDER, 'cafeteria.order.created');
+  });
+
   it('requires an idempotency key', async () => {
     const { service } = harness();
     await expect(
@@ -175,5 +193,38 @@ describe('CafeteriaService.createOrder', () => {
       NotFoundException,
     );
     expect(db.inserted('cafeteria_orders')).toHaveLength(0);
+  });
+});
+
+describe('CafeteriaService.orders', () => {
+  it('returns the item snapshots required by the KDS', async () => {
+    const { service, db } = harness();
+    db.stub('cafeteria_orders').select([{
+      id: ORDER,
+      orderNumber: 11,
+      operatorId: OPERATOR,
+      status: 'PLACED',
+      placedAt: new Date('2026-08-18T12:00:00Z'),
+      acceptedAt: null,
+      readyAt: null,
+      pickupDeadlineAt: null,
+      deliveredAt: null,
+      totalCop: '7000.00',
+      notes: null,
+    }]);
+    db.stub('cafeteria_order_items').select([{
+      orderId: ORDER,
+      productId: '66666666-6666-4666-8666-666666666666',
+      productNameSnapshot: 'Arepa',
+      quantity: 2,
+      unitPriceCop: '3500.00',
+      lineTotalCop: '7000.00',
+      notes: null,
+    }]);
+
+    await expect(service.orders()).resolves.toMatchObject([{
+      id: ORDER,
+      items: [{ productNameSnapshot: 'Arepa', quantity: 2, lineTotalCop: '7000.00' }],
+    }]);
   });
 });

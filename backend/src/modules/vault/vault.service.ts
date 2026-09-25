@@ -1,110 +1,150 @@
 import {
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { DatabaseService } from '../../database/database.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { AuditService } from '../../common/audit/audit.service.js';
-import { hashToken } from '../../common/auth/crypto.js';
-import {
-  credentialAccessLog,
-  devices,
-  profileAssignments,
-  profileSessions,
-  ttProfileCredentials,
-  ttProfiles,
-} from '../../database/schema/index.js';
+import { DatabaseService } from '../../database/database.service.js';
+import { isPgError, PG_UNIQUE_VIOLATION } from '../../database/pg-error.js';
 import { VaultCryptoService } from './vault.crypto.js';
+import { VaultAlertService, type VaultAlertReason } from './vault-alerts.service.js';
+import { VAULT_REPOSITORY, type VaultRepository, type VaultScopeActor } from './vault.repository.port.js';
 import type { CredentialGrantInput, CredentialRedeemInput, CredentialRotationInput } from './vault.schemas.js';
 
 interface RequestContext {
   userId: string;
-  deviceToken: string;
+  deviceId: string;
   ip?: string;
 }
+
+interface StationContext {
+  deviceId: string;
+  ip?: string;
+}
+
+/** Motivos de denegacion que ademas disparan alerta de abuso del vault (SEC-10). */
+const ALERTABLE_DENY_REASONS: Record<string, VaultAlertReason> = {
+  RATE_LIMITED: 'RATE_LIMITED',
+  DEVICE_MISMATCH: 'DEVICE_MISMATCH',
+  OPERATOR_MISMATCH: 'OPERATOR_MISMATCH',
+};
 
 @Injectable()
 export class VaultService {
   constructor(
-    private readonly db: DatabaseService,
+    @Inject(VAULT_REPOSITORY) private readonly repository: VaultRepository,
     private readonly redis: RedisService,
     private readonly crypto: VaultCryptoService,
     private readonly audit: AuditService,
+    private readonly database: DatabaseService,
+    private readonly alerts: VaultAlertService,
   ) {}
 
-  async rotate(profileId: string, input: CredentialRotationInput, actorId: string): Promise<{ version: number; rotatedAt: Date }> {
-    const profile = await this.db.db.query.ttProfiles.findFirst({ where: eq(ttProfiles.id, profileId) });
-    if (!profile || profile.deletedAt) throw new NotFoundException('Profile not found');
-    const current = await this.db.db.query.ttProfileCredentials.findFirst({
-      where: and(eq(ttProfileCredentials.profileId, profileId), eq(ttProfileCredentials.isCurrent, true)),
-    });
-    const version = (current?.version ?? 0) + 1;
-    const encrypted = await this.crypto.encrypt(input.secret, profileId, 1);
+  async rotate(profileId: string, input: CredentialRotationInput, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date }> {
+    if (!['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR'].includes(actor.role)) throw new ForbiddenException('Credential management is not available for this role');
+    const actorId = actor.id;
+    if (!(await this.repository.profileExistsForRotation(profileId, actor))) throw new NotFoundException('Profile not found');
+    const version = (await this.repository.currentCredentialVersion(profileId) ?? 0) + 1;
+    const encrypted = await this.crypto.encrypt(input.secret, profileId);
     const now = new Date();
-    await this.db.db.transaction(async (tx) => {
-      await tx.update(ttProfileCredentials).set({ isCurrent: false }).where(and(eq(ttProfileCredentials.profileId, profileId), eq(ttProfileCredentials.isCurrent, true)));
-      await tx.insert(ttProfileCredentials).values({
+    try {
+      await this.repository.rotateCredential({
         profileId,
         username: input.username,
-        secretCiphertext: encrypted.ciphertext,
-        secretNonce: encrypted.nonce,
-        secretTag: encrypted.tag,
+        ciphertext: encrypted.ciphertext,
+        nonce: encrypted.nonce,
+        tag: encrypted.tag,
         keyVersion: encrypted.keyVersion,
         aadContext: encrypted.aadContext,
         version,
-        isCurrent: true,
         rotatedAt: now,
         rotatedBy: actorId,
+      }, {
+        loginEmail: input.username,
+        version: input.profileVersion,
+        updatedBy: actorId,
       });
-      await tx.insert(credentialAccessLog).values({ profileId, userId: actorId, purpose: 'ADMIN_ROTATION', granted: true, occurredAt: now });
-    });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'PROFILE_VERSION_CONFLICT') {
+        throw new ConflictException('Profile was modified by another request');
+      }
+      throw error;
+    }
     await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.credential.rotated', entityType: 'profile', entityId: profileId, result: 'SUCCESS', metadata: { profileId, version } });
     return { version, rotatedAt: now };
   }
 
-  async meta(profileId: string): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
-    const row = await this.db.db
-      .select({ version: ttProfileCredentials.version, rotatedAt: ttProfileCredentials.rotatedAt, rotatedBy: ttProfileCredentials.rotatedBy })
-      .from(ttProfileCredentials)
-      .where(and(eq(ttProfileCredentials.profileId, profileId), eq(ttProfileCredentials.isCurrent, true)))
-      .limit(1)
-      .then((rows) => rows[0]);
+  async rotateEncryptionKey(actorId: string): Promise<{ keyVersion: number }> {
+    let keyVersion: number;
+    try {
+      keyVersion = await this.crypto.rotateKey();
+    } catch (error) {
+      // Dos rotaciones concurrentes calculan la misma version y chocan con la PK
+      // de encryption_keys; sin traducirlo, la carrera responde 500.
+      if (isPgError(error, PG_UNIQUE_VIOLATION)) throw new ConflictException('Key rotation is already in progress');
+      throw error;
+    }
+    await this.audit.record({ actorType: 'USER', actorUserId: actorId, action: 'vault.key.rotated', result: 'SUCCESS', metadata: { version: keyVersion } });
+    return { keyVersion };
+  }
+
+  async meta(profileId: string, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
+    if (!['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR'].includes(actor.role)) throw new ForbiddenException('Credential metadata is not available for this role');
+    if (!(await this.repository.profileExistsForRotation(profileId, actor))) throw new NotFoundException('Profile not found');
+    const row = await this.repository.currentCredentialMetadata(profileId);
     if (!row) throw new NotFoundException('Credential metadata not found');
     return row;
   }
 
   async grant(input: CredentialGrantInput, context: RequestContext): Promise<{ grantId: string; expiresAt: Date }> {
-    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED')) });
-    if (!device || device.assignedOperatorId !== context.userId) throw new ForbiddenException('Device is not approved for this operator');
-    const profile = await this.db.db.query.ttProfiles.findFirst({ where: and(eq(ttProfiles.id, input.profileId), eq(ttProfiles.status, 'ACTIVE'), isNull(ttProfiles.deletedAt)) });
-    if (!profile) {
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) {
+      await this.deny(input.profileId, context, 'DEVICE_NOT_APPROVED');
+      throw new ForbiddenException('Device is not approved');
+    }
+    if (!(await this.repository.activeProfileExists(input.profileId))) {
       await this.deny(input.profileId, context, 'PROFILE_INACTIVE');
       throw new ForbiddenException('Profile is inactive');
     }
-    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, input.sessionId), eq(profileSessions.profileId, input.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.status, 'ACTIVE')) });
+    const session = await this.repository.findLaunchingSession({
+      sessionId: input.sessionId,
+      profileId: input.profileId,
+      operatorId: context.userId,
+      deviceId: context.deviceId,
+    });
     const assignment = session
-      ? await this.db.db
-          .select({ id: profileAssignments.id })
-          .from(profileAssignments)
-          .where(and(
-            eq(profileAssignments.id, session.assignmentId),
-            eq(profileAssignments.profileId, input.profileId),
-            eq(profileAssignments.operatorId, context.userId),
-            eq(profileAssignments.status, 'ACTIVE'),
-            sql`${profileAssignments.validRange} @> now()`,
-          ))
-          .limit(1)
-          .then((rows) => rows[0])
+      ? await this.repository.findActiveAssignment({
+          assignmentId: session.assignmentId,
+          profileId: input.profileId,
+          operatorId: context.userId,
+        })
       : undefined;
-    if (!assignment || !session) {
+    if (!session) {
+      const foreignSession = await this.repository.findSessionPreparedByAnotherDevice({
+        sessionId: input.sessionId,
+        profileId: input.profileId,
+        operatorId: context.userId,
+        deviceId: context.deviceId,
+      });
+      if (foreignSession) {
+        await this.deny(input.profileId, context, 'DEVICE_MISMATCH');
+        throw new ForbiddenException('Session was prepared by a different station');
+      }
       await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
       throw new ForbiddenException('No active assignment for this profile');
+    }
+    if (!assignment) {
+      await this.deny(input.profileId, context, 'NO_ASSIGNMENT');
+      throw new ForbiddenException('No active assignment for this profile');
+    }
+    if (!(await this.repository.sessionChromeBindingMatches({ sessionId: input.sessionId, profileId: input.profileId, operatorId: context.userId }))) {
+      await this.deny(input.profileId, context, 'CHROME_PROFILE_MISMATCH');
+      throw new ForbiddenException('Session Chrome profile does not match the profile binding');
     }
     const rateKey = `vault:grant-rate:${context.userId}:${input.profileId}`;
     if ((await this.redis.incrWithExpiry(rateKey, 3600)) > 30) {
@@ -113,9 +153,9 @@ export class VaultService {
     }
     const grantId = randomUUID();
     const expiresAt = new Date(Date.now() + 60_000);
-    await this.redis.setEx(`vault:grant:${grantId}`, 60, JSON.stringify({ grantId, profileId: input.profileId, sessionId: input.sessionId, userId: context.userId, deviceId: device.id, assignmentId: assignment.id }));
-    await this.db.db.insert(credentialAccessLog).values({ profileId: input.profileId, userId: context.userId, deviceId: device.id, assignmentId: assignment.id, purpose: 'LOGIN_INJECTION', granted: true, grantJti: grantId, ip: context.ip });
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: device.id, action: 'vault.credential.issued', entityType: 'profile', entityId: input.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: input.profileId, assignmentId: assignment.id, sessionId: input.sessionId, deviceId: device.id, grantId } });
+    await this.redis.setEx(`vault:grant:${grantId}`, 60, JSON.stringify({ grantId, profileId: input.profileId, sessionId: input.sessionId, userId: context.userId, deviceId: context.deviceId, assignmentId: assignment.id }));
+    await this.repository.recordCredentialAccess({ profileId: input.profileId, userId: context.userId, deviceId: context.deviceId, assignmentId: assignment.id, purpose: 'LOGIN_INJECTION', granted: true, grantJti: grantId, ip: context.ip });
+    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.issued', entityType: 'profile', entityId: input.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: input.profileId, assignmentId: assignment.id, sessionId: input.sessionId, deviceId: context.deviceId, grantId } });
     return { grantId, expiresAt };
   }
 
@@ -123,38 +163,131 @@ export class VaultService {
     const grantKey = `vault:grant:${input.grantId}`;
     const raw = await this.redis.get(grantKey);
     if (!raw) {
-      await this.db.db.update(credentialAccessLog).set({ reuseAttempted: true }).where(eq(credentialAccessLog.grantJti, input.grantId));
-      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId: input.grantId, reused: true } });
+      await this.recordGrantReuse(input.grantId, context);
       throw new ConflictException('Grant expired or already consumed');
     }
     const grant = JSON.parse(raw) as { profileId: string; sessionId: string; userId: string; deviceId: string; assignmentId: string };
-    if (grant.userId !== context.userId) throw new ForbiddenException('Grant is not assigned to this operator');
-    const device = await this.db.db.query.devices.findFirst({ where: and(eq(devices.id, grant.deviceId), eq(devices.tokenHash, hashToken(context.deviceToken)), eq(devices.status, 'APPROVED')) });
-    if (!device) throw new ForbiddenException('Device is not approved');
-    const session = await this.db.db.query.profileSessions.findFirst({ where: and(eq(profileSessions.id, grant.sessionId), eq(profileSessions.profileId, grant.profileId), eq(profileSessions.operatorId, context.userId), eq(profileSessions.deviceId, grant.deviceId), eq(profileSessions.status, 'ACTIVE')) });
-    if (!session) throw new ForbiddenException('Session is not active');
-    const assignment = await this.db.db
-      .select({ id: profileAssignments.id })
-      .from(profileAssignments)
-      .where(and(eq(profileAssignments.id, grant.assignmentId), eq(profileAssignments.profileId, grant.profileId), eq(profileAssignments.operatorId, context.userId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`))
-      .limit(1)
-      .then((rows) => rows[0]);
+    if (grant.userId !== context.userId) {
+      await this.deny(grant.profileId, context, 'OPERATOR_MISMATCH');
+      throw new ForbiddenException('Grant is not assigned to this operator');
+    }
+    if (grant.deviceId !== context.deviceId) {
+      await this.deny(grant.profileId, context, 'DEVICE_MISMATCH');
+      throw new ForbiddenException('Grant is not assigned to this device');
+    }
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) throw new ForbiddenException('Device is not approved');
+    const session = await this.repository.findLaunchingSession({
+      sessionId: grant.sessionId,
+      profileId: grant.profileId,
+      operatorId: context.userId,
+      deviceId: grant.deviceId,
+    });
+    if (!session) throw new ForbiddenException('Session is not ready for credential redemption');
+    const assignment = await this.repository.findActiveAssignment({
+      assignmentId: grant.assignmentId,
+      profileId: grant.profileId,
+      operatorId: context.userId,
+    });
     if (!assignment) throw new ForbiddenException('Assignment is not active');
     if (!(await this.redis.compareAndDelete(grantKey, raw))) {
-      await this.db.db.update(credentialAccessLog).set({ reuseAttempted: true }).where(eq(credentialAccessLog.grantJti, input.grantId));
-      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: grant.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId: input.grantId, reused: true } });
+      await this.recordGrantReuse(input.grantId, context);
       throw new ConflictException('Grant expired or already consumed');
     }
-    const credential = await this.db.db.query.ttProfileCredentials.findFirst({ where: and(eq(ttProfileCredentials.profileId, grant.profileId), eq(ttProfileCredentials.isCurrent, true)) });
+    const credential = await this.repository.currentCredential(grant.profileId);
     if (!credential) throw new NotFoundException('Credential unavailable');
-    const secret = await this.crypto.decrypt({ ciphertext: credential.secretCiphertext, nonce: credential.secretNonce, tag: credential.secretTag, keyVersion: credential.keyVersion, aadContext: credential.aadContext });
-    await this.db.db.update(credentialAccessLog).set({ consumedAt: new Date() }).where(eq(credentialAccessLog.grantJti, input.grantId));
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: device.id, action: 'vault.credential.redeemed', entityType: 'profile', entityId: grant.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: grant.profileId, sessionId: grant.sessionId, deviceId: device.id, grantId: input.grantId } });
+    const secret = await this.crypto.decrypt({ ciphertext: credential.ciphertext, nonce: credential.nonce, tag: credential.tag, keyVersion: credential.keyVersion, aadContext: credential.aadContext });
+    await this.repository.markGrantConsumed(input.grantId, new Date());
+    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: grant.deviceId, action: 'vault.credential.redeemed', entityType: 'profile', entityId: grant.profileId, result: 'SUCCESS', ip: context.ip, metadata: { profileId: grant.profileId, sessionId: grant.sessionId, deviceId: grant.deviceId, grantId: input.grantId } });
     return { username: credential.username, secret };
   }
 
+  async handoff(
+    input: CredentialGrantInput,
+    context: StationContext,
+  ): Promise<{ username: string; secret: string; sessionVersion: number }> {
+    if (!(await this.repository.findApprovedDevice(context.deviceId))) throw new ForbiddenException('Device is not approved');
+    const prepared = await this.repository.findPreparedHandoffSession({
+      sessionId: input.sessionId,
+      profileId: input.profileId,
+      deviceId: context.deviceId,
+      notBefore: new Date(Date.now() - 60_000),
+    });
+    if (!prepared) {
+      const foreignSession = await this.repository.findSessionPreparedByAnotherDevice({
+        sessionId: input.sessionId,
+        profileId: input.profileId,
+        deviceId: context.deviceId,
+      });
+      if (foreignSession) {
+        await this.alerts.raise({ userId: foreignSession.operatorId, profileId: input.profileId, reason: 'DEVICE_MISMATCH' });
+      }
+      await this.audit.record({
+        actorType: 'DEVICE',
+        actorDeviceId: context.deviceId,
+        action: 'vault.credential.handoff',
+        entityType: 'profile',
+        entityId: input.profileId,
+        result: 'DENIED',
+        ip: context.ip,
+        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: foreignSession ? 'DEVICE_MISMATCH' : 'HANDOFF_EXPIRED' },
+      });
+      throw new ForbiddenException('Credential handoff is unavailable');
+    }
+
+    const lockKey = `vault:handoff:${input.sessionId}`;
+    const lockToken = await this.redis.acquireLock(lockKey, 60);
+    if (!lockToken) {
+      await this.audit.record({
+        actorType: 'DEVICE',
+        actorUserId: prepared.operatorId,
+        actorDeviceId: context.deviceId,
+        action: 'vault.credential.handoff',
+        entityType: 'profile',
+        entityId: input.profileId,
+        result: 'DENIED',
+        ip: context.ip,
+        metadata: { profileId: input.profileId, sessionId: input.sessionId, denyReason: 'HANDOFF_REUSED' },
+      });
+      throw new ConflictException('Credential handoff expired or already consumed');
+    }
+
+    try {
+      return await this.database.withRequestContext(prepared.operatorId, 'OPERADOR', async () => {
+        const operatorContext = { ...context, userId: prepared.operatorId };
+        const grant = await this.grant(input, operatorContext);
+        const credential = await this.redeem({ grantId: grant.grantId }, operatorContext);
+        return { ...credential, sessionVersion: prepared.version };
+      });
+    } catch (error) {
+      await this.redis.releaseLock(lockKey, lockToken);
+      throw error;
+    }
+  }
+
+  /**
+   * Igual que `deny`: el reuso termina en excepcion, asi que su bitacora se
+   * escribe en una transaccion propia para que el rollback del request no la borre.
+   */
+  private async recordGrantReuse(grantId: string, context: RequestContext): Promise<void> {
+    let profileId: string | undefined;
+    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+      profileId = await this.repository.markGrantReuse(grantId);
+      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId, reused: true } });
+    });
+    if (profileId) await this.alerts.raise({ userId: context.userId, profileId, reason: 'GRANT_REUSE' });
+  }
+
+  /**
+   * La denegacion se escribe en una transaccion propia: el request termina en
+   * excepcion y el `TransactionInterceptor` revierte la suya, asi que sin esto no
+   * quedaria ni la fila de bitacora ni la de auditoria (SEC-07b).
+   */
   private async deny(profileId: string, context: RequestContext, reason: string): Promise<void> {
-    await this.db.db.insert(credentialAccessLog).values({ profileId, userId: context.userId, purpose: 'LOGIN_INJECTION', granted: false, denyReason: reason, ip: context.ip });
-    await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, action: 'vault.credential.denied', entityType: 'profile', entityId: profileId, result: 'DENIED', ip: context.ip, metadata: { profileId, denyReason: reason } });
+    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+      await this.repository.recordCredentialAccess({ profileId, userId: context.userId, purpose: 'LOGIN_INJECTION', granted: false, denyReason: reason, ip: context.ip });
+      await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.denied', entityType: 'profile', entityId: profileId, result: 'DENIED', ip: context.ip, metadata: { profileId, denyReason: reason } });
+    });
+    const alertReason = ALERTABLE_DENY_REASONS[reason];
+    if (alertReason) await this.alerts.raise({ userId: context.userId, profileId, reason: alertReason });
   }
 }
