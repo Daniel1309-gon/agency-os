@@ -1,13 +1,12 @@
 import { spawnSync } from 'node:child_process';
 
+import { pnpmInvocation } from './pnpm-invocation.mjs';
+
 const pnpmEntryPoint = process.env.npm_execpath;
 
-if (!pnpmEntryPoint) {
-  throw new Error('Run this command through pnpm so the pinned package manager can be reused.');
-}
-
 function run(script, extraEnv = {}) {
-  const result = spawnSync(process.execPath, [pnpmEntryPoint, 'run', script], {
+  const { command, args } = pnpmInvocation(pnpmEntryPoint, ['run', script]);
+  const result = spawnSync(command, args, {
     env: { ...process.env, ...extraEnv },
     stdio: 'inherit',
   });
