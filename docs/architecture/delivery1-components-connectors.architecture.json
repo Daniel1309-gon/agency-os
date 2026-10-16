@@ -1,0 +1,331 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Agency OS — Delivery 1 Components & Connectors",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1390,
+      760
+    ]
+  },
+  "components": [
+    {
+      "id": "webapp",
+      "type": "frontend",
+      "label": "Web App",
+      "sublabel": "React/Vite SPA",
+      "pos": [
+        250,
+        330
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Station Agent",
+      "sublabel": "agent + native helper",
+      "pos": [
+        40,
+        170
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "chrome",
+      "type": "frontend",
+      "label": "Chrome Profile",
+      "sublabel": "isolated + extension",
+      "pos": [
+        40,
+        490
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "talky",
+      "type": "external",
+      "label": "TalkyTimes",
+      "sublabel": "third-party site",
+      "pos": [
+        40,
+        660
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "edge",
+      "type": "security",
+      "label": "Cloudflare",
+      "sublabel": "WAF + zone mTLS + tunnel",
+      "pos": [
+        470,
+        330
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "caddy",
+      "type": "security",
+      "label": "Caddy",
+      "sublabel": "proxy + SPA static",
+      "pos": [
+        710,
+        330
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API",
+      "sublabel": "NestJS · REST + Socket.IO",
+      "pos": [
+        940,
+        190
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Worker",
+      "sublabel": "jobs + outbox",
+      "pos": [
+        940,
+        500
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis 7",
+      "sublabel": "disposable",
+      "pos": [
+        1210,
+        100
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL 16",
+      "sublabel": "RLS · source of truth",
+      "pos": [
+        1210,
+        340
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "rocketchat",
+      "type": "external",
+      "label": "Rocket.Chat",
+      "sublabel": "client VPS",
+      "pos": [
+        965,
+        660
+      ],
+      "size": [
+        120,
+        64
+      ]
+    },
+    {
+      "id": "b2",
+      "type": "cloud",
+      "label": "Backblaze B2",
+      "sublabel": "Object Lock",
+      "pos": [
+        1225,
+        660
+      ],
+      "size": [
+        120,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Office Windows station",
+      "wraps": [
+        "webapp",
+        "agent",
+        "chrome"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "Single VPS · Docker Compose",
+      "wraps": [
+        "caddy",
+        "api",
+        "worker",
+        "redis",
+        "postgres"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "internal network",
+      "wraps": [
+        "redis",
+        "postgres"
+      ],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "from": "webapp",
+      "to": "edge",
+      "label": "HTTPS + WSS",
+      "variant": "emphasis"
+    },
+    {
+      "from": "edge",
+      "to": "caddy",
+      "label": "tunnel",
+      "variant": "security"
+    },
+    {
+      "from": "caddy",
+      "to": "api",
+      "label": "/api · /socket.io",
+      "variant": "emphasis"
+    },
+    {
+      "from": "api",
+      "to": "postgres",
+      "label": "SQL"
+    },
+    {
+      "from": "api",
+      "to": "redis",
+      "label": "pub/sub + limits",
+      "variant": "dashed"
+    },
+    {
+      "from": "worker",
+      "to": "postgres",
+      "label": "jobs + leases"
+    },
+    {
+      "from": "worker",
+      "to": "rocketchat",
+      "label": "REST",
+      "variant": "dashed",
+      "labelAt": [
+        1025,
+        628
+      ]
+    },
+    {
+      "from": "postgres",
+      "to": "b2",
+      "label": "dumps",
+      "variant": "security",
+      "labelAt": [
+        1285,
+        520
+      ]
+    },
+    {
+      "from": "webapp",
+      "to": "agent",
+      "label": "localhost:45831"
+    },
+    {
+      "from": "agent",
+      "to": "edge",
+      "label": "mTLS claim",
+      "variant": "security",
+      "toSide": "top"
+    },
+    {
+      "from": "agent",
+      "to": "chrome",
+      "label": "launch",
+      "labelAt": [
+        115,
+        362
+      ]
+    },
+    {
+      "from": "chrome",
+      "to": "talky",
+      "label": "operator login",
+      "labelAt": [
+        115,
+        607
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Trust boundaries",
+      "items": [
+        "Cloudflare Tunnel is the only public ingress",
+        "Device identity is the mTLS cert SHA-256",
+        "Postgres and Redis sit on an internal-only network"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "E1 deployment",
+      "items": [
+        "One VPS, images pulled from GHCR by digest",
+        "API is stateless; the worker owns the scheduler",
+        "HA deferred: recovery via encrypted B2 backups"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Not drawn",
+      "items": [
+        "Rocket.Chat webhook back into the API",
+        "AI engine: local rule fallback when unset",
+        "ops container runs migrations on demand"
+      ]
+    }
+  ]
+}
