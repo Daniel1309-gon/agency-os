@@ -1,6 +1,7 @@
 # ADR 0013: topología de producción y ruta a alta disponibilidad
 
-- Estado: aceptada
+- Estado: aceptada (revisada 2026-10-17: spike de PostgreSQL gestionado aplazado; ensayo previo en
+  un VPS de Daniel)
 - Fecha: 2026-09-21
 - Alcance: despliegue de Entrega 1 (plan 2026-09-20, fases A/E) y su evolución a HA
 
@@ -79,3 +80,55 @@ aprobación nueva de la clienta; el ahorro actual (~US$135/mes) es explícito en
   contadores y locks porque es desechable.
 - **Imágenes**: GHCR (decidido), con despliegue por digest. El segundo nodo será copiar el compose y
   cambiar variables.
+
+## Revisión acordada con Daniel (2026-10-17)
+
+**Contexto.** La clienta no gestiona con regularidad los pagos de infraestructura (el servidor de
+Rocket.Chat estuvo dos meses sin pagar). Cada servicio contratado aparte es un punto más de
+suspensión por falta de pago, y la ruta a HA suma servicios. La revisión del 2026-09-21 pedía
+resolver la HA al cierre de la Entrega 1 con el spike de PostgreSQL gestionado.
+
+**Decisión.**
+
+1. **La producción queda en un solo VPS**, como en el punto 1 de la decisión: PostgreSQL, Redis,
+   API, worker, Caddy y `cloudflared` en Docker, más **B2** para los backups y **Cloudflare** para el
+   túnel y el mTLS. No se contrata PostgreSQL gestionado ni un segundo nodo.
+2. **El spike de PostgreSQL gestionado se aplaza.** Deja de ser un criterio de cierre de la Entrega
+   1; la aceptación registra HA aplazada y recuperación por backups. La restricción de diseño 2 sigue
+   vigente sin cambios: nada de lo que se construya puede cerrar la ruta a HA.
+3. **Condiciones para retomar la HA** (cualquiera de ellas reabre esta decisión y el spike, con el
+   criterio de la revisión del 2026-09-21):
+   - una caída o restauración que supere el RTO de 4 h del diseño de backups, o una pérdida de datos
+     mayor a la cadencia de 30 min;
+   - que la operación pase a depender del sistema de forma que una caída de horas deje de ser
+     asumible (por ejemplo, más cuadrillas o turnos sin cobertura manual);
+   - una solicitud explícita de la clienta.
+4. **Ensayo previo en un VPS de Hostinger contratado y administrado por Daniel.** Sirve para
+   validar el despliegue de punta a punta y para mostrarle a la clienta el sistema en internet antes
+   de contratar el suyo. Después Daniel conserva ese VPS para proyectos propios. Reglas del ensayo:
+   - **Solo datos sintéticos.** No se cargan credenciales reales de TalkyTimes en el vault, ni
+     operadoras, ni perfiles o datos de nómina reales. El ensayo no es producción.
+   - **Secretos propios del ensayo.** `VAULT_KEK`, `JWT_SECRET`, `BACKUP_ENCRYPTION_PASSPHRASE` y
+     las contraseñas de rol se generan para el ensayo y **no se reutilizan** en la producción de la
+     clienta.
+   - **Hostname y certificados de ensayo.** El ensayo usa un hostname y certificados de cliente
+     propios; el hostname de producción y los certificados de las estaciones reales se emiten al
+     desplegar en el VPS de la clienta.
+   - **Sin migración de datos.** La producción de la clienta arranca con un despliegue limpio
+     (Primer despliegue de `deploy/production/README.md`), no copiando volúmenes ni restaurando
+     backups del ensayo. Si en algún momento la operación real llegara a empezar en el VPS de Daniel,
+     esta regla deja de valer y la mudanza se hace como una restauración completa desde B2 con la KEK
+     custodiada, según `deploy/production/backup/README.md`.
+5. **Pagos (recomendación, no decidida).** Para que un olvido no apague el servicio: pagar el VPS de
+   la clienta por adelantado (anual o bianual) y dejar B2 y Cloudflare en una cuenta con cobro
+   automático administrada por Daniel, que lo refactura a la clienta.
+
+**Consecuencias.**
+
+- El runbook [`docs/prueba-vps-postgresql-gestionado.md`](../prueba-vps-postgresql-gestionado.md)
+  mantiene las Fases 0–3, 5 y 6 para el ensayo y la producción; las Fases 4 y 7 quedan en espera
+  hasta que se cumpla una condición del punto 3.
+- Con un solo VPS, B2 es la única copia de los datos fuera del servidor: sus backups, su retención y
+  la restauración probada (Fase 3 del runbook) pasan a ser el control crítico de disponibilidad.
+- El costo de la producción de la clienta queda en un KVM 2 + B2, por debajo de los US$33/mes
+  estimados para dos nodos.

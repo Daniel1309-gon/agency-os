@@ -4,6 +4,8 @@ Fecha: 2026-09-21; actualización de correcciones: 2026-09-22. Origen: [`plan-ci
 Base anterior: [`plan-cierre-entrega-1-2026-09-08.md`](plan-cierre-entrega-1-2026-09-08.md) y su checklist en [`todo.md`](todo.md).
 Estados: `CERRADO` (aceptación demostrada en el árbol de trabajo), `PARCIAL` (implementación o evidencia incompleta), `PENDIENTE` (sin construir), `A REHACER` (lo construido contradice el plan vigente), `EXTERNO` (bloqueado por una entrada externa ya identificada).
 
+**Revisión 2026-10-17 ([ADR 0013](../docs/decisions/0013-production-topology-and-ha-path.md), revisión de esa fecha):** la producción queda en un solo VPS con B2 y Cloudflare; el spike de PostgreSQL gestionado se aplaza y deja de ser criterio de cierre de la Entrega 1. Las pruebas externas se ensayan primero en un VPS de Hostinger de Daniel con datos y secretos propios; los gates E1-16, E1-17 y E1-18 se cierran en el VPS de la clienta. Runbook: [`docs/prueba-vps-postgresql-gestionado.md`](../docs/prueba-vps-postgresql-gestionado.md).
+
 Este documento no cierra casillas: clasifica cada una y nombra la prueba que falta. No añade alcance: Tableau, nómina, IA y cafetería de E2 quedan fuera salvo lo ya listado como soporte de E1.
 
 ## 1. Autenticación, roles, RLS, auditoría y vault
@@ -62,9 +64,9 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | Requisito | Estado | Evidencia | Brecha | Prueba |
 |---|---|---|---|---|
 | INT-01 5/8 perfiles, cookies aisladas, outage | `EXTERNO` | Diseño en `agents.md` §5.2; `e1-chrome-automated-2026-09-10.md` | PC y credenciales autorizadas | Prueba física (plan §3) |
-| E1-16 gate de seguridad del entorno | `PENDIENTE` | — | Requiere VPS/túnel contratados | Fase B/E del plan vigente |
-| E1-17 capacidad | `PENDIENTE` | `ha-local-game-day-2026-08-26.md` (local parcial) | Sin VPS | Prueba de 30 logins (plan §3) |
-| E1-18 HA/restore/rollback | `PENDIENTE` (HA aplazada por decisión) | — | Backups y restore siguen obligatorios | Fase E |
+| E1-16 gate de seguridad del entorno | `PENDIENTE` | — | Requiere VPS/túnel contratados; se ensaya antes en el VPS de Daniel (ADR 0013, revisión 2026-10-17) | Fase B/E del plan vigente; Fase 1 del runbook, en el VPS de la clienta |
+| E1-17 capacidad | `PENDIENTE` | `ha-local-game-day-2026-08-26.md` (local parcial) | Sin VPS; el ensayo en el VPS de Daniel (mismo plan KVM 2) da una medición previa | Prueba de 30 logins (plan §3); Fase 2 del runbook |
+| E1-18 HA/restore/rollback | `PENDIENTE` (HA aplazada por decisión; spike de PostgreSQL gestionado aplazado, ADR 0013 revisión 2026-10-17) | — | Backups y restore siguen obligatorios: con un solo VPS, B2 es la única copia fuera del servidor | Fase E; Fase 3 del runbook |
 | E1-19 acta y candidato | `PENDIENTE` | — | Todo lo anterior | Cierre |
 
 ## 6. Delta del plan de despliegue 2026-09-20 (no existía en el corte anterior)
@@ -77,7 +79,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | C2 límites de autenticación | `IMPLEMENTADO` (2026-09-21): 5/cuenta, 30/certificado, 300/IP, refresh 60/sesión y 1.200/IP | Pruebas de 30 logins con un certificado incluidas |
 | D1 certificado en almacén Windows | `IMPLEMENTADO` (2026-09-22): transporte WinHTTP con selección explícita por huella SHA-256 del almacén Windows (sin exportar la clave), **redirecciones desactivadas con las constantes correctas del SDK (63/2)**, timeouts y errores saneados; CSR no exportable documentada en `CERTIFICATES.md`. Pendiente: prueba física Chrome+agente con la misma clave | `tools/test-winhttp-selection.py` cubre selección por huella y que un 302 local no se siga |
 | D2 instalador y operación | `PARCIAL` (2026-09-21): scripts de alta/baja de estación en `deploy/production/station/` (arranque automático, instancia única, `AutoSelectCertificateForUrls` con entrada propia y filtro por CN), Job Object `KILL_ON_JOB_CLOSE` del agente probado en `tools/test-agent-job-object.py`, y `cleanup_orphans()` como respaldo. Empaquetado listo (2026-09-22): `tools/agent-build/` (PyInstaller `agent.spec`, Inno Setup `installer.iss`) genera `agency-os-station-setup.exe`. Pendiente: prueba física | Validación del instalador en PC de oficina (Defender/políticas Chrome) |
-| E VPS, backups B2 y restore | `ARTEFACTOS LISTOS` (2026-09-22): compose sin puertos públicos con `cloudflared` + worker + scheduler durable, redes `egress`/`internal` y límites de log, worker con `agency_worker_runtime` y grants del scheduler (migración `0022`), backup cifrado a B2 con Object Lock, globals para roles, manifiesto en B2 y `daily/` una vez por día, restore fiel como superusuario ensayado con el esquema real y el vault con KEK (2026-09-23) y `--check` que exige `SUCCESS`. Pendiente: VPS, B2, RTO/RPO reales y restore sobre PostgreSQL gestionado | Evidencia `e1-e-backups-2026-09-21.md` |
+| E VPS, backups B2 y restore | `ARTEFACTOS LISTOS` (2026-09-22): compose sin puertos públicos con `cloudflared` + worker + scheduler durable, redes `egress`/`internal` y límites de log, worker con `agency_worker_runtime` y grants del scheduler (migración `0022`), backup cifrado a B2 con Object Lock, globals para roles, manifiesto en B2 y `daily/` una vez por día, restore fiel como superusuario ensayado con el esquema real y el vault con KEK (2026-09-23) y `--check` que exige `SUCCESS`. Pendiente: VPS, B2 y RTO/RPO reales. El restore sobre PostgreSQL gestionado queda en espera (ADR 0013, revisión 2026-10-17) | Evidencia `e1-e-backups-2026-09-21.md` |
 
 ## 7. Entradas externas que no bloquean la construcción
 
@@ -126,7 +128,7 @@ acta (E1-19) lo deciden Daniel y la clienta.
 | **A. Internos, propuestos como mínimo del acta** | ~~E1-09c recuperación del vault~~ (cerrado en local el 2026-09-23); E1-06 checkpoint 3 (Redis cubierto el 2026-09-23; el reproceso de DEAD depende de E1-05); SEC-07b atomicidad sin JWT; SEC-10 abuso del vault | `TransactionInterceptor` hoy omite las rutas sin `request.user` (login, enroll, estación), así que la auditoría no es atómica con la escritura; disparadores y receptor de alertas del vault |
 | **A'. Arreglos baratos** | SEC-09 `rotateKey` concurrente → 409; SEC-08 prueba del cursor; OPS-01 prueba de versión vieja | Una línea con `isPgError` y dos pruebas |
 | **B. Internos, candidatos a E2 o a negociar** | E1-05 outbox (inspección/reproceso); OPS-02 vista web de historial; OPS-04 snapshot monotónico; SEC-07a catálogo de acciones; SEC-09 recifrado a la DEK nueva y reenvoltura de KEK | Construcción nueva. Riesgo de no hacer la reenvoltura: si la KEK se filtra no hay procedimiento de rotación |
-| **C. Externos (VPS, Cloudflare, B2, PG gestionado, físico)** | SEC-03, SEC-04, E1-04c, OPS-05, C1 carga, D1, D2, INT-01, E1-16, E1-17, E1-18, E | Reglas mTLS y Transform Rule en Cloudflare, CIDR del túnel, 30 logins y 30 sockets, dos workers, restore real de B2 con KEK, prueba física en PCs de oficina |
+| **C. Externos (VPS, Cloudflare, B2, físico; PG gestionado en espera desde 2026-10-17)** | SEC-03, SEC-04, E1-04c, OPS-05, C1 carga, D1, D2, INT-01, E1-16, E1-17, E1-18, E | Reglas mTLS y Transform Rule en Cloudflare, CIDR del túnel, 30 logins y 30 sockets, dos workers, restore real de B2 con KEK, prueba física en PCs de oficina |
 | **D. Decisiones de la clienta** | OQ-08 (SEC-08), OQ-03 (OPS-06), recurrencia (E1-14) | Retención de auditoría, autocierre de breaks por duración, recurrencia de mensajes |
 | **E. Rocket.Chat (servidor autorizado)** | E1-13, E1-14 SLA, E1-15 | Escaneo de deriva, medición <1 s y runbook del bot permanente; requieren el servidor del VPS de la clienta |
 
