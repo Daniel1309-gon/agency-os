@@ -1,27 +1,22 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('../src/', import.meta.url));
-const violations = [];
+import { analyzeSourceTree, compareArchitectureBaseline } from './architecture-rules.mjs';
 
-async function visit(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) await visit(path);
-    else if (entry.name.endsWith('.ts')) {
-      const source = await readFile(path, 'utf8');
-      if (/\bSELECT\s+\*/i.test(source)) violations.push(`${path}: SELECT * is forbidden`);
-      if (/sql\.raw\s*\(/.test(source)) violations.push(`${path}: sql.raw() is forbidden outside migrations`);
-      if (/console\.log\s*\(/.test(source)) violations.push(`${path}: use LoggerService instead of console.log`);
-    }
-  }
-}
+const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+const baselinePath = new URL('../architecture-baseline.json', import.meta.url);
+const baseline = JSON.parse(await readFile(baselinePath, 'utf8'));
+const violations = await analyzeSourceTree(projectRoot);
+const { unexpected, stale } = compareArchitectureBaseline(violations, baseline.exceptions);
 
-await visit(root);
-if (violations.length) {
-  console.error(violations.join('\n'));
+const errors = [
+  ...unexpected.map((item) => `${item.file}:${item.line}:${item.column} [${item.rule}] ${item.message}\n  baseline key: ${item.key}`),
+  ...stale.map((key) => `architecture-baseline.json [stale-exception] remove resolved exception:\n  ${key}`),
+];
+
+if (errors.length) {
+  console.error(errors.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log('backend lint checks passed');
+  console.log(`backend AST lint checks passed (${baseline.exceptions.length} explicit architecture exceptions)`);
 }

@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Agency OS - Spike inyeccion por perfil nativo",
-  "version": "0.2.0",
-  "description": "Spike: inyecta la credencial dummy que corresponde a cada perfil nativo de Chrome, leyendo el mapeo desde credenciales.json local.",
+  "name": "Agency OS - Acceso seguro a TalkyTimes",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqvYLsVaSDm5H0gJU51u0RIyEzmQDDBlmUY8ouo3XoKaJ96ko291WieEuP+MjsipiLNo1KgpkIT/xIDhjQoTaO+91ICH/u1Cwe3A44h9/P84yNF06MdJ2pzBEaudCYADEhFjKotNYXl9pOjgzy2K0n6yTSKSNYNOPvbiOUTlaOmQnDoh2P/zbXXq8Jw5SK80mej3l9TEqmvREA7BdXUnfkwHiOLsB0rjiGR7yBakwZRyTpXmVTrOcFCsQe1fnD7d6J06f4awEddlKSFm7dQXn41LmNmfv6RW+f3K3uVPfqNxZVsAYjidLOuHvRu2pyPrFaLLS8zHTvdLDLIjxc8IZSQIDAQAB",
+  "description": "Inicia sesiones autorizadas por Agency OS sin persistir ni exponer credenciales de TalkyTimes.",
   "background": {
     "service_worker": "background.js"
   },
@@ -17,7 +18,23 @@
       "run_at": "document_idle"
     }
   ],
+  "permissions": [
+    "storage",
+    "nativeMessaging"
+  ],
   "host_permissions": [
-    "file:///*"
-  ]
+    "https://talkytimes.com/*",
+    "http://localhost:3000/*",
+    "https://globalcompany.company/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://globalcompany.company/*",
+      "https://app.agency-os.example/*",
+      "http://localhost:5173/*"
+    ]
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  }
 }

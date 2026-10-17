@@ -1,0 +1,8 @@
+{
+  "slug": "breaks",
+  "version": 1,
+  "question": "¿Cómo consulto mis breaks?",
+  "answer": "Consulta tus breaks programados en el panel de Agency OS. Si falta uno o aparece un horario incorrecto, contacta a tu coordinador. El bot no crea ni mueve breaks.",
+  "keywords": ["break", "breaks", "descanso", "descansos"],
+  "crewIds": []
+}

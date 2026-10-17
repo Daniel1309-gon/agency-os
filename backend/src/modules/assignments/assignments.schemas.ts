@@ -1,15 +1,55 @@
 import { z } from 'zod';
+import { sessionHeartbeatSchema as sharedSessionHeartbeatSchema, sessionPatchSchema as sharedSessionPatchSchema } from '@agency-os/shared';
+export {
+  sessionCreateSchema,
+  sessionCloseSchema,
+  sessionHeartbeatSchema,
+  sessionPatchSchema,
+  type SessionCreateInput,
+  type SessionCloseInput,
+  type SessionHeartbeatInput,
+  type SessionPatchInput,
+} from '@agency-os/shared';
 
-export const assignmentCreateSchema = z.object({
+const assignmentWindowSchema = z.object({
+  validFrom: z.string().datetime({ offset: true }),
+  validTo: z.string().datetime({ offset: true }),
+}).strict();
+
+const assignmentConcreteSchema = z.object({
   profileId: z.string().uuid(),
   operatorId: z.string().uuid(),
   shiftId: z.string().uuid().optional(),
   validFrom: z.string().datetime({ offset: true }),
   validTo: z.string().datetime({ offset: true }),
+}).strict();
+
+const assignmentBatchSchema = z.object({
+  profileId: z.string().uuid(),
+  operatorId: z.string().uuid(),
+  windows: z.array(assignmentWindowSchema).min(1).max(366),
+}).strict();
+
+export const assignmentCreateSchema = z.union([assignmentConcreteSchema, assignmentBatchSchema]);
+
+export type AssignmentConcreteInput = z.infer<typeof assignmentConcreteSchema>;
+export type AssignmentBatchInput = z.infer<typeof assignmentBatchSchema>;
+
+export const assignmentHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  operatorId: z.string().uuid().optional(),
+  profileId: z.string().uuid().optional(),
 });
 
-export const sessionCreateSchema = z.object({ profileId: z.string().uuid(), assignmentId: z.string().uuid(), chromeProfileDir: z.string().trim().min(1).max(160) });
-export const sessionPatchSchema = z.object({ status: z.enum(['LAUNCHING', 'ACTIVE', 'ERROR', 'CLOSED']), errorCode: z.string().max(80).optional(), errorDetail: z.string().max(500).optional() });
-export type AssignmentCreateInput = z.infer<typeof assignmentCreateSchema>;
-export type SessionCreateInput = z.infer<typeof sessionCreateSchema>;
-export type SessionPatchInput = z.infer<typeof sessionPatchSchema>;
+export const stationSessionPatchSchema = sharedSessionPatchSchema.refine(
+  (input) => input.status === 'ACTIVE' || input.status === 'ERROR',
+  { message: 'Station sessions can only become ACTIVE or ERROR', path: ['status'] },
+);
+
+export const stationSessionHeartbeatSchema = sharedSessionHeartbeatSchema;
+
+export type AssignmentCreateInput = AssignmentConcreteInput | AssignmentBatchInput;
+export type AssignmentHistoryQuery = z.infer<typeof assignmentHistoryQuerySchema>;
+export type StationSessionPatchInput = z.infer<typeof stationSessionPatchSchema>;
+export type StationSessionHeartbeatInput = z.infer<typeof stationSessionHeartbeatSchema>;

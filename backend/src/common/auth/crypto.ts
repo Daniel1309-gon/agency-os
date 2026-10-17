@@ -22,6 +22,8 @@ export interface AccessTokenClaims {
   sub: string;
   role: string;
   permissions: string[];
+  /** Version de autorizacion del usuario (users.auth_version). */
+  av: number;
   iat: number;
   exp: number;
   jti: string;

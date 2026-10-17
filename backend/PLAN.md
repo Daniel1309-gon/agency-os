@@ -248,7 +248,7 @@ ALTER TABLE audit_log ADD CONSTRAINT audit_log_no_secret_keys CHECK (
 | `external_ref` | text NULL | Id de TalkyTimes si se llega a conocer |
 | `country` | char(2) NULL | ISO-3166 |
 | `status` | enum | `ACTIVE`, `PAUSED`, `BANNED`, `RETIRED` |
-| `chrome_profile_dir` | text NULL | Mapeo perfil → carpeta de Chrome (agents.md §5.1) |
+| `chrome_profile_dir` | text NULL | Binding autoritativo perfil → carpeta lógica de Chrome; `Default` o `Profile N` |
 | `notes` | text NULL | |
 | `version` | int | Optimistic locking |
 | `created_at` / `updated_at` / `created_by` / `updated_by` / `deleted_at` | | |
@@ -297,23 +297,25 @@ GRANT  SELECT (id, profile_id, username, version, is_current, rotated_at)
 | `assignment_id` | uuid NULL | Asignación que la autorizó |
 | `purpose` | enum | `LOGIN_INJECTION`, `ADMIN_ROTATION` |
 | `granted` | boolean | |
-| `deny_reason` | enum NULL | `NO_ASSIGNMENT`, `OUT_OF_SHIFT`, `IP_BLOCKED`, `DEVICE_REVOKED`, `RATE_LIMITED`, `PROFILE_INACTIVE` |
+| `deny_reason` | enum NULL | `NO_ASSIGNMENT`, `OUT_OF_SHIFT`, `IP_BLOCKED`, `DEVICE_REVOKED`, `SESSION_DEVICE_MISMATCH`, `RATE_LIMITED`, `PROFILE_INACTIVE` |
 | `grant_jti` | uuid NULL | El id del ticket de un solo uso (decisión #18) |
 | `consumed_at` | timestamptz NULL | Cuándo se canjeó el ticket |
 | `reuse_attempted` | boolean | Señal de compromiso |
 | `ip` / `occurred_at` | | |
 
-**`devices`** — identidad de cada PC de oficina (helper + extensión). Resuelve el punto (3) del
-riesgo abierto de agents.md §6.
+**`devices`** — identidad técnica de cada estación compartida de oficina (helper + extensión).
+No identifica al operador ni limita qué persona puede sentarse en cada PC; ese perímetro lo define
+`ip_allowlist`, y la persona se autoriza con JWT + turno + asignación.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
 | `hostname` | text | |
-| `label` | text | "PC-Operador-04" |
-| `assigned_operator_id` | uuid NULL FK users | |
+| `label` | text | "PC-Recepción-04" |
+| `assigned_operator_id` | uuid NULL FK users | Campo legado; no participa en autorización ni se expone en el contrato nuevo |
 | `status` | enum | `PENDING`, `APPROVED`, `REVOKED` |
 | `enrollment_code_hash` | text NULL | Código de un solo uso que el admin entrega al instalar |
+| `enrollment_code_expires_at` | timestamptz NULL | TTL de 15 minutos; código pendiente fuera de ventana se rechaza |
 | `token_hash` | text NULL | SHA-256 del token de dispositivo |
 | `token_issued_at` / `token_expires_at` | timestamptz | Rotación periódica |
 | `extension_version` / `helper_version` | text NULL | Para detectar PCs desactualizadas |
@@ -342,12 +344,20 @@ riesgo abierto de agents.md §6.
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
-| `profile_id` / `operator_id` / `device_id` / `assignment_id` | uuid FK | |
+| `profile_id` / `operator_id` / `assignment_id` | uuid FK | |
+| `device_id` | uuid NULL FK devices | Nace NULL desde web; la primera estación aprobada que solicita el grant la reclama atómicamente |
 | `chrome_profile_dir` | text | Con qué `--profile-directory` se lanzó |
-| `status` | enum | `LAUNCHING`, `ACTIVE`, `ERROR`, `CLOSED` |
+| `status` | enum | `LAUNCHING`, `ACTIVE`, `ERROR`, `STALE`, `CLOSED`; `STALE` es terminal para PATCH y representa heartbeat vencido |
+| `version` | int | Empieza en 1, `CHECK > 0`; CAS obligatorio en PATCH/cierre y se incrementa en cada mutación |
 | `started_at` / `last_heartbeat_at` / `ended_at` | timestamptz | |
 | `end_reason` | enum NULL | `OPERATOR_CLOSED`, `SHIFT_ENDED`, `HEARTBEAT_TIMEOUT`, `ERROR` |
 | `error_code` / `error_detail` | text NULL | Mensajes accionables (NFR de usabilidad) |
+
+El binding de `chrome_profile_dir` se valida antes de crear la sesión contra `tt_profiles`; no se
+acepta una sesión para un perfil sin binding ni para una carpeta distinta. El vault repite la
+comprobación antes de emitir el grant y la reclamación atómica de `device_id` incluye la misma
+condición. El CRUD de perfil no permite cambiar la carpeta mientras exista una sesión viva. La
+asociación física por estación y la prueba de cookies aisladas siguen siendo un gate E2E de FR-12.
 
 > FR-10 expone `inactivo | conectando | activo | error`. Se mapea desde `status` + ausencia de
 > sesión, no se guarda un cuarto estado redundante.
@@ -393,6 +403,7 @@ riesgo abierto de agents.md §6.
 | `reason` | text | |
 | `approved_by` | uuid FK users | Solo `COORDINADOR` o superior |
 | `created_at` | | |
+| `revoked_at` / `revoked_by` | timestamptz / uuid NULL | Revocación administrativa; un override revocado nunca autoriza una acción |
 
 **`breaks`** (FR-16)
 
@@ -476,14 +487,15 @@ esconder.
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | uuid PK | |
-| `view_id` | text | Id de Tableau |
+| `workbook_id` / `view_id` | text | LUIDs REST devueltos por Tableau; no confundir con content URL |
+| `workbook_content_url` / `view_content_url` | text | Mapping estable desde el catálogo; Revenue detailed es `Passport_16741406948180/sheets/Revenuedetailed` |
 | `workbook_name` / `view_name` | text | |
-| `purpose` | enum | `POINTS`, `PROFILE_METRICS`, `ICEBREAKERS`, `PAYROLL`, `MALE_PROFILE_COUNTRIES` |
+| `purpose` | enum | `POINTS`, `REVENUE_SUMMARY`, `REVENUE_TEMPORAL`, `PROFILE_METRICS`, `ICEBREAKERS`, `PAYROLL`, `MALE_PROFILE_COUNTRIES` |
 | `download_format` | enum | `CSV`, `XLSX` |
 | `filters` | jsonb | Parámetros `vf_<campo>` |
 | `column_mapping` | jsonb | Columna de Tableau → campo del modelo. **Es configuración, no código**: la lista exacta de vistas sigue sin confirmar (agents.md §6) |
-| `grain` | enum | `HOURLY`, `DAILY`. La vista de puntos es `HOURLY` (§4.2) |
-| `source_timezone` | text | Zona en que Tableau devuelve las marcas de tiempo. Sin esto la atribución del relevo se desplaza una hora sin avisar (§4.2) |
+| `grain` | enum | `HOURLY`, `DAILY`, `SUMMARY`. Revenue detailed actualmente es `SUMMARY`; no contiene fecha/hora de evento |
+| `source_timezone` | text NULL | Zona en que Tableau devuelve las marcas de tiempo. `UNVERIFIED`/NULL bloquea promoción; no usar default Bogotá (§4.2) |
 | `schedule_cron` | text | |
 | `is_active` | boolean | |
 
@@ -515,7 +527,7 @@ diferencia entra como fila de reverso más fila nueva, nunca como reescritura (d
 | `source_checksum` | text | SHA-256 del archivo descargado: detecta que Tableau no refrescó |
 | `artifact_uri` | text NULL | Copia cruda en DO Spaces |
 | `error` | jsonb NULL | |
-| UNIQUE | `(view_id, business_date)` | Re-ejecución explícita, no accidental |
+| `job_key` | text UNIQUE | Identidad idempotente de la ventana solicitada; intentos y artefactos de reproceso son filas inmutables separadas |
 
 **`etl_staging_rows`** — filas crudas antes de transformar. Retención 90 días.
 
@@ -873,6 +885,14 @@ alguien no cerró una ventana.
 > mirarlo antes de implementar el job — sin portar código, solo la regla operativa que allá
 > funcionó.
 
+**Implementación de sesiones: CAS explícito y `STALE`.** Cada PATCH/heartbeat lleva el
+`version` que observó el cliente; PostgreSQL exige que coincidan sesión, operador, dispositivo,
+estado y versión en el mismo `UPDATE`, que incrementa la versión mediante `RETURNING`. El reaper
+marca `ACTIVE` como `STALE` al vencer el heartbeat y también incrementa versión; `STALE` no se
+puede reabrir por PATCH. El cierre es una ruta separada con body `{ version }`, porque debe poder
+retirar una sesión stale sin aceptar una reapertura disfrazada. Handoff, fin de assignment y
+reaper incrementan la misma versión dentro de sus mutaciones transaccionales.
+
 **3. La atribución usa `occurred_at`, nunca `received_at`.** Un evento capturado a las 14:05 pero
 cuya marca en la página es 13:58 pertenece al operador saliente. La consulta que convierte
 `metric_events` en filas de `points_ledger` resuelve el operador buscando la asignación cuyo
@@ -885,7 +905,11 @@ consecuencia más cara de esta respuesta.
 ### 4.2 Atribución de los puntos de Tableau en días con relevo (2026-08-04)
 
 **Dato del cliente: Tableau tiene reporte de puntos por hora, y se pueden hacer cortes cada 8 h.**
-Esto reduce el problema de atribución de "irresoluble sin estimar" a "exacto casi siempre".
+El discovery REST del 2026-08-17 todavía no lo confirma: la expansión de `ID Trusted User` que
+se ve en la UI no aparece en `/views/{view-id}/data` ni en el crosstab. La vista hermana
+`Revenue detailed (SourceID)` responde con 1.539 filas, nueve fechas semanales de `Date aggregated`
+y `Max Hour=20` constante. Por eso el problema sigue bloqueado hasta que exista una worksheet plana
+con una fila por perfil/SourceID/hora; no se puede inferir ese detalle desde el resumen.
 
 TalkyTimes no tiene dimensión de operador — el perfil es la identidad, quién estaba sentado detrás
 no existe en sus datos. Pero sí tiene dimensión de **tiempo**, y el tiempo es justamente lo que
@@ -935,12 +959,12 @@ hora contradicen fuertemente el reparto por minutos, se levanta una fila en
 `metric_reconciliation` con estado `DIVERGENT` para que alguien la mire. Detectar es barato;
 depender es caro.
 
-> **Lo que sí vale la pena preguntar antes de construir esto** (§11, #16): si la API de Tableau
-> acepta filtrar la vista por un rango de tiempo arbitrario (`vf_<campo>` con rango, no solo con
-> valor), se puede pedir directamente la ventana 06:05–14:05 y obtener el total exacto del turno,
-> con cero estimación y sin trocear nada. La colección Postman documentada en agents.md §4 no
-> aclara si los filtros `vf_` admiten rangos. Si admiten, este apartado entero se simplifica a una
-> consulta por turno; si no, queda el reparto por minutos, que de todos modos es suficiente.
+> **Resultado de la verificación Tableau (2026-08-17):** la documentación oficial confirma que
+> `vf_<campo>` solo acepta valores exactos o listas; no admite rangos de tiempo, comodines ni
+> desigualdades. Por tanto, la atribución no se diseñará alrededor de una consulta por turno:
+> se descargará la worksheet temporal y el backend hará el troceo local por hora/minutos (5/55)
+> cuando un relevo atraviese una hora. La evidencia y la referencia oficial están en
+> `tasks/tableau-api-etl-plan.md`.
 
 ### 4.3 El turno nocturno cruza el corte de día — y el de mes
 
@@ -983,12 +1007,13 @@ el turno de cierre de mes quedaría sin pagar. Se define una ventana de gracia: 
 día 1 y se liquide el turno nocturno de la frontera. Es una línea en la configuración y un bug
 anual muy caro si se descubre en producción.
 
-**Esto no toca la decisión #9 de agents.md — la refuerza.** Granularidad y frescura son cosas
-distintas: Tableau sigue refrescando una vez al día, así que la extracción sigue siendo un batch
-diario (ejecutarlo cada 8 h traería los mismos datos rancios tres veces). Lo que cambia es que
-cada corrida diaria baja 24 filas por perfil en vez de 1. Si en algún momento se confirma que el
-refresco es más frecuente que diario, ahí sí habría que revisar la cadencia — pero eso sería
-revisar la decisión #9, no esta sección.
+**La conexión real cambia el supuesto de frescura, no la decisión de usar almacenamiento local.**
+La vista Revenue detailed se actualiza cada hora, pero sus exportaciones actuales son resumen; la
+operación decidió consumir el dato temporal a corte del día operativo vencido una vez publicada la
+worksheet plana. El job de Revenue queda a las 09:15 `America/Bogota`, con ventana
+`[06:05, 06:05)` y reintentos si el watermark de Tableau aún no cubre el cierre. La cadencia debe
+ser configurable por vista: no se debe asumir que todos los workbooks refrescan igual ni que una
+vista de resumen sirve para atribución temporal.
 
 Cambios de modelo sobre §3.8:
 
@@ -1091,7 +1116,14 @@ buena la primera carga.
 
 ### 5.5 Vault para la extensión — la superficie crítica
 
-Autenticación doble: JWT del operador **y** token del dispositivo (header `X-Device-Token`).
+Perímetro principal: IP pública de oficina en `ip_allowlist`. Dentro de ese perímetro, el JWT
+identifica al operador y el token de dispositivo (`X-Device-Token`) acredita únicamente que la
+solicitud pasa por una extensión/helper administrados; no existe vínculo operador→PC.
+
+En producción se registra la IP pública de salida de cada oficina, normalmente como `/32`. Si el
+API está detrás de Nginx, Cloudflare o un balanceador, `TRUSTED_PROXY_CIDRS` debe contener solamente
+los proxies controlados para que `request.ip` no pueda falsearse con un `X-Forwarded-For` enviado
+directamente por el cliente. Una oficina con IP dinámica necesita IP fija o VPN con egreso fijo.
 
 | Método | Ruta | Nota |
 |---|---|---|
@@ -1107,9 +1139,10 @@ El detalle del flujo y sus controles está en §6.3.
 | POST | `/devices/enroll` | Con código de un solo uso emitido por el admin. Devuelve token de dispositivo |
 | POST | `/agent/devices/heartbeat` | Actualiza `last_seen_at`, versiones de helper y extensión |
 | GET | `/agent/profiles/assigned` | Perfiles del turno vigente + `chromeProfileDir` (FR-10) |
+| POST | `/agent/sessions/prepare` | Web crea una sesión `LAUNCHING` sin elegir PC; requiere JWT, turno, asignación e IP permitida |
 | POST | `/agent/sessions` | Abre `profile_sessions`. 409 si el perfil ya tiene sesión viva |
 | PATCH | `/agent/sessions/:id` | Cambio de estado / heartbeat |
-| POST | `/agent/sessions/:id/close` | Cierre limpio (FR-15) |
+| POST | `/agent/sessions/:id/close` | Cierre limpio con `{ version }`; también retira una sesión `STALE` mediante CAS (FR-15) |
 | GET / POST / DELETE | `/devices`, `/devices/:id/revoke` | `devices.manage` |
 
 ### 5.7 Turnos (FR-15 a FR-17)
@@ -1199,6 +1232,8 @@ El detalle del flujo y sus controles está en §6.3.
 | GET | `/health/live`, `/health/ready` | Sin auth. `ready` verifica Postgres y Redis |
 | GET / PATCH | `/settings` | `settings.manage` |
 | GET / PATCH | `/feature-flags` | `settings.manage` |
+| GET | `/ops/outbox`, `/ops/outbox/summary` | `outbox.manage` (ADMIN) |
+| POST | `/ops/outbox/:id/requeue` | `outbox.manage` (ADMIN) |
 | GET | `/audit-log?from&to&action&actorId` | `audit.read`. Solo lectura, paginada |
 
 ---
@@ -1259,13 +1294,14 @@ Extensión (background service worker) — no el content script, no el helper
 
   Backend valida, en este orden, y aborta al primer fallo:
      a. IP de origen dentro de ip_allowlist                     → si no: 403 IP_BLOCKED
-     b. Dispositivo existe y status = APPROVED                  → si no: 403 DEVICE_REVOKED
-     c. Dispositivo corresponde al operador del JWT             → si no: 403
-     d. Operador con turno vigente (o shift_override activo)    → si no: 403 OUT_OF_SHIFT
-     e. Existe profile_assignment ACTIVE (operador, perfil, ahora) → si no: 403 NO_ASSIGNMENT
-     f. Perfil en status ACTIVE                                 → si no: 403 PROFILE_INACTIVE
-     g. Rate limit: N solicitudes por (operador, perfil, hora)   → si no: 429
-     h. No hay otra sesión viva del mismo perfil                → si no: 409
+     b. Estación existe, token vigente y status = APPROVED       → si no: 403 DEVICE_REVOKED
+     c. Operador con turno vigente (o shift_override activo)     → si no: 403 OUT_OF_SHIFT
+     d. Existe profile_assignment ACTIVE (operador, perfil, ahora) → si no: 403 NO_ASSIGNMENT
+     e. Perfil en status ACTIVE                                  → si no: 403 PROFILE_INACTIVE
+     f. La sesión LAUNCHING está libre o pertenece a esta estación → si no: 403 SESSION_DEVICE_MISMATCH
+     g. Si está libre, la estación la reclama con UPDATE atómico  → si pierde la carrera: 403
+     h. Rate limit: N solicitudes por (operador, perfil, hora)    → si no: 429
+     i. No hay otra sesión viva del mismo perfil                 → si no: 409
 
   Si pasa todo: crea un grant de un solo uso con TTL 60 s (Redis, clave = grantId),
   escribe credential_access_log(granted = true, grant_jti = grantId),
@@ -1453,7 +1489,7 @@ Postgres (`etl_runs`, `outbox_events`), no solo en Redis.
 
 | Trabajo | Cadencia | Qué hace |
 |---|---|---|
-| `tableau:daily-etl` | Diario, hora configurable | Descarga cada `tableau_views` activa, valida, carga a staging, transforma, escribe `points_ledger` y `profile_daily_metrics` |
+| `tableau:per-view-etl` | `schedule_cron` por vista; Revenue a las 09:15 America/Bogota | Descarga cada vista activa según su contrato, valida, carga a staging, transforma y publica solo hechos compatibles con su grano |
 | `metrics:reconcile` | Tras el ETL | Compara extensión vs Tableau, escribe `metric_reconciliation` |
 | `outbox:dispatch` | Cada 5 s | Envía eventos pendientes a RocketChat, socket.io, notificaciones. Backoff exponencial, DLQ tras N intentos |
 | `sessions:reap` | Cada minuto | Cierra sesiones sin heartbeat (`HEARTBEAT_TIMEOUT`) |
@@ -1513,16 +1549,19 @@ lockfile), `/health/*`, logger con redacción, filtro de excepciones, envolvente
 4. `devices` + enrolamiento + token de dispositivo.
 5. Asignaciones con el constraint de exclusión, y `profile_sessions` con el índice único parcial.
 6. **El flujo grant/redeem de §6.3 completo, con sus tests de abuso.** Es el corazón de la
-   entrega; sustituye el `credenciales.json` en texto plano que hoy usa el spike (riesgo abierto
-   de agents.md §6).
+   entrega; sustituye el flujo legacy de `credenciales.json` en texto plano que se usó durante el
+   spike. Ese archivo no forma parte del flujo actual: la extensión usa configuración administrada,
+   Native Messaging y el vault. El gate pendiente es la prueba E2E en una PC administrada (riesgo
+   abierto de agents.md §6).
 7. Turnos, `shift_overrides` y `ShiftWindowGuard` (FR-04).
 8. `operator_status_events` + WebSocket con `@socket.io/redis-adapter` (FR-38).
 9. Módulo RocketChat + outbox, para el bot de ayuda.
 
 **Entrega 2 — Operaciones completas (semanas 10–20)**
 10. Ingesta de métricas idempotente (FR-14) y agregados diarios.
-11. ETL de Tableau completo (decisión #9) + conciliación. *Bloqueado por la confirmación del
-    cliente sobre qué vistas y con qué columnas.*
+11. Cliente Tableau seguro, artefactos y ETL por vista + conciliación. La conexión y el inventario ya
+    están confirmados; la promoción de puntos/revenue atribuible queda bloqueada hasta publicar o
+    localizar una worksheet plana con una fila por perfil/SourceID/hora y confirmar timezone/columnas.
 12. Icebreakers: reglas, evaluación contra el ai-engine, violaciones, revisiones.
 13. Nómina: ledger, periodos, líneas con snapshot, metas, competencias, exportación XLSX.
 14. Cafetería: catálogo, pedidos, KDS por WebSocket, débito en la transacción de entrega.
@@ -1552,15 +1591,22 @@ Cada una bloquea algo concreto; no son "nice to have".
 | 8 | ¿Cuántos perfiles simultáneos por operador? (abierta #1) | `max_concurrent_profiles` por defecto, y el dimensionamiento de las PCs | Spike + cliente |
 | 9 | ¿Qué puede leer la extensión del DOM de una conversación? | Los `event_type` reales de `metric_events`, y si FR-39 / Feature #9 existen | Spike semanas 1–2 |
 | 10 | ¿El operador se autentica en el backend con su propia contraseña, o el enrolamiento del dispositivo basta? | Si el operador tiene o no una pantalla de login propia; hoy el plan asume que sí (JWT de operador **y** token de dispositivo) | Cliente / decisión de producto |
-| ~~11~~ | ~~¿Cómo se reparten en un relevo los puntos que Tableau agrega por perfil?~~ | **Resuelta en gran parte 2026-08-04:** Tableau tiene grano horario, así que la atribución es directa por hora (§4.2). Solo queda estimación en la hora que atraviesa un relevo | — |
+| 11 | ¿Cómo se reparten en un relevo los puntos que Tableau agrega por perfil? | El cliente reporta grano horario, pero la expansión de la UI no está disponible por REST y la vista SourceID exportada es semanal. Falta worksheet plana horaria; después aplican asignación directa y 5/55 en la hora atravesada | Cliente + Tableau |
 | ~~13~~ | ~~¿Se pueden programar los relevos en hora en punto?~~ | **Resuelta 2026-08-04: no.** Los turnos arrancan 06:05 / 14:05 / 22:05, así que los tres relevos del día atraviesan una hora. El reparto de §4.2 pasa a ser por minutos (5/55), determinista | — |
-| 16 | **¿Los filtros `vf_<campo>` de la API de Tableau aceptan rangos de tiempo arbitrarios, o solo valores?** | Si se puede pedir directamente la ventana 06:05–14:05 (atribución exacta, cero estimación) o hay que bajar horas fijas y trocear. La colección Postman de agents.md §4 no lo aclara — se resuelve probando contra el sitio del cliente, no preguntando | Verificable por nosotros con acceso al Tableau del cliente |
+| ~~16~~ | ~~¿Los filtros `vf_<campo>` de la API de Tableau aceptan rangos de tiempo arbitrarios, o solo valores?~~ | **Resuelta 2026-08-17:** la documentación oficial excluye rangos, comodines y desigualdades; solo valores exactos o listas. No es una estrategia de ventana. | — |
 | 17 | ¿El turno nocturno (22:05→06:05) se paga completo en el mes en que arrancó? §4.3 lo adopta así, con la ventana `LOCKED`→`CLOSED` que eso obliga | El cierre de mes. Si se decide partirlo, cambia la agregación de `payroll_lines` y el operador ve su jornada dividida entre dos liquidaciones | Cliente — es una regla de pago |
 | 14 | ¿En qué zona horaria devuelve Tableau las marcas de hora del reporte de puntos? | La transformación del ETL. Un desfase de una hora misatribuye exactamente en cada relevo y en ningún otro lado — el total del perfil cuadra y solo está mal el reparto entre dos personas (§4.2) | Cliente / admin de Tableau |
-| 15 | ¿La vista horaria de puntos existe ya en el sitio Tableau del cliente, o hay que crearla? | Si el ETL arranca en la Entrega 2 como está planeado, o depende de trabajo del lado del cliente | Cliente |
+| 15 | ¿La worksheet plana horaria de puntos/revenue existe ya en el sitio Tableau del cliente, o hay que crearla? | El dashboard muestra horas al expandir `ID Trusted User`, pero REST/crosstab solo entregan resumen; sin una fila por perfil/SourceID/hora no se puede promover atribución | Cliente |
 | 12 | ¿Cuántos minutos de gracia tiene el operador saliente para cerrar sus ventanas antes de que el sistema las cierre por él? (§4.1) | El valor por defecto de `session.handoff_grace_minutes`; es configurable, así que no bloquea construir | Cliente / operación |
 
 ---
 
 *Este documento se actualiza cuando cambie una decisión de §1, se resuelva una pregunta de §11, o
 el spike de semanas 1–2 devuelva resultados que afecten el modelo.*
+
+**Actualización Tableau 2026-08-17:** se comprobó la conexión real con el PAT administrativo y se
+catalogaron 18 workbooks, 44 vistas de workbook y 86 vistas de sitio. `Revenue detailed` quedó
+resuelta por el endpoint de vistas de sitio, pero su exportación es un resumen de 1.528 filas sin
+fecha/hora; no sirve para atribuir puntos o revenue por turno. Quedan como bloqueadores de promoción
+la worksheet temporal (puntos/revenue), sus columnas y la zona horaria declarada. El PAT permanente
+requiere almacenamiento en secret manager, allowlist, alerta de uso y procedimiento de revocación.

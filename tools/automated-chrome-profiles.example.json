@@ -1,0 +1,16 @@
+{
+  "profiles": [
+    {
+      "name": "Cuenta de prueba 1",
+      "email": "correo-1@example.com",
+      "password": "contraseña#1",
+      "slot": 1
+    },
+    {
+      "name": "Cuenta de prueba 2",
+      "email": "correo-2@example.com",
+      "password": "contraseña#2",
+      "slot": 2
+    }
+  ]
+}

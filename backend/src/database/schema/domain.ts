@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   char,
+  check,
   customType,
   date,
   index,
@@ -72,12 +73,19 @@ export const devices = pgTable('devices', {
   id: id(),
   hostname: text('hostname').notNull(),
   label: text('label').notNull(),
+  // Legacy only: stations are shared and authorization must never depend on this field.
   assignedOperatorId: uuid('assigned_operator_id').references(() => users.id),
   status: varchar('status', { length: 16 }).notNull().default('PENDING'),
   enrollmentCodeHash: text('enrollment_code_hash'),
+  enrollmentCodeExpiresAt: ts('enrollment_code_expires_at'),
+  // Retired 2026-09-21: device identity is the SHA-256 fingerprint of the mTLS
+  // client certificate. Columns stay for history; nothing reads or writes them.
   tokenHash: text('token_hash'),
   tokenIssuedAt: ts('token_issued_at'),
   tokenExpiresAt: ts('token_expires_at'),
+  certFingerprint: text('cert_fingerprint'),
+  certNotAfter: ts('cert_not_after'),
+  deviceKind: varchar('device_kind', { length: 16 }).notNull().default('STATION'),
   extensionVersion: text('extension_version'),
   helperVersion: text('helper_version'),
   osVersion: text('os_version'),
@@ -87,7 +95,12 @@ export const devices = pgTable('devices', {
   approvedBy: uuid('approved_by').references(() => users.id),
   revokedAt: ts('revoked_at'),
   revokedReason: text('revoked_reason'),
-});
+}, (t) => ({
+  certFingerprintActive: uniqueIndex('devices_cert_fingerprint_active_idx')
+    .on(t.certFingerprint)
+    .where(sql`${t.certFingerprint} is not null and ${t.status} <> 'REVOKED'`),
+  deviceKindCheck: check('devices_device_kind_check', sql`${t.deviceKind} in ('STATION', 'ADMIN')`),
+}));
 
 export const refreshTokens = pgTable('refresh_tokens', {
   id: id(),
@@ -129,7 +142,7 @@ export const loginAttempts = pgTable('login_attempts', {
 export const auditLog = pgTable(
   'audit_log',
   {
-    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    id: bigint('id', { mode: 'number' }).generatedAlwaysAsIdentity(),
     occurredAt: ts('occurred_at').notNull().defaultNow(),
     actorType: varchar('actor_type', { length: 16 }).notNull(),
     actorUserId: uuid('actor_user_id').references(() => users.id),
@@ -142,7 +155,12 @@ export const auditLog = pgTable(
     requestId: text('request_id'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
   },
-  (t) => ({ auditOccurredAt: index('audit_log_occurred_at_idx').on(t.occurredAt) }),
+  // audit_log está particionada por mes sobre occurred_at, así que la clave de partición
+  // forma parte de la PK. Ver 0016_partition_audit_log.sql.
+  (t) => ({
+    auditOccurredAt: index('audit_log_occurred_at_idx').on(t.occurredAt),
+    auditPk: primaryKey({ columns: [t.id, t.occurredAt], name: 'audit_log_pkey' }),
+  }),
 );
 
 export const ttProfiles = pgTable(
@@ -247,6 +265,8 @@ export const shiftOverrides = pgTable('shift_overrides', {
   type: varchar('type', { length: 32 }).notNull(),
   reason: text('reason').notNull(),
   approvedBy: uuid('approved_by').notNull().references(() => users.id),
+  revokedAt: ts('revoked_at'),
+  revokedBy: uuid('revoked_by').references(() => users.id),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
@@ -273,18 +293,23 @@ export const profileSessions = pgTable(
     id: id(),
     profileId: uuid('profile_id').notNull().references(() => ttProfiles.id),
     operatorId: uuid('operator_id').notNull().references(() => users.id),
-    deviceId: uuid('device_id').notNull().references(() => devices.id),
+    deviceId: uuid('device_id').references(() => devices.id),
     assignmentId: uuid('assignment_id').notNull().references(() => profileAssignments.id),
     chromeProfileDir: text('chrome_profile_dir').notNull(),
     status: varchar('status', { length: 16 }).notNull().default('LAUNCHING'),
+    version: integer('version').notNull().default(1),
     startedAt: ts('started_at').notNull().defaultNow(),
     lastHeartbeatAt: ts('last_heartbeat_at').notNull().defaultNow(),
     endedAt: ts('ended_at'),
+    browserClosedAt: ts('browser_closed_at'),
     endReason: varchar('end_reason', { length: 32 }),
     errorCode: text('error_code'),
     errorDetail: text('error_detail'),
   },
-  (t) => ({ liveSession: uniqueIndex('profile_single_live_session').on(t.profileId).where(sql`${t.status} IN ('LAUNCHING', 'ACTIVE')`) }),
+  (t) => ({
+    liveSession: uniqueIndex('profile_single_live_session').on(t.profileId).where(sql`${t.status} IN ('LAUNCHING', 'ACTIVE')`),
+    versionPositive: check('profile_sessions_version_positive', sql`${t.version} > 0`),
+  }),
 );
 
 export const breaks = pgTable('breaks', {
@@ -691,9 +716,32 @@ export const outboxEvents = pgTable('outbox_events', {
   attempts: integer('attempts').notNull().default(0),
   nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
   lastError: text('last_error'),
+  claimedBy: text('claimed_by'),
+  leaseToken: uuid('lease_token'),
+  leaseExpiresAt: ts('lease_expires_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
   processedAt: ts('processed_at'),
 });
+
+export const jobRuns = pgTable('job_runs', {
+  id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+  jobName: text('job_name').notNull(),
+  runKey: text('run_key').notNull(),
+  scheduledFor: ts('scheduled_for').notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('PENDING'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+  claimedBy: text('claimed_by'),
+  leaseToken: uuid('lease_token'),
+  leaseExpiresAt: ts('lease_expires_at'),
+  lastError: text('last_error'),
+  startedAt: ts('started_at'),
+  finishedAt: ts('finished_at'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+}, (table) => ({
+  jobRunIdentity: uniqueIndex('job_runs_job_key_uq').on(table.jobName, table.runKey),
+  due: index('job_runs_due_idx').on(table.status, table.nextAttemptAt, table.scheduledFor),
+}));
 
 export const interactionCampaigns = pgTable('interaction_campaigns', {
   id: id(),

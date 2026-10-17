@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { AuditAction } from '@agency-os/shared';
 import { DatabaseService } from '../../database/database.service.js';
 import { auditLog } from '../../database/schema/index.js';
 
@@ -6,7 +7,31 @@ const ALLOWED_METADATA_KEYS = new Set([
   'profileId', 'assignmentId', 'sessionId', 'deviceId', 'grantId', 'reason', 'denyReason',
   'status', 'fromStatus', 'toStatus', 'attempt', 'route', 'resource', 'version', 'count',
   'outcome', 'source', 'businessDate', 'periodId', 'errorCode', 'reused', 'role', 'permission',
+  'operatorId', 'shiftId', 'userId', 'crewId', 'key', 'article', 'latencyMs', 'eventId',
+  'eventType', 'aggregateType', 'recurrence', 'deviceKind', 'permitUntil',
 ]);
+
+const FORBIDDEN_METADATA_KEYS = new Set([
+  'password', 'contrasena', 'contraseña', 'secret', 'plaintext', 'credential',
+  'token', 'ciphertext', 'nonce', 'tag', 'aad', 'kek', 'dek', 'authorization',
+  'passwordhash', 'secretciphertext', 'secretnonce', 'secrettag', 'accesstoken',
+  'refreshtoken', 'devicetoken', 'webhooksecret',
+]);
+
+function assertNoSecret(value: unknown, path = 'metadata'): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoSecret(item, `${path}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedKey = key.toLocaleLowerCase().replaceAll('_', '').replaceAll('-', '');
+    if (FORBIDDEN_METADATA_KEYS.has(normalizedKey)) {
+      throw new Error(`Audit metadata contains forbidden secret field at ${path}.${key}`);
+    }
+    assertNoSecret(item, `${path}.${key}`);
+  }
+}
 
 function sanitizeValue(value: unknown, depth = 0): unknown {
   if (depth > 2 || value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
@@ -22,6 +47,7 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  assertNoSecret(metadata ?? {});
   return (sanitizeValue(metadata ?? {}) as Record<string, unknown>) ?? {};
 }
 
@@ -29,7 +55,8 @@ export interface AuditRecord {
   actorType: string;
   actorUserId?: string;
   actorDeviceId?: string;
-  action: string;
+  /** Del catalogo cerrado de SEC-07a (`@agency-os/shared`). */
+  action: AuditAction;
   entityType?: string;
   entityId?: string;
   result: string;

@@ -25,8 +25,9 @@ import { BreaksModule } from './modules/breaks/breaks.module.js';
 import { CommunicationModule } from './modules/communication/communication.module.js';
 import { InterceptorsModule } from './common/interceptors/interceptors.module.js';
 import { AuditModule } from './common/audit/audit.module.js';
+import { RealtimeModule } from './modules/realtime/realtime.module.js';
 
 @Module({
-  imports: [ConfigModule, LoggerModule, DatabaseModule, RedisModule, AuthCommonModule, AuditModule, InterceptorsModule, HealthModule, AuthModule, VaultModule, ProfilesModule, DevicesModule, AssignmentsModule, MetricsModule, ShiftsModule, PayrollModule, CafeteriaModule, IcebreakersModule, OutboxModule, TableauModule, AdminModule, CrewsModule, JobsModule, OperatorStatusModule, BreaksModule, CommunicationModule],
+  imports: [ConfigModule, LoggerModule, DatabaseModule, RedisModule, AuditModule, RealtimeModule, AuthCommonModule, InterceptorsModule, HealthModule, AuthModule, VaultModule, ProfilesModule, DevicesModule, AssignmentsModule, MetricsModule, ShiftsModule, PayrollModule, CafeteriaModule, IcebreakersModule, OutboxModule, TableauModule, AdminModule, CrewsModule, JobsModule, OperatorStatusModule, BreaksModule, CommunicationModule],
 })
 export class AppModule {}

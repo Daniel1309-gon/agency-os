@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards, UsePipes } from '@nestjs/common';
-import { CurrentUser, RequirePermissions, RequireShift } from '../../common/auth/decorators.js';
+import { Body, Controller, Get, Headers, Param, Post, Query, UsePipes } from '@nestjs/common';
+import { CurrentUser, RequirePermissions, RequireRoles, RequireShift } from '../../common/auth/decorators.js';
+import { RequireStationDevice } from '../../common/auth/device.decorator.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
-import { DeviceTokenGuard } from '../../common/auth/guards.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { MetricsService } from './metrics.service.js';
 import { metricBatchSchema, type MetricBatchInput } from './metrics.schemas.js';
@@ -11,7 +11,8 @@ export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}
 
   @Post('agent/metrics/batch')
-  @UseGuards(DeviceTokenGuard)
+  @RequireStationDevice()
+  @RequireRoles('OPERADOR')
   @RequireShift()
   @UsePipes(new ZodValidationPipe(metricBatchSchema))
   async ingest(@Body() body: MetricBatchInput, @CurrentUser() user: AccessTokenClaims, @Headers('x-session-id') sessionId?: string) {
@@ -28,4 +29,5 @@ export class MetricsController {
 
   @Get('metrics/profiles/:id/timeseries') @RequirePermissions('metrics.audit') timeseries(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) { return this.metrics.timeseries(id, from, to); }
   @Get('metrics/reconciliation') @RequirePermissions('metrics.audit') reconciliation(@Query('date') date?: string) { return this.metrics.reconciliation(date); }
+  @Get('metrics/operations') @RequirePermissions('metrics.audit') operations(@CurrentUser() user: AccessTokenClaims) { return this.metrics.operations(user); }
 }

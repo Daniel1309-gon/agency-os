@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
 import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -31,17 +31,18 @@ export class ShiftsController {
 export class ShiftTemplatesController {
   constructor(private readonly shifts: ShiftsService) {}
   @Get() @RequirePermissions('shifts.read') list() { return this.shifts.listTemplates(); }
-  @Post() @RequirePermissions('shifts.manage') @UsePipes(new ZodValidationPipe(shiftTemplateSchema)) create(@Body() body: ShiftTemplateInput) { return this.shifts.createTemplate(body); }
+  @Post() @RequirePermissions('shifts.manage') @UsePipes(new ZodValidationPipe(shiftTemplateSchema)) create(@Body() body: ShiftTemplateInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.createTemplate(body, user.sub); }
 }
 
 @Controller('shift-overrides')
 export class ShiftOverridesController {
   constructor(private readonly shifts: ShiftsService) {}
   @Post() @RequirePermissions('shifts.approve_overtime') @UsePipes(new ZodValidationPipe(shiftOverrideSchema)) create(@Body() body: ShiftOverrideInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.createOverride(body, user.sub); }
+  @Delete(':id') @RequirePermissions('shifts.approve_overtime') revoke(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.shifts.revokeOverride(id, user.sub); }
 }
 
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly shifts: ShiftsService) {}
-  @Get('effective-time') @RequirePermissions('reports.read') @UsePipes(new ZodValidationPipe(effectiveTimeQuerySchema)) report(@Query() query: EffectiveTimeQueryInput) { return this.shifts.effectiveTime(query.from, query.to, query.operatorId); }
+  @Get('effective-time') @RequirePermissions('reports.read') @UsePipes(new ZodValidationPipe(effectiveTimeQuerySchema)) report(@Query() query: EffectiveTimeQueryInput, @CurrentUser() user: AccessTokenClaims) { return this.shifts.effectiveTime(query, user.sub); }
 }

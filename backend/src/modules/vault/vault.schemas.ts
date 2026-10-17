@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const credentialRotationSchema = z.object({
   username: z.string().trim().min(1).max(320),
   secret: z.string().min(1).max(256),
+  profileVersion: z.number().int().nonnegative(),
 });
 
 export const credentialGrantSchema = z.object({

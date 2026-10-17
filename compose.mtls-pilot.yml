@@ -1,0 +1,303 @@
+name: agency-os-mtls-pilot
+
+x-owner-environment: &owner-environment
+  DATABASE_URL_FILE: /run/secrets/database_owner_url
+  DATABASE_OWNER_ROLE: agency_owner
+  PASSWORD_SCRYPT_LOG2N: "17"
+
+x-owner-secrets: &owner-secrets
+  - database_owner_url
+
+x-api-environment: &api-environment
+  # development (no test): el piloto ejercita el comportamiento real de
+  # producción, incluidos los timers de JobsService (reaper de sesiones).
+  NODE_ENV: development
+  PORT: "3000"
+  DATABASE_URL_FILE: /run/secrets/database_app_url
+  DATABASE_APP_URL_FILE: /run/secrets/database_app_url
+  DATABASE_RUNTIME_ROLE: app
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET_FILE: /run/secrets/jwt_secret
+  JWT_ACCESS_TTL_SECONDS: "900"
+  JWT_REFRESH_TTL_DAYS: "7"
+  PASSWORD_SCRYPT_LOG2N: "17"
+  VAULT_KEK_FILE: /run/secrets/vault_kek
+  CORS_ORIGINS: https://mtls-pilot.globalcompany.company
+  # Solo los saltos internos reales del piloto: Caddy y cloudflared.
+  TRUSTED_PROXY_CIDRS: 172.32.0.10/32,172.32.0.11/32
+  REQUIRE_SHIFT_FOR_AUTH: "true"
+  EXTENSION_ID: ${VITE_EXTENSION_ID:?Set VITE_EXTENSION_ID in pilot.env}
+  ROCKETCHAT_BASE_URL: ""
+  LOG_LEVEL: info
+
+x-api-secrets: &api-secrets
+  - database_app_url
+  - jwt_secret
+  - vault_kek
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agency
+      POSTGRES_DB: agency_os
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_owner_password
+    secrets:
+      - postgres_owner_password
+    volumes:
+      - pilot_pgdata:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agency -d agency_os"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - pilot_redisdata:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: agency-os-api:mtls-pilot
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    environment: *owner-environment
+    secrets: *owner-secrets
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "scripts/db-migrate.mjs"]
+
+  bootstrap-app:
+    image: agency-os-api:mtls-pilot
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      DATABASE_RUNTIME_PASSWORD_FILE: /run/secrets/database_runtime_password
+    secrets:
+      - database_owner_url
+      - database_runtime_password
+    networks:
+      - data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["node", "scripts/db-bootstrap-runtime.mjs"]
+
+  seed-base:
+    image: agency-os-api:mtls-pilot
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      NODE_ENV: test
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      VAULT_KEK_FILE: /run/secrets/vault_kek
+      BOOTSTRAP_ADMIN_EMAIL: admin@agency.test
+      BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+    secrets:
+      - database_owner_url
+      - jwt_secret
+      - vault_kek
+      - bootstrap_admin_password
+    networks:
+      - data
+    depends_on:
+      bootstrap-app:
+        condition: service_completed_successfully
+    command: ["node", "dist/database/seeds/seed.js"]
+
+  bootstrap-ip:
+    image: agency-os-api:mtls-pilot
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      BOOTSTRAP_ADMIN_EMAIL: admin@agency.test
+      PILOT_IP_CIDRS: ${PILOT_IP_CIDRS:?Set PILOT_IP_CIDRS in pilot.env}
+      PILOT_ALLOWLIST_EXPIRES_AT: ${PILOT_ALLOWLIST_EXPIRES_AT:?Set PILOT_ALLOWLIST_EXPIRES_AT in pilot.env}
+    secrets: *owner-secrets
+    networks:
+      - data
+    depends_on:
+      seed-base:
+        condition: service_completed_successfully
+    command: ["node", "scripts/mtls-pilot-bootstrap-ip.mjs"]
+
+  seed-demo:
+    image: agency-os-api:mtls-pilot
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      VAULT_KEK_FILE: /run/secrets/vault_kek
+      DEMO_USER_PASSWORD_FILE: /run/secrets/demo_user_password
+    secrets:
+      - database_owner_url
+      - jwt_secret
+      - vault_kek
+      - demo_user_password
+    networks:
+      - data
+    depends_on:
+      bootstrap-ip:
+        condition: service_completed_successfully
+    command: ["node", "dist/database/seeds/demo-seed.js"]
+
+  api:
+    image: agency-os-api:mtls-pilot
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment: *api-environment
+    secrets: *api-secrets
+    networks:
+      - edge
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed-demo:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(async r=>{if(!r.ok){console.error('HTTP '+r.status+' '+(await r.text()).slice(0,200));process.exit(1)}}).catch(e=>{console.error(e.message);process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  web:
+    image: agency-os-web:mtls-pilot
+    build:
+      context: .
+      dockerfile: web-app/Dockerfile
+      args:
+        VITE_API_BASE_URL: https://mtls-pilot.globalcompany.company/api/v1
+        VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:?Set VITE_EXTENSION_ID in pilot.env}
+        VITE_LOCAL_AGENT_URL: http://127.0.0.1:45832
+    restart: unless-stopped
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./deploy/mtls-pilot/Caddyfile:/etc/caddy/Caddyfile:ro
+      - pilot_caddy_data:/data
+      - pilot_caddy_config:/config
+    networks:
+      edge:
+        ipv4_address: 172.32.0.10
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header='Host: mtls-pilot.globalcompany.company' http://127.0.0.1/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Se mantiene detenido hasta que mTLS + WAF estén activos.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/cloudflared_token"]
+    secrets:
+      - cloudflared_token
+    networks:
+      edge:
+        ipv4_address: 172.32.0.11
+
+  pilot-ops:
+    image: agency-os-api:mtls-pilot
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *owner-environment
+      PILOT_API_BASE: http://caddy/api/v1
+      PILOT_HOST_HEADER: mtls-pilot.globalcompany.company
+      BOOTSTRAP_ADMIN_EMAIL: admin@agency.test
+      BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/bootstrap_admin_password
+      DEMO_USER_PASSWORD_FILE: /run/secrets/demo_user_password
+      PILOT_AGENT_DIR: /pilot-agent
+    secrets:
+      - database_owner_url
+      - bootstrap_admin_password
+      - demo_user_password
+    volumes:
+      - type: bind
+        source: ${PILOT_AGENT_DIR:-.local/mtls-pilot/agent}
+        target: /pilot-agent
+    networks:
+      edge:
+        ipv4_address: 172.32.0.250
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["node", "scripts/mtls-pilot-provision.mjs"]
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+  data:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.32.1.0/24
+
+volumes:
+  pilot_pgdata:
+  pilot_redisdata:
+  pilot_caddy_data:
+  pilot_caddy_config:
+
+secrets:
+  postgres_owner_password:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/postgres_owner_password
+  database_owner_url:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/database_owner_url
+  database_app_url:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/database_app_url
+  database_runtime_password:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/database_runtime_password
+  jwt_secret:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/jwt_secret
+  vault_kek:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/vault_kek
+  bootstrap_admin_password:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/bootstrap_admin_password
+  demo_user_password:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/demo_user_password
+  cloudflared_token:
+    file: ${PILOT_SECRETS_DIR:-.local/mtls-pilot/secrets}/cloudflared_token

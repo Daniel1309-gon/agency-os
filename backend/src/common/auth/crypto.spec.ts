@@ -38,7 +38,7 @@ describe('authentication crypto', () => {
   });
 
   it('signs and verifies access token claims', () => {
-    const token = signAccessToken({ sub: '00000000-0000-0000-0000-000000000001', role: 'ADMIN', permissions: ['users.read'] }, 'a'.repeat(32), 60);
+    const token = signAccessToken({ sub: '00000000-0000-0000-0000-000000000001', role: 'ADMIN', permissions: ['users.read'], av: 1 }, 'a'.repeat(32), 60);
     const claims = verifyAccessToken(token, 'a'.repeat(32));
     expect(claims.sub).toBe('00000000-0000-0000-0000-000000000001');
     expect(() => verifyAccessToken(token, 'b'.repeat(32))).toThrow();

@@ -1,0 +1,23 @@
+{
+  "workbookId": "b87e7eb2-ee8f-479d-9fd0-537cd9bc96b5",
+  "viewId": "0886ff29-117e-4e3f-b11a-6dafde449803",
+  "viewName": "Revenue detailed",
+  "viewContentUrl": "Passport_16741406948180/sheets/Revenuedetailed",
+  "status": 200,
+  "contentType": "text/csv",
+  "bytes": 373212,
+  "rowCount": 1528,
+  "headers": [
+    "Admin",
+    "ID Trusted User",
+    "Max Hour",
+    "Revenue type",
+    "revenue_TU_services_title_1",
+    "revenue_TU_services_title_2",
+    "source ID",
+    "source_ID_alert",
+    "Revenue"
+  ],
+  "sha256": "0a3891612ab8403ce1f2f84701726621b91ecea48dfa9ccdb0a68101cf9c02e9",
+  "durationMs": 10202
+}

@@ -1,0 +1,38 @@
+# Piloto mTLS: HTTP interno únicamente. Cloudflare termina HTTPS y aplica mTLS + WAF.
+# trusted_proxies: cloudflared es el único salto que puede aportar la IP real del
+# cliente; sin esto el backend vería la IP interna del túnel.
+http://mtls-pilot.globalcompany.company {
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  @api path /api/*
+  reverse_proxy @api api:3000 {
+    trusted_proxies 172.32.0.11
+  }
+
+  @health path /health/*
+  reverse_proxy @health api:3000 {
+    trusted_proxies 172.32.0.11
+  }
+
+  @socket path /socket.io/*
+  reverse_proxy @socket api:3000 {
+    trusted_proxies 172.32.0.11
+  }
+
+  @ping path /healthz
+  respond @ping "ok" 200
+
+  reverse_proxy web:80
+}
+
+# Cualquier otro hostname no es parte del piloto.
+http://:80 {
+  respond "not found" 404
+}

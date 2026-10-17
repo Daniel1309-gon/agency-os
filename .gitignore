@@ -1,7 +1,28 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+!deploy/production/.env.production.example
 *.pem
 *.crx
 extension/chrome_profiles/
 .pnpm-store/
+chat/
+.local/
+.claude/
+.go-cache/
+tools/__pycache__/
+.playwright-mcp/
+frontend-login.png
+
+# Artefactos del build del agente de Windows (se regeneran con tools/agent-build/build-agent.ps1)
+tools/agent-build/dist/
+tools/agent-build/build/
+
+tools/agent-build/dist-installer/
+
+# Binario auxiliar compilado por Go para empaquetar la estación.
+local-helper/build/
+
+.codegraph/

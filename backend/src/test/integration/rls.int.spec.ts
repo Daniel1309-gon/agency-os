@@ -2,6 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
+  auditLog,
+  crewMembers,
+  crews,
   icebreakers,
   operatorAccountEntries,
   pointsLedger,
@@ -23,29 +26,15 @@ import {
  * RLS es la defensa en profundidad de PLAN.md §6.5: si un servicio olvida su
  * filtro por operador, la base tiene que negar igual.
  *
- * Las pruebas corren bajo un rol que NO es el dueno de las tablas. El dueno
- * salta RLS por definicion de Postgres (salvo FORCE ROW LEVEL SECURITY), asi
- * que comprobarlo con el usuario de la aplicacion de desarrollo daria un falso
- * verde: parecerian pasar sin que ninguna politica se hubiera evaluado.
+ * Las pruebas corren bajo el rol real de runtime HTTP. El dueño salta RLS por
+ * definición de PostgreSQL (salvo FORCE ROW LEVEL SECURITY), así que usar un
+ * rol artificial ocultaría si los grants y el rol desplegado están alineados.
  */
-
-const RLS_ROLE = 'agency_rls_test';
 
 let ctx: TestContext;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  await ctx.pool.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${RLS_ROLE}') THEN
-        CREATE ROLE ${RLS_ROLE} NOLOGIN;
-      END IF;
-    END $$;
-  `);
-  await ctx.pool.query(`GRANT USAGE ON SCHEMA public TO ${RLS_ROLE}`);
-  await ctx.pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${RLS_ROLE}`);
-  await ctx.pool.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RLS_ROLE}`);
 });
 
 afterAll(async () => {
@@ -58,7 +47,7 @@ beforeEach(async () => {
 });
 
 /**
- * Ejecuta una consulta como lo haria un request: rol sin privilegios y las
+ * Ejecuta una consulta como lo haría un request: el rol real de API y las
  * variables de sesion que fija DatabaseService.withRequestContext. Siempre en
  * una transaccion que se deshace, para no dejar rastro.
  */
@@ -66,10 +55,18 @@ async function asRequest<T>(
   identity: { userId?: string; roleCode?: string },
   run: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
+  return asRole('agency_app', identity, run);
+}
+
+async function asRole<T>(
+  databaseRole: string,
+  identity: { userId?: string; roleCode?: string },
+  run: (client: PoolClient) => Promise<T>,
+): Promise<T> {
   const client = await ctx.pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`SET LOCAL ROLE ${RLS_ROLE}`);
+    await client.query(`SET LOCAL ROLE ${databaseRole}`);
     await client.query('SELECT set_config($1, $2, true)', ['app.user_id', identity.userId ?? '']);
     await client.query('SELECT set_config($1, $2, true)', ['app.role_code', identity.roleCode ?? '']);
     return await run(client);
@@ -84,7 +81,46 @@ const countOf = async (client: PoolClient, table: string): Promise<number> => {
   return result.rows[0].n as number;
 };
 
+describe('RLS deployment invariants', () => {
+  it('forces row security on every sensitive table', async () => {
+    const sensitiveTables = [
+      'tt_profile_credentials',
+      'points_ledger',
+      'payroll_lines',
+      'operator_account_entries',
+      'icebreakers',
+      'credential_access_log',
+    ];
+    const result = await ctx.pool.query<{ relname: string; relforcerowsecurity: boolean }>(
+      `SELECT relname, relforcerowsecurity
+         FROM pg_class
+        WHERE relnamespace = 'public'::regnamespace AND relname = ANY($1::text[])
+        ORDER BY relname`,
+      [sensitiveTables],
+    );
+    expect(result.rows).toHaveLength(sensitiveTables.length);
+    expect(result.rows.every((row) => row.relforcerowsecurity)).toBe(true);
+  });
+});
+
 describe('points_ledger row level security', () => {
+  it('does not let the owner role bypass policies without request context', async () => {
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    await ctx.db.insert(pointsLedger).values({
+      operatorId: operator.id,
+      profileId: profile.id,
+      businessDate: '2026-08-04',
+      shiftBusinessDate: '2026-08-04',
+      points: '100.0000',
+      source: 'TABLEAU_ETL',
+    });
+
+    await asRole('agency_owner', {}, async (client) => {
+      expect(await countOf(client, 'points_ledger')).toBe(0);
+    });
+  });
+
   it('denies everything when app.user_id is empty', async () => {
     // Criterio de entrega de PLAN.md §9: sin identidad, las politicas niegan,
     // no permiten. Un `NULLIF(...,'')::uuid` mal escrito abriria la tabla entera.
@@ -139,6 +175,23 @@ describe('points_ledger row level security', () => {
 
     await asRequest({ userId: operator.id, roleCode: 'ADMIN' }, async (client) => {
       expect(await countOf(client, 'points_ledger')).toBe(1);
+    });
+  });
+
+  it('shows a coordinator only the current members of their crew', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Managed crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+    for (const operatorId of [managed.id, outsider.id]) {
+      await ctx.db.insert(pointsLedger).values({ operatorId, profileId: profile.id, businessDate: '2026-08-04', shiftBusinessDate: '2026-08-04', points: '100.0000', source: 'TABLEAU_ETL' });
+    }
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      const rows = await client.query('SELECT operator_id FROM points_ledger ORDER BY operator_id');
+      expect(rows.rows).toEqual([{ operator_id: managed.id }]);
     });
   });
 
@@ -199,6 +252,21 @@ describe('icebreakers row level security', () => {
 
     await asRequest({ userId: author.id, roleCode: 'OPERADOR' }, async (client) => {
       expect(await countOf(client, 'icebreakers')).toBe(1);
+    });
+  });
+
+  it('lets a coordinator read only icebreakers from their current crew', async () => {
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const managed = await createUser(ctx);
+    const outsider = await createUser(ctx);
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Icebreaker crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: managed.id, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+    await ctx.db.insert(icebreakers).values([{ operatorId: managed.id, text: 'managed' }, { operatorId: outsider.id, text: 'outsider' }]);
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      const rows = await client.query('SELECT operator_id, text FROM icebreakers');
+      expect(rows.rows).toEqual([{ operator_id: managed.id, text: 'managed' }]);
+      await expect(client.query('INSERT INTO icebreakers (operator_id, text) VALUES ($1, $2)', [outsider.id, 'forged'])).rejects.toMatchObject({ code: '42501' });
     });
   });
 });
@@ -271,5 +339,82 @@ describe('tt_profile_credentials row level security', () => {
         ),
       ).rejects.toMatchObject({ code: '42501' });
     });
+  });
+
+  it('allows a director to write a credential inside the global management scope', async () => {
+    const { profileId } = await seedCredential();
+    const director = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
+
+    await asRequest({ userId: director.id, roleCode: 'DIRECTOR_OPERATIVO' }, async (client) => {
+      await expect(client.query(
+        `INSERT INTO tt_profile_credentials
+           (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+         VALUES ($1, 'director@talky.test', '\\x01', '\\x01', '\\x01', 1, $2, 2, false, $3)`,
+        [profileId, `${profileId}:2`, director.id],
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('limits a coordinator credential write to profiles in the coordinator scope', async () => {
+    const { profileId, assignedOperatorId } = await seedCredential();
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Credential crew', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: assignedOperatorId, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      await expect(client.query(
+        `INSERT INTO tt_profile_credentials
+           (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+         VALUES ($1, 'coord@talky.test', '\\x02', '\\x02', '\\x02', 1, $2, 2, false, $3)`,
+        [profileId, `${profileId}:2`, coordinator.id],
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('denies credential writes outside coordinator scope and to cafeteria', async () => {
+    const { profileId } = await seedCredential();
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const cafeteria = await createUser(ctx, { role: 'CAFETERIA' });
+
+    const insert = `INSERT INTO tt_profile_credentials
+      (profile_id, username, secret_ciphertext, secret_nonce, secret_tag, key_version, aad_context, version, is_current, rotated_by)
+      VALUES ($1, 'blocked@talky.test', '\\x03', '\\x03', '\\x03', 1, $2, 2, false, $3)`;
+    await asRequest({ userId: coordinator.id, roleCode: 'COORDINADOR' }, async (client) => {
+      await expect(client.query(insert, [profileId, `${profileId}:2`, coordinator.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRequest({ userId: cafeteria.id, roleCode: 'CAFETERIA' }, async (client) => {
+      await expect(client.query(insert, [profileId, `${profileId}:3`, cafeteria.id])).rejects.toMatchObject({ code: '42501' });
+    });
+  });
+});
+
+describe('agency_app deployment role', () => {
+  it('exists as a non-owner role and cannot mutate or truncate audit_log', async () => {
+    const role = await ctx.pool.query<{ rolname: string; rolsuper: boolean; rolcanlogin: boolean }>(
+      "SELECT rolname, rolsuper, rolcanlogin FROM pg_roles WHERE rolname = 'agency_app'",
+    );
+    expect(role.rows).toEqual([{ rolname: 'agency_app', rolsuper: false, rolcanlogin: false }]);
+
+    const [entry] = await ctx.db
+      .insert(auditLog)
+      .values({ actorType: 'SYSTEM', action: 'test.audit', result: 'SUCCESS' })
+      .returning({ id: auditLog.id });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('UPDATE audit_log SET result = $1 WHERE id = $2', ['TAMPERED', entry.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('DELETE FROM audit_log WHERE id = $1', [entry.id])).rejects.toMatchObject({ code: '42501' });
+    });
+    await asRole('agency_app', { roleCode: 'ADMIN' }, async (client) => {
+      await expect(client.query('TRUNCATE audit_log')).rejects.toMatchObject({ code: '42501' });
+    });
+
+    const ownerClient = await ctx.pool.connect();
+    try {
+      await expect(ownerClient.query('UPDATE audit_log SET result = $1 WHERE id = $2', ['TAMPERED', entry.id])).rejects.toMatchObject({ code: '42501' });
+      await expect(ownerClient.query('TRUNCATE audit_log')).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      ownerClient.release();
+    }
   });
 });

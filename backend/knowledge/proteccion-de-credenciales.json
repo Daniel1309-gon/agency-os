@@ -1,0 +1,8 @@
+{
+  "slug": "proteccion-de-credenciales",
+  "version": 1,
+  "question": "¿Cómo se protegen las credenciales?",
+  "answer": "Las credenciales de TalkyTimes se mantienen en el vault y no deben copiarse ni compartirse. El acceso autorizado usa la extensión y el helper de Agency OS; este bot nunca revela contraseñas ni ejecuta rotaciones. Contacta a administración si necesitas reportar una rotación.",
+  "keywords": ["credencial", "credenciales", "contraseña", "contraseñas", "vault", "password"],
+  "crewIds": []
+}

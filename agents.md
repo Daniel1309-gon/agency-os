@@ -100,10 +100,12 @@ portar su código:
   operadoras entren a Tableau. Cubre FR-18/FR-19. **Investigado (2026-07-29):** la colección
   `Tableau APIs.postman_collection.json` es la API REST oficial de Tableau Server/Cloud (727
   endpoints). Los relevantes para consulta de datos son:
-  - `GET /sites/{site-id}/views/{view-id}/data` → devuelve CSV (o formato crosstab)
+  - `GET /sites/{site-id}/views/{view-id}/data` → devuelve CSV del nivel de resumen expuesto por la vista
   - `GET /sites/{site-id}/views/{view-id}/crosstab/excel` → devuelve Excel
   - Query params: `vf_<fieldname>=<value>` (filtros por campo), `maxAge=<minutes>` (caché, mínimo 1 min)
-  - Autenticación: header `X-Tableau-Auth` con API key
+  - Autenticación: `POST /auth/signin` con PAT; después `X-Tableau-Auth` lleva el token temporal
+  - Un dashboard exportado por REST/crosstab queda en nivel resumen; el detalle que aparece al
+    expandir una jerarquía en la UI no se debe asumir disponible por API.
   - **Limitación crítica no resuelta:** la colección Postman no documenta límite de filas por
     respuesta, paginación, timeout, ni tamaño máximo; no está claro si devuelve datos completos de
     una sola consulta (asume rendimiento/memoria de navegador si es front-end). **Requerido:** antes
@@ -139,8 +141,12 @@ portar su código:
 | 6 | Backend principal = **NestJS sobre adaptador Fastify** (`@nestjs/platform-fastify`) | Node.js + Fastify "plano" | Modularidad forzada por el framework — evita repetir el patrón de "god controllers" (1500–3134 líneas) encontrado en la auditoría de JarvisBot. FastAPI se mantiene, aislado, solo para el motor de IA |
 | 7 | Cláusula de contingencia explícita para el spike de semanas 1–2 (viable / parcialmente viable / no viable), mismo formato que Feature #9 | — | Protege a ambas partes: el spike depende de un tercero (TalkyTimes) fuera de control del equipo |
 | 8 | Refuerzo explícito del vault: exclusión del campo contraseña de cualquier log de auditoría como **criterio de aceptación**, no detalle de implementación | — | JarvisBot tiene exactamente este problema (contraseña en texto plano en `activity_log` vía `spatie/laravel-activitylog`) — no repetirlo |
-| 9 | **ETL batch diario de Tableau** (descargar CSV/Excel a hora fija → worker de procesamiento → almacenar en BD) en lugar de lectura en vivo de API | Tableau API como fuente en vivo | Tableau se refresca una sola vez al día según su propia configuración; dashboard "en vivo" no tiene sentido. Batch diario (a corte del día anterior) es más simple, independiente de Tableau (fallover transparente), predecible en rendimiento, y elimina bloqueadores de límite de filas/timeout de API. Patrón común en data warehousing |
+| 9 | **ETL por vista de Tableau a almacenamiento local** (descargar CSV/Excel según `schedule_cron` → worker de procesamiento → almacenar en BD) en lugar de lectura en vivo de API | Tableau API como fuente en vivo | La conexión real confirmó que Revenue detailed se actualiza cada hora, pero el producto consume Revenue a corte del día operativo vencido (job 09:15 America/Bogota). La cadencia es configurable por vista; una vista resumen sin fecha/hora no puede atribuir turnos. |
 | 19 | **Hash de contraseñas con scrypt** (`N=2^17`, `r=8`, `p=1`, parámetros guardados dentro de cada hash), no con bcrypt | bcrypt cost 12 (lo que nombra §4 del documento de requerimientos y §6.2 del plan de backend) | Aprobado por el cliente el 2026-08-04. bcrypt se había elegido por familiaridad previa, no por una propiedad técnica. scrypt es *memory-hard* y bcrypt no lo es (bcrypt usa ~4 KB fijos, barato de paralelizar en GPU/ASIC); ambos están en la lista recomendada de OWASP y NIST SP 800-63B, con Argon2id > scrypt > bcrypt como orden de preferencia habitual. Beneficio adicional: sin dependencia nativa que compilar en el contenedor de despliegue, y desaparece la truncación silenciosa de bcrypt a 72 bytes (§6.2 del plan la trataba como advertencia). Ver §5.3 para los parámetros y su costo medido |
+| 20 | **Identidad de equipo = huella SHA-256 del certificado mTLS de zona**; se retira el token de dispositivo propio | token de estación con TTL 90 días y `x-device-token` (decisión #5 del plan de agosto) | Aprobado en el plan de despliegue 2026-09-20. Cloudflare verifica el certificado en el borde y una regla de transformación elimina la cabecera aportada por el cliente y reescribe `Client-Cert` (RFC 9440) solo si el certificado está verificado y no revocado; el backend confía en esa cabecera únicamente desde el proxy configurado. Desaparece el secreto que rotar y distribuir; el inventario `devices` conserva nombre, estado, tipo (`STATION`/`ADMIN`) y certificado autorizado. El único escape de desarrollo (`DEV_CLIENT_CERT_FINGERPRINT`) se rechaza en producción |
+| 21 | **La preparación de sesión vincula operador + perfil + asignación + equipo desde su creación**; grant, redeem, heartbeat, estado y cierre repiten la comprobación del mismo equipo | preparación sin equipo con reclamo atómico dentro de una ventana de 60 s | Cierra el hueco de que cualquier estación aprobada pudiera reclamar una sesión preparada por otra. Implementado en Fase B; evidencia en [`tasks/evidence/e1-b-mtls-identity-2026-09-21.md`](tasks/evidence/e1-b-mtls-identity-2026-09-21.md) |
+| 22 | **Versión de autorización por usuario (`users.auth_version`) y WebSockets de vida corta (45–60 s con cierre antes del vencimiento del JWT)** | sockets autenticados solo en el handshake, sin revalidación ni desconexión al revocar | El claim `av` se comprueba en HTTP y en cada reconexión; desactivar usuario, cambiar rol/contraseña/cuadrilla o revocar un dispositivo sube la versión y corta los sockets afectados en el acto (salas `user:`/`device:`/`role:` con adaptador Redis). El límite de conexión es la red de seguridad para revocaciones que solo ocurren en Cloudflare. Evidencia en [`tasks/evidence/e1-c-realtime-and-limits-2026-09-21.md`](tasks/evidence/e1-c-realtime-and-limits-2026-09-21.md) |
+| 23 | **El acceso con certificado de dispositivo aprobado no depende de la allowlist de IP** | allowlist aplicada a todas las rutas (ADR 0003) | Plan §2 B2: la identidad de equipo reemplaza a la IP de oficina como puerta; la IP se conserva para auditoría, abuso y para las rutas públicas sin certificado (login, refresh, enrollment, webhook). `ClientCertGuard` corre antes que `IpAllowlistGuard`. [ADR 0014](docs/decisions/0014-mtls-access-without-office-ip.md) |
 
 ### 5.1 Mecanismo concreto de la decisión #1 (2026-07-29)
 
@@ -309,10 +315,13 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   sesión saliente con ventana de gracia (el precedente de JarvisBot en §4 de este archivo —
   "qué pasa cuando una operadora entra a un perfil que otra dejó abierto" — es el caso exacto y
   conviene mirarlo), y atribución de métricas por `occurred_at` y no por hora de ingesta.
-- **Tableau tiene puntos por hora (2026-08-04) — resuelve la atribución del relevo:** el cliente
-  informó que el reporte de puntos de Tableau existe con grano horario y que se pueden hacer cortes
-  cada 8 h. Esto convierte la atribución en un relevo de "reparto estimado" a **asignación directa
-  por hora**: cada hora de puntos cae dentro del `valid_range` de una sola asignación. Ver
+- **Tableau tiene puntos por hora (2026-08-04) — pendiente de confirmación por exportación REST:** el
+  cliente informó que el reporte de puntos de Tableau existe con grano horario y que se pueden hacer
+  cortes cada 8 h. Sin embargo, la expansión de `ID Trusted User` que se ve en la UI no aparece en
+  `GET /views/{view-id}/data` ni en el crosstab. La vista hermana `Revenue detailed (SourceID)`
+  devuelve 1.539 filas, nueve fechas semanales de `Date aggregated` y `Max Hour=20` constante.
+  La atribución queda diseñada para **asignación directa por hora** solo cuando la clienta publique
+  una worksheet plana con una fila por perfil/SourceID/hora. Ver
   [`backend/PLAN.md`](backend/PLAN.md) §4.2. Tres consecuencias registradas ahí:
   (1) se toma el **grano horario, no los cortes de 8 h** — bloques fijos (00–08, 08–16, 16–00)
   vuelven a partir por la mitad un turno de 14:00–22:00 y los `shift_overrides` de horas extra por
@@ -323,10 +332,9 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   únicamente en la hora que atraviesa un relevo, y **desaparece del todo si los relevos se
   programan en hora en punto** — vale la pena pedirlo, es una restricción de calendario que elimina
   la única parte estimada del cálculo de nómina.
-  **Pendientes que abre:** en qué zona horaria devuelve Tableau esas marcas (un desfase de una hora
-  misatribuye exactamente en cada relevo y en ningún otro lado — el total del perfil cuadra y solo
-  está mal el reparto entre dos personas), y si la vista horaria ya existe en el sitio del cliente
-  o hay que crearla.
+  **Pendientes que abre:** publicar/identificar la worksheet plana horaria y confirmar la zona
+  horaria de sus marcas (un desfase de una hora misatribuye exactamente en cada relevo y en ningún
+  otro lado — el total del perfil cuadra y solo está mal el reparto entre dos personas).
 - **Horario real de turnos: 06:05, 14:05, 22:05 (2026-08-04).** Tres turnos de 8 h consecutivos sin
   hueco entre ellos. Consecuencias registradas en [`backend/PLAN.md`](backend/PLAN.md) §4.1–§4.3:
   (1) **ningún relevo cae en hora en punto**, así que los tres relevos del día atraviesan una hora
@@ -341,26 +349,19 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   y, una vez al mes, el de mes**: se guardan dos fechas por fila de puntos (fecha de inicio de
   turno para nómina, fecha calendario de la hora para conciliar con Tableau), y el periodo de
   nómina no se puede cerrar el día 1 sin dejar sin pagar el turno nocturno de la frontera.
-  **Pendiente que vale la pena resolver antes de construir el troceo:** ver la tarea de
-  verificación de filtros `vf_` más abajo.
-- **TAREA PENDIENTE — probar si los filtros `vf_<campo>` de Tableau aceptan rangos de tiempo
-  (anotada 2026-08-04, no ejecutada):** si aceptan, se puede pedir a la API directamente la ventana
-  de un turno (06:05–14:05) y obtener el total exacto, con **cero estimación** — desaparece el
-  reparto por minutos de [`backend/PLAN.md`](backend/PLAN.md) §4.2 y todo el troceo por horas. Si
-  no aceptan, queda el reparto por minutos, que de todos modos es suficiente.
-  - **No es pregunta para el cliente**, se resuelve probando: `GET /sites/{site-id}/views/{view-id}/data`
-    con `vf_<campo-fecha>` y una sintaxis de rango, contra el sitio Tableau del cliente.
-  - **Requiere lo que aún no tenemos:** credenciales/PAT del Tableau de la clienta 2 y saber qué
-    vista tiene los puntos por hora (pendiente abierto arriba). Hasta tener eso, no se puede probar.
-  - La colección `Tableau APIs.postman_collection.json` (§4) documenta `vf_<fieldname>=<value>`
-    pero **no** dice si `<value>` admite rango — por eso hay que probarlo, no leerlo.
-  - Guardar el resultado como evidencia (petición + respuesta cruda) igual que el resto de spikes,
-    y registrar aquí el hallazgo con fecha.
+  **Pendiente que vale la pena resolver antes de construir el troceo:** obtener esa worksheet plana
+  horaria; los filtros `vf_` no pueden convertir el resumen en detalle.
+- **Filtros `vf_` de Tableau (resuelto 2026-08-17):** la documentación REST excluye rangos,
+  comodines y desigualdades; solo permite valores exactos o listas. La atribución de ventanas
+  06:05/14:05/22:05 usa una worksheet temporal y el reparto 5/55 del backend. El discovery real
+  conservó request metadata, checksums y resultados sanitizados en `tasks/evidence/tableau/`.
 - Rol "Director Operativo" (FR-02) mencionado pero no formalizado aún en la tabla de acceso por rol.
-- **ETL de Tableau** — pendiente de confirmar con el cliente la lista exacta de vistas Tableau a
-  descargar diariamente, su estructura de columnas, valores nulos esperados, y si tiene cambios
-  históricos rastreables (para auditoría de cambios día a día). Implementación de worker, scheduler,
-  y transformaciones de datos en la BD — scope aún por asignar a entrega específica (1 o 2).
+- **ETL de Tableau** — inventario dinámico confirmado el 2026-08-17: 18 workbooks, 44 vistas por
+  workbook y 86 vistas a nivel de sitio. Revenue detailed está mapeada al view LUID
+  `0886ff29-117e-4e3f-b11a-6dafde449803`, pero es un resumen sin fecha/hora; la vista SourceID
+  hermana es semanal en REST, no horaria. Sigue pendiente publicar/identificar la worksheet plana
+  de puntos/revenue y su timezone. Worker, scheduler y transformaciones quedan en Entrega 2, con
+  Revenue a las 09:15 del día operativo vencido.
 - **Credenciales del spike de extensión aún en archivo plano, no en BD (2026-08-04):**
   [`extension/chrome-extension/`](../../AGENCY-OS/agency-os/extension/chrome-extension/) lee hoy
   `credenciales.json` (texto plano, en disco, vía `fetch('file:///...')` desde el background —
@@ -383,6 +384,47 @@ totales ($28.500.000 COP), estructura de 3 cuotas, ni el cronograma de 26 semana
   que hacerle llegar el secreto al perfil de Chrome correcto, creando un canal entre procesos que
   hoy no existe; el background ya corre dentro del perfil aislado (ver PLAN.md §1, decisión #10).
   Falta implementarlo: el spike sigue leyendo `credenciales.json` en texto plano.
+- **Identidad mTLS pendiente de configuración en Cloudflare (2026-09-21):** el código de Fase B ya
+  exige certificado verificado y huella registrada, pero las reglas de la zona (WAF de bloqueo y
+  transformación de `Client-Cert`) las aplica Daniel en la consola; hasta entonces el entorno real no
+  puede autenticar equipos. Además, el webhook de Rocket.Chat entra por el mismo hostname y necesitará
+  su propio certificado cliente registrado como dispositivo `ADMIN`, o una regla explícita acordada.
+- **Ruta a alta disponibilidad registrada (2026-09-21):** [`docs/decisions/0013-production-topology-and-ha-path.md`](docs/decisions/0013-production-topology-and-ha-path.md)
+  fija el primer despliegue en un VPS con PostgreSQL/Redis autogestionados y aplaza la HA, dejando por
+  escrito qué debe conservarse para no cerrar esa puerta (API sin estado, Redis desechable, imágenes
+  por digest, migraciones aditivas, backups externos, entrada por túnel). Decisión de hoy: la HA se
+  define al cierre de E1 (spike de PostgreSQL gestionado vs. Patroni con testigo), Redis irá por
+  réplica manual y las imágenes se publican en GHCR. Topología objetivo: dos nodos en la misma región
+  con replicación y balanceo, ~US$33/mes dentro de los ~US$155 autorizados.
+- **Decisiones de cierre de E1 (2026-09-23), confirmadas por Daniel con la clienta:**
+  (1) auditoría: **al menos 30 días** — `audit.retention_months = 2` sobre las particiones mensuales
+  (conserva ~59–92 días; con `= 1` el piso sería 28 días por febrero, y se prefirió esto a un corte por
+  días por simplicidad); resuelve la parte de auditoría de OQ-08, que queda `PARTIAL` (la retención
+  de datos raw sigue abierta). (2) Breaks (parte de OQ-03): **sin breaks programados**; el operador inicia el suyo
+  cuando quiere, **máximo 20 min con cierre automático**, uno en las primeras 4 h y otro en las 4 h
+  siguientes contadas desde la hora **programada** del turno; si no lo toma, lo pierde; turnos de 8 h
+  y el tiempo extra no tiene break (score y aprobación de icebreakers de OQ-03 siguen abiertos).
+  (3) Mensajes programados **puntuales y recurrentes, entregados por Rocket.Chat**, con formulario en
+  la web. (4) Alcance: OPS-02 (vista de historial), SEC-07a (catálogo de auditoría), SEC-09a
+  (reenvoltura de la KEK) y E1-05 (superficie de outbox y reproceso) **quedan en E1**; OPS-04
+  (snapshot monotónico) y SEC-09b (recifrado a la DEK vigente) **pasan a E2**. (5) SEC-10: alertas por
+  abuso del vault al canal privado de administración de Rocket.Chat + registro en la web.
+  Plan de ejecución en [`tasks/plan-trabajo-interno-e1-2026-09-23.md`](tasks/plan-trabajo-interno-e1-2026-09-23.md);
+  estado por fila en [`tasks/cierre-e1-matriz-2026-09-21.md`](tasks/cierre-e1-matriz-2026-09-21.md) §10–§11.
+  **Ejecutado en local el 2026-09-23** (los nueve puntos, con evidencia por fila). Hallazgo de paso:
+  `AuditService` descarta sin avisar las claves de `metadata` fuera de su lista; el catálogo de
+  SEC-07a (`packages/shared/src/contracts/audit-actions.ts`) cierra las acciones, pero no las claves.
+  **Correcciones de la revisión (2026-09-23):** las transacciones independientes (denegaciones y
+  alertas del vault) compartían el pool del request: 10 denegaciones concurrentes lo bloqueaban para
+  siempre. Ahora tienen un pool propio de 2 conexiones y los dos pools tienen timeout de conexión
+  (5 s). La web de gestión (mensajes, turnos, overrides y relevos) envía y muestra hora de Bogotá, ya no
+  la del navegador; sus pruebas corren en UTC.
+- **Hallazgos del ensayo de restore (2026-09-23):** el restore con `--no-owner --role=agency_owner`
+  fallaba sobre el esquema real (no puede crear `citext`/`btree_gist`/`pgcrypto`); se restaura como
+  superusuario conservando dueños. En PostgreSQL gestionado (sin superusuario) hay que verificar que el
+  rol administrador pueda crear esas extensiones y actuar como `agency_owner` antes de elegir
+  proveedor. Los `.sh` deben quedar en LF (`.gitattributes`) o las imágenes construidas desde Windows
+  no arrancan.
 - **Plan de backend escrito (2026-08-04):** [`backend/PLAN.md`](backend/PLAN.md) — modelo de datos
   completo (11 dominios), invariantes en la BD, superficie HTTP, seguridad, y 9 decisiones nuevas
   numeradas del #10 al #18 en continuación de la tabla de §5. Su §11 lista 10 preguntas abiertas

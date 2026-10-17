@@ -1,0 +1,9 @@
+{
+  "name": "com.agencyos.helper",
+  "description": "Agency OS Native Messaging helper",
+  "path": "C:\\Program Files\\Agency OS\\agency-os-helper.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__EXTENSION_ID__/"
+  ]
+}
