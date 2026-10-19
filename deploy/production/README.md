@@ -67,6 +67,13 @@ $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-worker.mjs
 # 4. Allowlist inicial de IP para el admin (BOOTSTRAP_IP_CIDR); solo actúa si no hay ninguna activa
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-ip.mjs
 
+# 4b. Primer equipo ADMIN (BOOTSTRAP_ADMIN_DEVICE_FINGERPRINT); solo actúa si no hay ningún equipo
+#     ADMIN activo. En producción el login exige un equipo aprobado y enrolar uno exige sesión de
+#     admin, así que el primero se registra por aquí. La huella es el SHA-256 en hex del DER del
+#     certificado de cliente que emitió Cloudflare para el equipo del admin:
+#       openssl x509 -in admin.crt -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1
+$COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-admin-device.mjs
+
 # Después del bootstrap, vaciar BOOTSTRAP_ADMIN_PASSWORD en .env.production.
 
 # 5. Arrancar el stack y los backups
