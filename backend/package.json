@@ -28,6 +28,7 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/db-migrate.mjs",
     "db:bootstrap-runtime": "node --env-file=.env scripts/db-bootstrap-runtime.mjs",
     "db:bootstrap-ip": "node --env-file=.env scripts/db-bootstrap-ip.mjs",
+    "db:bootstrap-admin-device": "node --env-file=.env scripts/db-bootstrap-admin-device.mjs",
     "db:seed": "pnpm build && pnpm db:seed:run",
     "db:seed:run": "node --env-file-if-exists=.env dist/database/seeds/seed.js",
     "db:seed:demo": "pnpm db:seed && node --env-file=.env dist/database/seeds/demo-seed.js",
