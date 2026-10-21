@@ -40,6 +40,32 @@ certificados de la CA administrada por Cloudflare para
 5. Verificar: health por HTTPS y ciclo de estación
    (`uv run tools/mtls-pilot-cycle.py --cert-name <nombre>`).
 
+## Alta en macOS (equipo del primer ADMIN de producción)
+
+Probado en el ensayo del 2026-10-21 para el certificado que registra
+`db-bootstrap-admin-device.mjs` ([README de producción](../production/README.md), paso 4b).
+
+1. En el equipo del admin, generar clave y CSR (mismos comandos del alta, con el `CN` y la `O` de
+   producción) y hacer que Cloudflare firme la CSR: SSL/TLS → Client Certificates → Create
+   Certificate → **Use my own private key and CSR**. Guardar el certificado como `admin.crt`.
+2. Calcular la huella y ponerla en `BOOTSTRAP_ADMIN_DEVICE_FINGERPRINT` antes del paso 4b:
+
+   ```sh
+   openssl x509 -in admin.crt -outform DER | openssl dgst -sha256 -r | cut -d' ' -f1
+   ```
+
+3. Empaquetar el `.p12` con el OpenSSL del sistema (LibreSSL). El OpenSSL 3+ de Homebrew puede
+   producir un PKCS#12 que el llavero de macOS rechaza:
+
+   ```sh
+   /usr/bin/openssl pkcs12 -export -inkey admin.key -in admin.crt -name <nombre> -out admin.p12
+   ```
+
+4. Importar el `.p12` en el llavero **login**; debe aparecer en «Mis certificados» con su clave
+   privada.
+5. Navegador: Safari presentó el certificado e inició sesión. Brave **no** lo presentó; usar Safari o
+   Chrome (cerrar el navegador con Cmd+Q antes de reintentar puede ayudar).
+
 ## Alta en Android (probado en Galaxy S24)
 
 1. Empaquetar el certificado y su clave en PKCS#12:
@@ -139,7 +165,13 @@ cliente (ver `deploy/production/backup/README.md` §8). En la zona de producció
 regla de exigencia mTLS debe exceptuar **solo** esas rutas, y el orden importa:
 primero la excepción, después la exigencia.
 
-Regla 1 — Exception/Skip (Cloudflare → Security → WAF → Custom rules):
+Todas las reglas WAF custom se crean en el nivel de **zona** (Domains → la zona → Security →
+Security rules / WAF → Custom rules). El WAF de nivel de cuenta (Application security → WAF) es
+Enterprise y muestra «Purchase add-on». Además, el hostname del ERP debe estar en SSL/TLS → Client
+Certificates → **Hosts**: sin eso Cloudflare nunca pide el certificado y la regla de bloqueo bloquea
+todo.
+
+Regla 1 — Exception/Skip (zona → Security → WAF → Custom rules):
 
 - Expresión: `(http.request.method eq "GET" and starts_with(http.request.uri.path, "/health/"))`
 - Acción: **Skip** → *All remaining custom rules* y *Client Certificate*.
@@ -198,7 +230,7 @@ certificado en el handshake y el guard lo acepta sin estar registrado
 
 ### Paso 3 — Transform: cabecera `Client-Cert` (RFC 9440)
 
-Reglas → Transform Rules → Modify Request Header. Dos reglas con condiciones
+En la zona: Rules → Transform Rules → Modify Request Header. Dos reglas con condiciones
 excluyentes (el orden entre ellas no altera el resultado):
 
 **T1 — eliminar la cabecera aportada cuando el certificado no pasa:**
@@ -249,6 +281,12 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST https://erp.globalcompany.compa
 # revocación: Revoke en la consola → 403 en el siguiente handshake (detección medida ~11 s en el piloto)
 # webhook: token válido → 2xx; inválido → descarte silencioso
 ```
+
+Resultados observados en el ensayo (2026-10-21, `erp.rentia.online`): sin certificado,
+`/health/ready` y `/health/live` 200; `POST /api/v1/auth/login` 403; el mismo con la cabecera
+`Client-Cert: :ZmFrZQ==:` falsificada, 403; `GET /` 403. Con el certificado del admin,
+`curl --cert admin.crt --key admin.key -X POST .../api/v1/auth/login` devolvió 400: pasó Cloudflare y
+el guard de equipo, y el 400 es solo por no enviar cuerpo.
 
 Registrar en `tasks/evidence/` la fecha de aplicación, capturas de las reglas y
 resultados de la verificación.
