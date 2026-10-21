@@ -31,25 +31,44 @@ checksum verificado contra el archivo cifrado, `dailyUploaded` en el manifiesto 
 
 **1. Crear el bucket**
 
-- Backblaze → **Buckets → Create a Bucket**. Nombre: `agency-os-backups`.
-- Región: la que B2 ofrezca más cercana al VPS; con São Paulo cualquiera de EE. UU. sirve (los
-  backups son batch). Elegirla fija: el endpoint S3 del bucket debe coincidir con `B2_ENDPOINT`.
+- Backblaze → **Buckets → Create a Bucket**. Nombre: `agency-os-backups`. Los nombres de bucket son
+  globales en B2: el ensayo usó `agency-os-ensayo-backups` en la cuenta de Daniel (región
+  `us-east-005`) y `agency-os-backups` queda reservado para la clienta.
+- Región: una de EE. UU. cercana al VPS (el VPS está en EE. UU.). Elegirla fija: el endpoint S3 del
+  bucket debe coincidir con `B2_ENDPOINT`.
 - **Files in Bucket: Private**.
 - **Object Lock: Enabled** (no se puede activar después sin recrear el bucket). Dejar la retención
   por defecto desactivada: la retención por objeto la pone el script en cada subida.
-- Guardar el **Endpoint S3** que muestra el bucket (p. ej. `s3.us-west-004.backblazeb2.com`).
+- Guardar el **Endpoint S3** que muestra el bucket y ponerlo en `B2_ENDPOINT` **con el esquema**:
+  `https://s3.<región>.backblazeb2.com`. Sin `https://`, aws-cli falla con «scheme is missing».
 
 **2. Reglas de ciclo de vida** (el script sube con retención de 24 h y 30 días; la regla borra
 después, con un día de margen para no pelear con el Object Lock)
 
-- Regla para el prefijo `frequent/`: **Delete files 2 days after upload**.
-- Regla para el prefijo `daily/`: **Delete files 31 days after upload**.
+En B2, **«Days Till Delete» cuenta desde que el archivo se oculta, no desde la subida**, y dejar
+«Days Till Hide» vacío significa que nunca se borra nada. Valores correctos:
 
-**3. Application key** (Buckets → Application Keys → Add a New Application Key)
+| Prefijo | Days Till Hide | Days Till Delete |
+|---|---|---|
+| `frequent/` | 2 | 1 |
+| `daily/` | 31 | 1 |
 
-- Nombre: `agency-os-vps-backup`. Acceso limitado al bucket `agency-os-backups`.
-- Habilidades: `listFiles`, `readFiles`, `writeFiles`, `writeFileRetentions`.
-- **Deshabilitar `bypassGovernance`** (el VPS no puede saltarse la retención) y `writeFileLegalHolds`.
+**3. Application key** — **no crearla en el panel web.** Una clave «Read and Write» limitada al
+bucket creada en el panel resultó incluir `bypassGovernance`, `deleteFiles`, `writeBuckets`,
+`writeBucketRetentions`, `writeBucketLifecycleRules` y `writeFileLegalHolds`, lo que anula el Object
+Lock. Crearla con la CLI de B2 (el script solo usa `s3api put-object` con
+`--object-lock-mode GOVERNANCE`):
+
+```sh
+brew install b2-tools
+b2 account authorize          # clave maestra, escrita en el prompt (no en la línea de comandos)
+b2 key create --bucket <bucket> agency-os-vps-backup \
+  listFiles,readFiles,writeFiles,readFileRetentions,writeFileRetentions
+b2 key list --long            # verificar las capacidades; borrar cualquier clave creada en el panel
+b2 account clear
+```
+
+- El panel web puede no listar las claves creadas por CLI: `b2 key list` es la fuente de verdad.
 - Copiar `keyID` y `applicationKey` al `.env.production` (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`).
   No pasan por chat ni por este repositorio.
 
@@ -65,10 +84,17 @@ después, con un día de margen para no pelear con el Object Lock)
 **5. Heartbeat de la alerta por ausencia de backups**
 
 - Crear un chequeo en Healthchecks.io (o equivalente) con período 45 minutos y gracia de 5.
-- Copiar su URL de ping en `BACKUP_HEARTBEAT_URL`. El script hace ping al completar y `<url>/fail`
+- Copiar su URL de ping en `BACKUP_HEARTBEAT_URL` (es un secreto de operación: no va al repositorio). El script hace ping al completar y `<url>/fail`
   si la subida falla.
 
 **6. Encender el servicio y verificar**
+
+Tras editar `.env.production`, recrear el servicio: un `up -d` simple deja el contenedor viejo
+corriendo con las variables anteriores.
+
+```sh
+docker compose --env-file deploy/production/.env.production -f compose.production.yml --profile backup up -d --force-recreate backup
+```
 
 ```sh
 docker compose --env-file deploy/production/.env.production -f compose.production.yml --profile backup up -d backup
@@ -80,12 +106,26 @@ docker compose --env-file deploy/production/.env.production -f compose.productio
 
 1. **Objeto con retención real**: `aws s3api head-object` sobre una copia y su `.sha256` en
    `daily/` y `frequent/` para confirmar la misma `ObjectLockRetainUntilDate` (+24 h y +30 días).
-2. **Nadie puede saltarse la retención**: intentar borrar una copia con las credenciales del VPS; debe
-   fallar (falta `bypassGovernance`).
-3. **Limpieza de vencidos**: subir un objeto de prueba a `frequent/` con retención de 1 día y regla
-   temporal de ciclo de vida de 2 días; confirmar en el panel que desaparece (verificación al tercer
-   día).
-4. **Ciclo completo <15 minutos**: medir la corrida real con el volumen proyectado; si no cabe, el
+   Ensayo 2026-10-21: `frequent/` GOVERNANCE hasta +24 h y `daily/` GOVERNANCE hasta +30 días.
+2. **Nadie puede saltarse la retención**: un `delete-object` **sin** `--version-id` no prueba nada:
+   el bucket está versionado (Object Lock lo implica), así que solo agrega un marcador de borrado
+   (en B2, «ocultar», que requiere únicamente `writeFiles`) y devuelve exit 0 con
+   `"DeleteMarker": true`; la versión con los datos sigue ahí. La prueba real, con las credenciales
+   del VPS:
+
+   ```sh
+   aws --endpoint-url "$B2_ENDPOINT" s3api list-object-versions --bucket "$B2_BUCKET" --prefix <clave>
+   # tomar el VersionId de la versión de datos (no el del marcador)
+   aws --endpoint-url "$B2_ENDPOINT" s3api delete-object --bucket "$B2_BUCKET" --key <clave> --version-id <id>
+   ```
+
+   Debe fallar con `AccessDenied ... not entitled` y exit distinto de 0 (falta `bypassGovernance`).
+   Ensayo 2026-10-21: aprobado; el marcador sin versión devolvió exit 0 y la versión de datos
+   (662224 bytes) siguió existiendo.
+3. **Limpieza de vencidos**: con las reglas del punto 2 (ocultar a los 2 días y borrar 1 día
+   después), confirmar en el panel que los objetos de `frequent/` de más de 3 días desaparecen
+   (verificación al tercer día).
+4. **Ciclo completo <15 minutos** (ensayo 2026-10-21: 26 s con el volumen del ensayo): medir la corrida real con el volumen proyectado; si no cabe, el
    objetivo de una hora no se cumple y hay que ampliar el diseño antes de producción.
 5. **Restauración**: el ensayo del servidor vacío con la KEK custodiada (ver abajo).
 
@@ -98,6 +138,28 @@ docker compose --env-file deploy/production/.env.production -f compose.productio
 - Certificados por vencer: revisar la columna de vencimiento en **Seguridad → Dispositivos**; cuando
   falten ≤30 días, renovar según `deploy/production/station/RUNBOOK.md`.
 
+**Nota de amenaza.** Quien comprometa el VPS puede **ocultar** copias (marcadores de borrado) pero no
+borrarlas antes de que termine la retención. Con las reglas de ciclo de vida (Days Till Delete 1 tras
+ocultar), una copia oculta se elimina solo cuando se cumplen ambas condiciones: retención vencida y un
+día desde que se ocultó; la ventana protegida sigue siendo el periodo de retención.
+
+### Problemas conocidos
+
+- **`delete-object` devuelve exit 0 y `"DeleteMarker": true`.** No es un borrado: solo oculta la copia
+  (ver prueba 2). Para comprobar la retención usar `--version-id`.
+
+- **`Connection was closed before we received a valid response` en `put-object`.** En el ensayo fue
+  un secreto mal copiado, no los checksums por defecto de aws-cli 2.34 (fijar
+  `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` no cambió nada). Diagnosticar con una lectura que
+  no modifica nada: `aws --endpoint-url "$B2_ENDPOINT" s3api list-objects-v2 --bucket "$B2_BUCKET"`.
+  `SignatureDoesNotMatch` indica secreto mal copiado (espacios, comillas, truncado, o ID y secreto
+  intercambiados).
+- **Comprobar conectividad** desde el contenedor: `wget -S -O- "$B2_ENDPOINT/"`; un 403 sin
+  credenciales es lo esperado.
+- **`scheme is missing`**: falta `https://` en `B2_ENDPOINT`.
+- **Cambios de `.env.production` sin efecto**: recrear con `--force-recreate` (punto 6).
+- **`(version unknown)` en el log del ciclo**: el manifiesto no registra la versión desplegada;
+  pendiente de corregir.
 
 ## Restauración en un servidor vacío (ensayo obligatorio)
 
@@ -115,6 +177,11 @@ openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in <nombre>.dump.enc -out <nom
   -pass env:BACKUP_ENCRYPTION_PASSPHRASE
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in <nombre>.globals.sql.enc -out <nombre>.globals.sql \
   -pass env:BACKUP_ENCRYPTION_PASSPHRASE
+
+# Si la última versión de una clave es un marcador de borrado (alguien ocultó la copia), descargar la
+# versión de datos de forma explícita: `aws s3api get-object --bucket "$B2_BUCKET" --key <clave>
+# --version-id <id> <salida>` (el id sale de `s3api list-object-versions`). También se puede retirar
+# el marcador con una clave admin/maestra desde la estación de trabajo; la clave del VPS no puede.
 
 # 2. Servidor vacío, conectado como POSTGRES_USER (superusuario del contenedor):
 # primero roles y tablespaces, después los datos con sus dueños y privilegios.
@@ -153,7 +220,10 @@ KEK custodiada, iniciar sesión, ver el semáforo y confirmar el turno. Medir de
 incidente hasta el servicio validado: **máximo 4 horas**, con pérdida de datos no superior a 1 hora.
 
 La credencial sintética se guarda una vez, al poner en marcha producción, en un perfil de prueba que
-no sea de ninguna operadora; su secreto se custodia junto a la KEK. Nunca usar una credencial real:
+no sea de ninguna operadora; su secreto se custodia junto a la KEK. El perfil debe existir antes de
+sellar: crearlo desde la web con el `external_ref` que se usará (por ejemplo `restore-check`). El
+script corre como el rol de runtime bajo el contexto RLS de un ADMIN y atribuye la rotación a
+`BOOTSTRAP_ADMIN_EMAIL` (o, si no está definido, al admin más antiguo). Nunca usar una credencial real:
 el secreto viaja en la línea de comandos.
 
 ```sh

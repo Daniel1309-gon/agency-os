@@ -25,6 +25,12 @@ ESPERA** hasta que se cumpla una de las condiciones de reapertura del ADR. Las F
 ejecutan primero como **ensayo en un VPS de Hostinger de Daniel**, con datos y secretos propios del
 ensayo, y después en el VPS de la clienta.
 
+**Avance del ensayo (2026-10-21, VPS de ensayo `erp.rentia.online`):** la **Fase 1 pasó** (despliegue,
+túnel, mTLS positivo y negativo, login del admin) y la **Fase 3 está en curso** (primer ciclo de
+backup exitoso en 26 s; pruebas de Object Lock y restauración pendientes). Las Fases 2, 5 y 6 no han
+empezado. Detalle en
+[`tasks/evidence/ensayo-vps-rentia-2026-10-21.md`](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md).
+
 ---
 
 ## Quick path
@@ -351,6 +357,13 @@ se sustituye por el hostname de ensayo, con sus propios certificados de cliente 
 revisión 2026-10-17); el hostname de producción y los certificados de las estaciones reales se
 emiten al desplegar en el VPS de la clienta.
 
+**Estado (VPS de ensayo, 2026-10-21): PASS.** `/health/ready` y `/health/live` 200 sin certificado;
+login, el mismo con cabecera `Client-Cert` falsificada y `GET /` sin certificado, 403; con el
+certificado del admin el login llegó al backend (400 por falta de cuerpo). Las correcciones al
+runbook que salieron del ensayo están en el
+[README de producción](../deploy/production/README.md) y en
+[CERTIFICATES.md](../deploy/mtls-pilot/CERTIFICATES.md).
+
 **Objetivo.** Dejar el despliegue de producción operativo y demostrar la entrada mTLS hacia
 positivo y negativo, incluido el rechazo de cabeceras falsificadas (gate E1-16).
 
@@ -368,6 +381,7 @@ $COMPOSE --profile ops run --rm ops node dist/database/seeds/seed.js  # seed (BO
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-runtime.mjs
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-worker.mjs
 $COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-ip.mjs
+$COMPOSE --profile ops run --rm ops node scripts/db-bootstrap-admin-device.mjs   # paso 4b del runbook
 $COMPOSE up -d
 $COMPOSE --profile backup up -d backup
 curl -fsS https://erp.globalcompany.company/health/ready
@@ -462,6 +476,12 @@ bajando scrypt ni eliminando controles.
 
 ### Fase 3 — Backups B2 reales y restauración completa
 
+**Estado (VPS de ensayo, 2026-10-21): EN CURSO.** Ciclo completo en 26 s (PASS, límite 15 min);
+`backup-postgres.sh --check` → «backup fresco: 0 min». Object Lock verificado (`head-object` +24 h y +30 d;
+borrado con `--version-id` → AccessDenied). Pendientes: limpieza de vencidos (verificar el 2026-10-24) y restauración en servidor
+vacío. La clave de aplicación debe crearse con la CLI de B2, no en el panel, y las reglas de ciclo de
+vida usan «Days Till Hide» (ver [backup/README.md](../deploy/production/backup/README.md)).
+
 **Objetivo.** Demostrar la cadena real: dump cifrado cada 30 min, subida con Object Lock, y una
 restauración completa en un servidor vacío con la KEK custodiada, midiendo RTO y pérdida real.
 
@@ -480,7 +500,9 @@ $COMPOSE exec backup backup-postgres.sh --check        # exige result=SUCCESS y 
 - **Pruebas obligatorias del backup** (lista en
   [backup/README.md §7](../deploy/production/backup/README.md)): `aws s3api head-object` sobre una
   copia y su `.sha256` en `daily/` y `frequent/` para confirmar Object Lock (+24 h y +30 días);
-  intento de borrado con las credenciales del VPS que **debe fallar** (sin `bypassGovernance`);
+  intento de borrado con las credenciales del VPS que **debe fallar** (sin `bypassGovernance`), usando
+  `delete-object --version-id` sobre la versión de datos: sin `--version-id` solo se agrega un
+  marcador de borrado y el comando termina con exit 0 (falso positivo);
   limpieza de objetos vencidos; ciclo completo <15 min; restauración.
 - **Restauración en servidor vacío** (procedimiento exacto en
   [backup/README.md §Restauración](../deploy/production/backup/README.md)): bajar el manifiesto y
@@ -883,13 +905,13 @@ cada fila si la corrida fue en el **VPS de ensayo** o en el **VPS de la clienta*
 | # | Fase | Prueba | Comando / instrumento | Resultado esperado | Resultado obtenido | Evidencia | Veredicto |
 |---|---|---|---|---|---|---|---|
 | 1 | 0 | `pnpm ci:verify` en PC nuevo | `pnpm ci:verify` | exit 0 | | | PASS/FAIL |
-| 2 | 1 | Health público | `curl .../health/ready` | 200 sin cert | | | |
-| 3 | 1 | mTLS negativo | curl sin cert / cabecera falsificada | 403 | | | |
-| 4 | 1 | mTLS positivo | ciclo con cert de ensayo | ciclo completo | | | |
+| 2 | 1 | Health público (VPS de ensayo) | `curl .../health/ready` | 200 sin cert | 200 (`/health/ready` y `/health/live`) | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS |
+| 3 | 1 | mTLS negativo (VPS de ensayo) | curl sin cert / cabecera falsificada | 403 | 403 login, 403 con `Client-Cert` falsificada, 403 `GET /` | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS |
+| 4 | 1 | mTLS positivo (VPS de ensayo) | `curl --cert` + login en Safari | pasa el borde y el guard | 400 sin cuerpo (pasó borde y guard); login del admin en Safari OK | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS (ciclo de estación pendiente) |
 | 5 | 2 | 30 logins ×3 oleadas | harness [propuesto] | umbrales plan §3 | | | |
 | 6 | 2 | 30 sockets 30 min | harness [propuesto] | sin bucles; backup OK | | | |
-| 7 | 3 | Object Lock real | `aws s3api head-object` | retención +24 h/+30 d | | | |
-| 8 | 3 | Restore completo + KEK | README backup | ≤4 h; vault abre | | | |
+| 7 | 3 | Object Lock real (VPS de ensayo) | `aws s3api head-object` | retención +24 h/+30 d | `frequent/` +24 h y `daily/` +30 d (GOVERNANCE); borrado con `--version-id` → AccessDenied | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS |
+| 8 | 3 | Restore completo + KEK (VPS de ensayo) | README backup | ≤4 h; vault abre | no ejecutado; ciclo de backup 26 s | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PENDIENTE |
 | 9 | 4 | Extensiones/roles/migraciones | §4.2 | 0000–0025 sin error | | | |
 | 10 | 4 | RLS runtime + no fuga en pool | §4.3 | veredictos locales | | | |
 | 11 | 4 | `SECURITY DEFINER`/search_path | §4.4 | dueño y proconfig | | | |
@@ -967,6 +989,16 @@ de Hostinger (KVM 2, igual al previsto para la clienta) a su nombre** para corre
 6 con datos y secretos propios del ensayo (ADR 0013, revisión 2026-10-17). Con el ensayo en verde, se
 le muestra el sistema a la clienta y se contrata su VPS, con despliegue limpio y secretos nuevos. El
 inventario §3 y la Fase 4 no se tocan mientras sigan en espera.
+
+**Checklist antes del despliegue en el VPS de la clienta:**
+
+- [ ] Cambiar la variable de repositorio de GitHub `VITE_API_BASE_URL` de vuelta a
+  `https://erp.globalcompany.company/api/v1` (en el ensayo vale `https://erp.rentia.online/api/v1`) y
+  **republicar las imágenes**; si no, la web llama al dominio del ensayo. Anotar los digests nuevos.
+- [ ] Secretos nuevos generados en el VPS de la clienta (`openssl rand -hex 32`); nada del ensayo se reutiliza.
+- [ ] Valores reales de Rocket.Chat (`ROCKETCHAT_*`); el ensayo usó `https://chat.invalid`.
+- [ ] Bucket `agency-os-backups` y clave de aplicación creada con la CLI de B2.
+- [ ] Zona de Cloudflare de la clienta con hostname en Client Certificates → Hosts y reglas WAF a nivel de zona.
 
 ---
 
