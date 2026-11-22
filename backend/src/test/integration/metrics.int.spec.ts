@@ -162,6 +162,25 @@ describe('extension metrics ownership (A3)', () => {
     ).rejects.toThrow(ForbiddenException);
     await expect(metrics.ingest({ events: [event] }, operator.id, ownSession.id)).resolves.toEqual({ accepted: 1, ignored: 0 });
   });
+
+  it('rejects empty/whitespace x-session-id (400), unknown UUID (403), mixed batches atomically (403), and exclusive upper-bound timestamps (403)', async () => {
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const otherProfile = await createProfile(ctx);
+    await assign(operator.id, profile.id, { start: '2026-08-04T06:05:00.000Z', end: '2026-08-04T14:05:00.000Z' });
+    const owned = { dedupeKey: 'mix-ok', profileId: profile.id, eventType: 'POINTS' as const, points: 3, occurredAt: AT, payload: {} };
+    const unowned = { dedupeKey: 'mix-bad', profileId: otherProfile.id, eventType: 'POINTS' as const, points: 3, occurredAt: AT, payload: {} };
+
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '')).rejects.toThrow(BadRequestException);
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '   ')).rejects.toThrow(BadRequestException);
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '00000000-0000-4000-8000-000000000000')).rejects.toThrow(ForbiddenException);
+    await expect(metrics.ingest({ events: [owned, unowned] }, operator.id)).rejects.toThrow(ForbiddenException);
+    await expect(
+      metrics.ingest({ events: [{ ...owned, dedupeKey: 'at-upper', occurredAt: '2026-08-04T14:05:00.000Z' }] }, operator.id),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(await ctx.db.select({ id: metricEvents.id }).from(metricEvents)).toHaveLength(0);
+  });
 });
 
 describe('metrics read models', () => {

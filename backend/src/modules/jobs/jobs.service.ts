@@ -1,5 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
-import { and, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
@@ -241,24 +241,28 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * FR-16 (A11): avisa por Rocket.Chat (via outbox durable) 5 minutos antes del
-   * tope de 20 minutos, marcando `breaks.notified_at` en la misma transaccion
-   * para no duplicar avisos entre ticks o workers.
+   * tope de 20 minutos usando el reloj de Postgres (`now()`), marcando
+   * `breaks.notified_at` en la misma transaccion para no duplicar avisos.
+   * Corre despues del cierre automatico de 20 min para que un break vencido
+   * nunca reciba un aviso anticipado (ADR 0012).
    */
-  private async notifyEndingBreaks(now = new Date()): Promise<number> {
-    const warnBefore = new Date(now.getTime() - 15 * 60_000);
-    const closeBefore = new Date(now.getTime() - 20 * 60_000);
+  private async notifyEndingBreaks(): Promise<number> {
     return this.db.transaction(async () => {
       const due = await this.db.db
         .update(breaks)
-        .set({ notifiedAt: now })
+        .set({ notifiedAt: sql`now()` })
         .where(and(
           eq(breaks.status, 'IN_PROGRESS'),
           isNull(breaks.notifiedAt),
           isNotNull(breaks.startedAt),
-          lte(breaks.startedAt, warnBefore),
-          gt(breaks.startedAt, closeBefore),
+          sql`${breaks.startedAt} + interval '15 minutes' <= now()`,
+          sql`${breaks.startedAt} + interval '20 minutes' > now()`,
         ))
-        .returning({ id: breaks.id, shiftId: breaks.shiftId, startedAt: breaks.startedAt });
+        .returning({
+          id: breaks.id,
+          shiftId: breaks.shiftId,
+          remainingMinutes: sql<number>`greatest(1, ceil(extract(epoch from ((${breaks.startedAt} + interval '20 minutes') - now())) / 60))::int`,
+        });
       if (!due.length) return 0;
       const shiftRows = await this.db.db
         .select({ id: shifts.id, operatorId: shifts.operatorId })
@@ -268,15 +272,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       const notices = due
         .map((row) => {
           const operatorId = operatorByShift.get(row.shiftId);
-          if (!operatorId || !row.startedAt) return null;
-          const remainingMinutes = Math.max(1, Math.ceil((row.startedAt.getTime() + 20 * 60_000 - now.getTime()) / 60_000));
+          if (!operatorId) return null;
           return {
             eventType: 'rocketchat.message.send',
             aggregateType: 'break',
             aggregateId: row.id,
             payload: {
               targetUserId: operatorId,
-              body: `Tu break termina en ${remainingMinutes} min (límite máximo de 20 min).`,
+              body: `Tu break termina en ${row.remainingMinutes} min (límite máximo de 20 min).`,
             },
           };
         })
@@ -292,12 +295,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
    * worker: el tope es una regla de la plataforma, no del proceso que la aplica.
    */
   private async autoCloseBreaks(): Promise<void> {
-    await this.notifyEndingBreaks();
     const closed = await this.db.db
       .update(breaks)
       .set({ status: 'COMPLETED', endedAt: sql`${breaks.startedAt} + interval '20 minutes'`, durationMinutes: 20 })
       .where(and(eq(breaks.status, 'IN_PROGRESS'), sql`${breaks.startedAt} + interval '20 minutes' <= now()`))
       .returning({ id: breaks.id, shiftId: breaks.shiftId });
+    await this.notifyEndingBreaks();
     if (!closed.length) return;
     const operators = await this.db.db
       .selectDistinct({ operatorId: shifts.operatorId })

@@ -148,4 +148,42 @@ describe('JobsService break-ending notice (A11, FR-16)', () => {
     await asWorker(() => (jobs as unknown as { autoCloseBreaks: () => Promise<void> }).autoCloseBreaks());
     expect(await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents)).toHaveLength(1);
   });
+
+  it('never notifies a break at/past 20m or with null startedAt, and notifies at exact 15m using Postgres now()', async () => {
+    const operatorAt15 = await createUser(ctx);
+    const operatorAt20 = await createUser(ctx);
+    const operatorNull = await createUser(ctx);
+    const now = new Date();
+    const mkShift = async (operatorId: string) => {
+      const [s] = await ctx.db
+        .insert(shifts)
+        .values({
+          operatorId,
+          businessDate: '2026-11-22',
+          scheduledRange: halfOpen(new Date(now.getTime() - 2 * 3_600_000), new Date(now.getTime() + 6 * 3_600_000)),
+          actualStartAt: new Date(now.getTime() - 2 * 3_600_000),
+          status: 'IN_PROGRESS',
+        })
+        .returning({ id: shifts.id });
+      return s;
+    };
+    const s15 = await mkShift(operatorAt15.id);
+    const s20 = await mkShift(operatorAt20.id);
+    const sNull = await mkShift(operatorNull.id);
+
+    await ctx.db.execute(sql`INSERT INTO breaks (shift_id, type, started_at, status) VALUES (${s15.id}, 'BREAK_1', now() - interval '15 minutes', 'IN_PROGRESS')`);
+    await ctx.db.execute(sql`INSERT INTO breaks (shift_id, type, started_at, status) VALUES (${s20.id}, 'BREAK_1', now() - interval '20 minutes', 'IN_PROGRESS')`);
+    await ctx.db.insert(breaks).values({ shiftId: sNull.id, type: 'BREAK_1', startedAt: null, status: 'IN_PROGRESS' });
+
+    await asWorker(() => (jobs as unknown as { autoCloseBreaks: () => Promise<void> }).autoCloseBreaks());
+
+    const queued = await ctx.db.select({ payload: outboxEvents.payload }).from(outboxEvents);
+    expect(queued).toHaveLength(1);
+    expect(queued[0].payload).toMatchObject({ targetUserId: operatorAt15.id });
+    const [closed20] = await ctx.db
+      .select({ status: breaks.status, notifiedAt: breaks.notifiedAt })
+      .from(breaks)
+      .where(eq(breaks.shiftId, s20.id));
+    expect(closed20).toEqual({ status: 'COMPLETED', notifiedAt: null });
+  });
 });

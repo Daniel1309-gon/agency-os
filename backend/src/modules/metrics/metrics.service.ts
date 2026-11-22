@@ -29,18 +29,28 @@ export class MetricsService {
     for (const event of input.events) {
       distinctPairs.set(`${event.profileId}|${event.occurredAt}`, { profileId: event.profileId, occurredAt: event.occurredAt });
     }
-    for (const pair of distinctPairs.values()) {
-      const [owned] = await this.db.db
-        .select({ id: profileAssignments.id })
-        .from(profileAssignments)
-        .where(and(
-          eq(profileAssignments.operatorId, operatorId),
-          eq(profileAssignments.profileId, pair.profileId),
-          inArray(profileAssignments.status, ['ACTIVE', 'ENDED']),
-          sql`${profileAssignments.validRange} @> ${pair.occurredAt}::timestamptz`,
-        ))
-        .limit(1);
-      if (!owned) throw new ForbiddenException('Operator does not hold an assignment for this profile at event time');
+    const pairs = [...distinctPairs.values()];
+    if (pairs.length) {
+      const valueTuples = sql.join(
+        pairs.map((pair) => sql`(${pair.profileId}::uuid, ${pair.occurredAt}::timestamptz)`),
+        sql`, `,
+      );
+      const ownership = await this.db.db.execute(sql`
+        SELECT count(*)::int AS matched
+        FROM (VALUES ${valueTuples}) AS p(profile_id, occurred_at)
+        WHERE EXISTS (
+          SELECT 1
+          FROM ${profileAssignments} a
+          WHERE a.operator_id = ${operatorId}::uuid
+            AND a.profile_id = p.profile_id
+            AND a.status IN ('ACTIVE', 'ENDED')
+            AND a.valid_range @> p.occurred_at
+        )
+      `);
+      const matched = Number((ownership.rows[0] as { matched?: number } | undefined)?.matched ?? 0);
+      if (matched !== pairs.length) {
+        throw new ForbiddenException('Operator does not hold an assignment for this profile at event time');
+      }
     }
 
     const rows = input.events.map((event) => ({
