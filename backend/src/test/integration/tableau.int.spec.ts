@@ -91,6 +91,35 @@ describe('TableauService (FR-19, decision #9)', () => {
     ]);
   });
 
+  it('sums several rows for the same profile and hour (one per SourceID) instead of failing the run', async () => {
+    const view = await hourlyView();
+    const profile = await profileWithRef('TU-1');
+    download = () => csv(['TU-1,2026-08-04 10:00,5', 'TU-1,2026-08-04 10:00,7']);
+    const run = await service.run({ viewId: view.id, businessDate: '2026-08-04' });
+
+    await service.processQueued();
+
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, run!.id) })).toMatchObject({ status: 'SUCCESS', rowCount: 2, rejectedCount: 0 });
+    expect(await ctx.db.select().from(etlStagingRows)).toHaveLength(2);
+    const [point] = await ctx.db.select().from(tableauHourlyPoints);
+    expect(point).toMatchObject({ profileId: profile.id, sourceHour: new Date('2026-08-04T15:00:00Z'), points: '12.0000' });
+    expect((point.rawRow as { sourceRows: unknown[] }).sourceRows).toHaveLength(2);
+  });
+
+  it('stores the database reason, not the failed SQL and its row values, when the run cannot be written', async () => {
+    const view = await hourlyView();
+    await profileWithRef('TU-1');
+    download = () => csv(['TU-1,2026-08-04 10:00,99999999999999']);
+    const run = await service.run({ viewId: view.id, businessDate: '2026-08-04' });
+
+    await service.processQueued();
+
+    const failed = await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, run!.id) });
+    expect(failed).toMatchObject({ status: 'FAILED' });
+    expect(failed?.error).toMatch(/^Database rejected the run: /);
+    expect(failed?.error).not.toMatch(/insert into|TU-1/i);
+  });
+
   it('re-executing a run updates in place: no duplicated staging rows or points', async () => {
     const view = await hourlyView();
     await profileWithRef('TU-1');

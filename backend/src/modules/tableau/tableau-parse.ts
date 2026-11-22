@@ -50,15 +50,30 @@ const ISO_LOCAL = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
  */
 export function parseSourceHour(value: string, timeZone: string): Date | undefined {
   const trimmed = value.trim();
+  const calendar = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(trimmed);
+  if (!calendar) return undefined;
+  const [year, month, day, hour, minute, second] = calendar.slice(1).map((part) => Number(part ?? 0));
+  // Date.UTC rolls 2026-02-31 over to March: a real date survives the round trip.
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return undefined;
   if (ISO_WITH_OFFSET.test(trimmed)) {
     const parsed = new Date(trimmed.replace(' ', 'T'));
     return Number.isNaN(parsed.getTime()) ? undefined : parsed;
   }
-  const match = ISO_LOCAL.exec(trimmed);
-  if (!match) return undefined;
-  const [year, month, day, hour, minute, second] = match.slice(1).map((part) => Number(part ?? 0));
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return undefined;
-  return zonedWallTimeToUtc({ year, month, day, hour, minute, second }, timeZone);
+  if (!ISO_LOCAL.test(trimmed)) return undefined;
+  const wall = { year, month, day, hour, minute, second };
+  const result = zonedWallTimeToUtc(wall, timeZone);
+  if (!result) return undefined;
+  // Reject wall times a DST change makes nonexistent (spring gap) or ambiguous
+  // (autumn overlap): either way the hour cannot be attributed without guessing.
+  if (!sameWallTime(result, wall, timeZone)) return undefined;
+  for (const shift of [-3_600_000, 3_600_000]) if (sameWallTime(new Date(result.getTime() + shift), wall, timeZone)) return undefined;
+  return result;
+}
+
+function sameWallTime(at: Date, wall: WallTime, timeZone: string): boolean {
+  const parts = wallParts(at, timeZone);
+  return parts.year === wall.year && parts.month === wall.month && parts.day === wall.day && parts.hour === wall.hour && parts.minute === wall.minute && parts.second === wall.second;
 }
 
 interface WallTime { year: number; month: number; day: number; hour: number; minute: number; second: number }
@@ -72,13 +87,18 @@ export function zonedWallTimeToUtc(wall: WallTime, timeZone: string): Date | und
   return Number.isNaN(result.getTime()) ? undefined : result;
 }
 
-function offsetMs(at: Date, timeZone: string): number {
+function wallParts(at: Date, timeZone: string): WallTime {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
       .formatToParts(at)
       .map((part) => [part.type, part.value]),
   );
-  const wallAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+  return { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day), hour: Number(parts.hour), minute: Number(parts.minute), second: Number(parts.second) };
+}
+
+function offsetMs(at: Date, timeZone: string): number {
+  const wall = wallParts(at, timeZone);
+  const wallAsUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
   return wallAsUtc - Math.floor(at.getTime() / 1000) * 1000;
 }
 

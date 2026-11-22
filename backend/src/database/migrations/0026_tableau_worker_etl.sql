@@ -4,6 +4,21 @@
 
 -- Re-executing a run (retry after FAILED, or a stale RUNNING lease) must not
 -- duplicate its staging rows: the worker upserts them by run and row number.
+-- The previous executor could re-run a run and duplicate rows. Staging is evidence,
+-- so duplicates are reported and never deleted here; requeue the affected runs
+-- after removing them by hand.
+DO $$
+DECLARE
+  duplicated integer;
+BEGIN
+  SELECT count(*) INTO duplicated FROM (
+    SELECT 1 FROM etl_staging_rows GROUP BY etl_run_id, row_number HAVING count(*) > 1
+  ) AS duplicates;
+  IF duplicated > 0 THEN
+    RAISE EXCEPTION 'etl_staging_rows has % duplicated (etl_run_id, row_number) pairs; remove them before migration 0026', duplicated;
+  END IF;
+END $$;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "etl_staging_rows_run_row_unique" ON "etl_staging_rows" USING btree ("etl_run_id", "row_number");
 --> statement-breakpoint
 

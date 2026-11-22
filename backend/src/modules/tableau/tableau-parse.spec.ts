@@ -46,9 +46,23 @@ describe('parseSourceHour', () => {
   });
 
   it('rejects day/month orders it cannot disambiguate, and impossible values', () => {
-    for (const value of ['04/08/2026 06:00', '8/4/2026 6:00 AM', '2026-08-04', '2026-13-04 06:00', '2026-08-04 24:00', '']) {
+    for (const value of ['04/08/2026 06:00', '8/4/2026 6:00 AM', '2026-08-04', '2026-13-04 06:00', '2026-08-04 24:00', '2026-02-31 10:00', '2026-02-31T10:00:00Z', '2026-04-31 06:00', '']) {
       expect(parseSourceHour(value, 'America/Bogota')).toBeUndefined();
     }
+  });
+});
+
+describe('parseSourceHour around daylight saving changes', () => {
+  it('rejects a wall time that does not exist (spring gap) or exists twice (autumn overlap)', () => {
+    expect(parseSourceHour('2026-03-08 02:30', 'America/New_York')).toBeUndefined();
+    expect(parseSourceHour('2026-11-01 01:30', 'America/New_York')).toBeUndefined();
+    // The hours next to the change are unambiguous and still accepted.
+    expect(parseSourceHour('2026-03-08 03:30', 'America/New_York')?.toISOString()).toBe('2026-03-08T07:30:00.000Z');
+    expect(parseSourceHour('2026-11-01 02:30', 'America/New_York')?.toISOString()).toBe('2026-11-01T07:30:00.000Z');
+  });
+
+  it('accepts every hour of a day in Bogota, which has no daylight saving', () => {
+    for (let hour = 0; hour < 24; hour += 1) expect(parseSourceHour(`2026-08-04 ${String(hour).padStart(2, '0')}:00`, 'America/Bogota')).toBeDefined();
   });
 });
 

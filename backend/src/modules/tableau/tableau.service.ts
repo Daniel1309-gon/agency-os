@@ -11,6 +11,17 @@ import { calendarDateIn, isTotalLabel, parseCsv, parsePoints, parseSourceHour } 
 const STALE_RUN_MINUTES = 30;
 const ACTIVE = ['QUEUED', 'RUNNING'];
 
+/**
+ * The stored error is read by administrators. A failed query's message embeds the
+ * SQL and its parameters (raw rows), so only the database's own reason is kept.
+ */
+function describeFailure(error: unknown): string {
+  if (!(error instanceof Error)) return 'Unknown Tableau ETL error';
+  const cause = (error as { cause?: unknown }).cause;
+  if (error.message.startsWith('Failed query') && cause instanceof Error) return `Database rejected the run: ${cause.message}`;
+  return error.message;
+}
+
 type StagedRow = { rowNumber: number; rawRow: Record<string, string>; validationStatus: 'VALID' | 'REJECTED' | 'SKIPPED'; validationError?: string };
 
 @Injectable()
@@ -85,7 +96,9 @@ export class TableauService {
       const profileByRef = new Map(profiles.map((profile) => [profile.externalRef, profile.id]));
 
       const staged: StagedRow[] = [];
-      const points: Array<typeof tableauHourlyPoints.$inferInsert> = [];
+      // One profile can have several SourceIDs, so a flat sheet may carry several rows
+      // for the same profile and hour: they are summed into a single hourly point.
+      const hourly = new Map<string, { profileId: string; sourceHour: Date; points: number; sourceRows: Record<string, string>[] }>();
       rows.forEach((rawRow, index) => {
         const rowNumber = index + 1;
         if (!isHourly) return staged.push({ rowNumber, rawRow, validationStatus: 'VALID' });
@@ -97,9 +110,14 @@ export class TableauService {
         const error = !profileId ? `Unknown profile reference "${ref}"` : !sourceHour ? 'Hour is not an ISO date-time (YYYY-MM-DD HH:mm)' : value === undefined ? 'Points are not a plain decimal number' : undefined;
         if (error || !profileId || !sourceHour || value === undefined) return staged.push({ rowNumber, rawRow, validationStatus: 'REJECTED', validationError: error });
         staged.push({ rowNumber, rawRow, validationStatus: 'VALID' });
-        points.push({ viewId: view.id, profileId, sourceHour, businessDate: calendarDateIn(sourceHour, 'America/Bogota'), points: value.toFixed(4), rawRow, etlRunId: runId });
+        const key = `${profileId}|${sourceHour.toISOString()}`;
+        const entry = hourly.get(key) ?? { profileId, sourceHour, points: 0, sourceRows: [] };
+        entry.points += value;
+        entry.sourceRows.push(rawRow);
+        hourly.set(key, entry);
       });
 
+      const points = [...hourly.values()].map((entry) => ({ viewId: view.id, profileId: entry.profileId, sourceHour: entry.sourceHour, businessDate: calendarDateIn(entry.sourceHour, 'America/Bogota'), points: entry.points.toFixed(4), rawRow: { sourceRows: entry.sourceRows }, etlRunId: runId }));
       const rejected = staged.filter((row) => row.validationStatus === 'REJECTED').length;
       const status = rejected ? 'PARTIAL' : 'SUCCESS';
       await this.db.db.transaction(async (tx) => {
@@ -119,7 +137,7 @@ export class TableauService {
       });
       return { runId, status, rowCount: rows.length, rejectedCount: rejected, checksum };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown Tableau ETL error';
+      const message = describeFailure(error);
       await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
       return { runId, status: 'FAILED' as const, error: message };
     }
