@@ -388,7 +388,7 @@ export const tableauViews = pgTable('tableau_views', {
   name: text('name').notNull(),
   siteId: text('site_id').notNull(),
   viewId: text('view_id').notNull(),
-  sourceTimezone: text('source_timezone').notNull().default('America/Bogota'),
+  sourceTimezone: text('source_timezone').notNull(),
   kind: varchar('kind', { length: 32 }).notNull(),
   isActive: boolean('is_active').notNull().default(true),
   columnMapping: jsonb('column_mapping').$type<Record<string, string>>().notNull().default({}),
@@ -428,7 +428,7 @@ export const etlStagingRows = pgTable('etl_staging_rows', {
   validationStatus: varchar('validation_status', { length: 16 }).notNull(),
   validationError: text('validation_error'),
   createdAt: ts('created_at').notNull().defaultNow(),
-});
+}, (t) => ({ runRowUnique: uniqueIndex('etl_staging_rows_run_row_unique').on(t.etlRunId, t.rowNumber) }));
 
 export const icebreakerRules = pgTable('icebreaker_rules', {
   id: id(),

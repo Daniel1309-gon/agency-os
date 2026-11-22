@@ -13,5 +13,6 @@ export class TableauController {
   @Post('views') @UsePipes(new ZodValidationPipe(tableauViewSchema)) createView(@Body() body: TableauViewInput, @CurrentUser() user: AccessTokenClaims) { return this.tableau.createView(body, user.sub); }
   @Get('runs') runs(@Query('viewId') viewId?: string) { return this.tableau.runs(viewId); }
   @Post('runs') @UsePipes(new ZodValidationPipe(tableauRunSchema)) run(@Body() body: TableauRunInput) { return this.tableau.run(body); }
-  @Post('runs/:id/execute') execute(@Param('id') id: string) { return this.tableau.execute(id); }
+  // Queues the run again; the worker executes it (the API never holds the Tableau PAT).
+  @Post('runs/:id/execute') execute(@Param('id') id: string) { return this.tableau.requeue(id); }
 }

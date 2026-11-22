@@ -1,97 +1,132 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
-import { ConfigService } from '../../config/config.service.js';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { etlRuns, etlStagingRows, tableauHourlyPoints, tableauViews, ttProfiles } from '../../database/schema/index.js';
 import type { TableauRunInput, TableauViewInput } from './tableau.schemas.js';
+import { TableauClient } from './tableau.client.js';
+import { calendarDateIn, isTotalLabel, parseCsv, parsePoints, parseSourceHour } from './tableau-parse.js';
 
-function parseCsv(text: string): Record<string, string>[] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = '';
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '"') {
-      if (quoted && text[index + 1] === '"') { value += '"'; index += 1; }
-      else quoted = !quoted;
-    } else if (char === ',' && !quoted) { row.push(value); value = ''; }
-    else if ((char === '\n' || char === '\r') && !quoted) {
-      if (char === '\r' && text[index + 1] === '\n') index += 1;
-      row.push(value); value = '';
-      if (row.some((cell) => cell.length > 0)) rows.push(row);
-      row = [];
-    } else value += char;
-  }
-  if (value.length || row.length) { row.push(value); rows.push(row); }
-  const headers = rows.shift() ?? [];
-  return rows.map((cells) => Object.fromEntries(headers.map((header, index) => [header.trim(), cells[index] ?? ''])));
-}
+/** A RUNNING run older than this lost its worker and is claimed again. */
+const STALE_RUN_MINUTES = 30;
+const ACTIVE = ['QUEUED', 'RUNNING'];
+
+type StagedRow = { rowNumber: number; rawRow: Record<string, string>; validationStatus: 'VALID' | 'REJECTED' | 'SKIPPED'; validationError?: string };
 
 @Injectable()
 export class TableauService {
-  constructor(private readonly db: DatabaseService, private readonly config: ConfigService) {}
+  constructor(private readonly db: DatabaseService, private readonly client: TableauClient) {}
 
   async listViews() { return this.db.db.select({ id: tableauViews.id, name: tableauViews.name, siteId: tableauViews.siteId, viewId: tableauViews.viewId, sourceTimezone: tableauViews.sourceTimezone, kind: tableauViews.kind, isActive: tableauViews.isActive, columnMapping: tableauViews.columnMapping }).from(tableauViews); }
 
   async createView(input: TableauViewInput, actorId: string) { const [row] = await this.db.db.insert(tableauViews).values({ ...input, createdBy: actorId }).returning({ id: tableauViews.id, name: tableauViews.name, kind: tableauViews.kind }); return row; }
 
+  /**
+   * Queues the run of a view for a business date. The API never calls Tableau: the
+   * worker does, because it is the only process holding the PAT. Re-requesting a
+   * finished run returns it; a FAILED one is queued again.
+   */
   async run(input: TableauRunInput) {
     const existing = await this.db.db.query.etlRuns.findFirst({ where: and(eq(etlRuns.viewId, input.viewId), eq(etlRuns.businessDate, input.businessDate)) });
-    if (existing) return existing;
+    if (existing) return existing.status === 'FAILED' ? this.requeue(existing.id) : existing;
     const view = await this.db.db.query.tableauViews.findFirst({ where: and(eq(tableauViews.id, input.viewId), eq(tableauViews.isActive, true)) });
     if (!view) throw new NotFoundException('Tableau view not found');
-    const [row] = await this.db.db.insert(etlRuns).values({ viewId: input.viewId, businessDate: input.businessDate, status: 'RUNNING' }).returning();
-    void this.execute(row.id);
-    return row;
+    const [row] = await this.db.db.insert(etlRuns).values({ viewId: input.viewId, businessDate: input.businessDate, status: 'QUEUED' }).onConflictDoNothing().returning();
+    return row ?? this.db.db.query.etlRuns.findFirst({ where: and(eq(etlRuns.viewId, input.viewId), eq(etlRuns.businessDate, input.businessDate)) });
+  }
+
+  /** Queues an existing run again (after a fix to the mapping, or a failure). A queued or running run is left alone. */
+  async requeue(runId: string) {
+    const [row] = await this.db.db.update(etlRuns).set({ status: 'QUEUED', error: null, finishedAt: null }).where(and(eq(etlRuns.id, runId), notInArray(etlRuns.status, ACTIVE))).returning();
+    if (row) return row;
+    const current = await this.db.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, runId) });
+    if (!current) throw new NotFoundException('ETL run not found');
+    return current;
   }
 
   async runs(viewId?: string) { return this.db.db.select().from(etlRuns).where(viewId ? eq(etlRuns.viewId, viewId) : undefined).orderBy(desc(etlRuns.startedAt)); }
 
-  async finish(runId: string, status: 'SUCCESS' | 'PARTIAL' | 'FAILED', rowCount: number, rejectedCount: number, error?: string) { const [row] = await this.db.db.update(etlRuns).set({ status, rowCount, rejectedCount, error, finishedAt: new Date() }).where(eq(etlRuns.id, runId)).returning(); if (!row) throw new ConflictException('ETL run not found'); return row; }
+  /** Worker only: claims queued runs (and stale running ones) and executes them one by one. */
+  async processQueued(limit = 4): Promise<number> {
+    const claimed = await this.db.db.execute(sql`
+      UPDATE etl_runs SET status = 'RUNNING', started_at = now()
+      WHERE id IN (
+        SELECT id FROM etl_runs
+        WHERE status = 'QUEUED' OR (status = 'RUNNING' AND started_at < now() - make_interval(mins => ${STALE_RUN_MINUTES}))
+        ORDER BY started_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${limit}
+      )
+      RETURNING id`);
+    for (const row of claimed.rows) await this.execute(String((row as { id: string }).id));
+    return claimed.rows.length;
+  }
 
+  /** Worker only. Downloads the view, stages every row, and promotes valid hourly points. */
   async execute(runId: string) {
     const run = await this.db.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, runId) });
     if (!run || !run.viewId) throw new NotFoundException('ETL run not found');
     const view = await this.db.db.query.tableauViews.findFirst({ where: eq(tableauViews.id, run.viewId) });
     if (!view) throw new NotFoundException('Tableau view not found');
-    const baseUrl = this.config.get('TABLEAU_API_BASE_URL');
-    const token = this.config.get('TABLEAU_AUTH_TOKEN');
-    if (!baseUrl || !token) return this.finish(runId, 'FAILED', 0, 0, 'Tableau ETL is not configured: TABLEAU_API_BASE_URL and TABLEAU_AUTH_TOKEN are required');
     try {
-      const url = new URL(`${baseUrl.replace(/\/$/, '')}/sites/${encodeURIComponent(view.siteId)}/views/${encodeURIComponent(view.viewId)}/data`);
-      url.searchParams.set('maxAge', '1');
-      const response = await fetch(url, { headers: { 'X-Tableau-Auth': token, Accept: 'text/csv' }, signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`Tableau returned HTTP ${response.status}`);
-      const body = await response.text();
-      const checksum = createHash('sha256').update(body).digest('hex');
-      const rows = parseCsv(body);
+      const download = await this.client.downloadViewData(view.viewId);
+      if (view.siteId !== download.siteId && view.siteId !== this.siteContentUrlHint()) {
+        throw new Error(`View is registered for site ${view.siteId}, but the PAT signed in to site ${download.siteId}`);
+      }
+      const checksum = createHash('sha256').update(download.body).digest('hex');
+      const { headers, rows } = parseCsv(download.body);
       const mapping = view.columnMapping ?? {};
-      let rejected = 0;
-      await this.db.db.transaction(async (tx) => {
-        for (let index = 0; index < rows.length; index += 1) {
-          const rawRow = rows[index];
-          const profileValue = mapping.profileId ? rawRow[mapping.profileId] : undefined;
-          const sourceHourValue = mapping.sourceHour ? rawRow[mapping.sourceHour] : undefined;
-          const pointsValue = mapping.points ? rawRow[mapping.points] : undefined;
-          const profile = profileValue ? await tx.query.ttProfiles.findFirst({ where: sql`${ttProfiles.id}::text = ${profileValue} OR ${ttProfiles.externalRef} = ${profileValue}` }) : undefined;
-          const sourceHour = sourceHourValue ? new Date(sourceHourValue) : undefined;
-          const points = pointsValue === undefined ? undefined : Number(pointsValue);
-          const valid = view.kind !== 'POINTS_HOURLY' || Boolean(profile && sourceHour && !Number.isNaN(sourceHour.getTime()) && points !== undefined && Number.isFinite(points));
-          if (!valid) rejected += 1;
-          await tx.insert(etlStagingRows).values({ etlRunId: runId, rowNumber: index + 1, rawRow, validationStatus: valid ? 'VALID' : 'REJECTED', validationError: valid ? undefined : 'Missing or invalid profileId/sourceHour/points mapping' });
-          if (valid && view.kind === 'POINTS_HOURLY' && profile && sourceHour && points !== undefined) {
-            await tx.insert(tableauHourlyPoints).values({ viewId: view.id, profileId: profile.id, sourceHour, businessDate: run.businessDate, points: points.toFixed(4), rawRow, etlRunId: runId }).onConflictDoUpdate({ target: [tableauHourlyPoints.viewId, tableauHourlyPoints.profileId, tableauHourlyPoints.sourceHour], set: { points: points.toFixed(4), rawRow, etlRunId: runId, businessDate: run.businessDate } });
-          }
-        }
-        await tx.update(etlRuns).set({ status: rejected ? 'PARTIAL' : 'SUCCESS', rowCount: rows.length, rejectedCount: rejected, checksum, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
+      const missing = Object.entries(mapping).filter(([, column]) => !headers.includes(column)).map(([key, column]) => `${key}=${column}`);
+      if (missing.length) throw new Error(`View columns changed: mapped columns not found (${missing.join(', ')})`);
+
+      const isHourly = view.kind === 'POINTS_HOURLY';
+      const refs = isHourly ? [...new Set(rows.map((row) => row[mapping.profileId]?.trim()).filter((value): value is string => Boolean(value) && !isTotalLabel(value!)))] : [];
+      const profiles = refs.length ? await this.db.db.select({ id: ttProfiles.id, externalRef: ttProfiles.externalRef }).from(ttProfiles).where(inArray(ttProfiles.externalRef, refs)) : [];
+      const profileByRef = new Map(profiles.map((profile) => [profile.externalRef, profile.id]));
+
+      const staged: StagedRow[] = [];
+      const points: Array<typeof tableauHourlyPoints.$inferInsert> = [];
+      rows.forEach((rawRow, index) => {
+        const rowNumber = index + 1;
+        if (!isHourly) return staged.push({ rowNumber, rawRow, validationStatus: 'VALID' });
+        const ref = rawRow[mapping.profileId]?.trim() ?? '';
+        if (isTotalLabel(ref)) return staged.push({ rowNumber, rawRow, validationStatus: 'SKIPPED', validationError: 'Total row' });
+        const profileId = profileByRef.get(ref);
+        const sourceHour = parseSourceHour(rawRow[mapping.sourceHour] ?? '', view.sourceTimezone);
+        const value = parsePoints(rawRow[mapping.points] ?? '');
+        const error = !profileId ? `Unknown profile reference "${ref}"` : !sourceHour ? 'Hour is not an ISO date-time (YYYY-MM-DD HH:mm)' : value === undefined ? 'Points are not a plain decimal number' : undefined;
+        if (error || !profileId || !sourceHour || value === undefined) return staged.push({ rowNumber, rawRow, validationStatus: 'REJECTED', validationError: error });
+        staged.push({ rowNumber, rawRow, validationStatus: 'VALID' });
+        points.push({ viewId: view.id, profileId, sourceHour, businessDate: calendarDateIn(sourceHour, 'America/Bogota'), points: value.toFixed(4), rawRow, etlRunId: runId });
       });
-      return { runId, status: rejected ? 'PARTIAL' : 'SUCCESS', rowCount: rows.length, rejectedCount: rejected, checksum };
+
+      const rejected = staged.filter((row) => row.validationStatus === 'REJECTED').length;
+      const status = rejected ? 'PARTIAL' : 'SUCCESS';
+      await this.db.db.transaction(async (tx) => {
+        for (let start = 0; start < staged.length; start += 500) {
+          await tx.insert(etlStagingRows).values(staged.slice(start, start + 500).map((row) => ({ etlRunId: runId, ...row }))).onConflictDoUpdate({
+            target: [etlStagingRows.etlRunId, etlStagingRows.rowNumber],
+            set: { rawRow: sql`excluded.raw_row`, validationStatus: sql`excluded.validation_status`, validationError: sql`excluded.validation_error` },
+          });
+        }
+        for (let start = 0; start < points.length; start += 500) {
+          await tx.insert(tableauHourlyPoints).values(points.slice(start, start + 500)).onConflictDoUpdate({
+            target: [tableauHourlyPoints.viewId, tableauHourlyPoints.profileId, tableauHourlyPoints.sourceHour],
+            set: { points: sql`excluded.points`, rawRow: sql`excluded.raw_row`, etlRunId: sql`excluded.etl_run_id`, businessDate: sql`excluded.business_date` },
+          });
+        }
+        await tx.update(etlRuns).set({ status, rowCount: rows.length, rejectedCount: rejected, checksum, error: null, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
+      });
+      return { runId, status, rowCount: rows.length, rejectedCount: rejected, checksum };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown Tableau ETL error';
-      await this.finish(runId, 'FAILED', 0, 0, message);
-      return { runId, status: 'FAILED', error: message };
+      await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
+      return { runId, status: 'FAILED' as const, error: message };
     }
+  }
+
+  /** Views may be registered by site LUID or by content URL; both identify the same site. */
+  private siteContentUrlHint(): string {
+    return this.client.siteContentUrl();
   }
 }
