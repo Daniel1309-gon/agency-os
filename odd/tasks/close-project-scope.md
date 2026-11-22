@@ -1,0 +1,37 @@
+# Close project scope — batch 1 (open work, P0 defects, Tableau fetch layer, client questions)
+
+Objective: close the open work, fix the payroll and icebreaker defects found in the 2026-11-22 scope audit, rebuild the Tableau fetch layer so it works against real Tableau Cloud, and draft the client questions that block the rest of E2/E3. Branch: `feat/scope-closure` (based on `feat/operator-start-shift`). Delivery: ask-on-risk. Test runners: vitest (unit), `vitest.integration.config.ts` (Postgres + Redis via `docker compose up -d`), `node --test tools/*.test.mjs`.
+
+## Specs
+
+- **S1** Close the open work: run the shift integration tests, commit the operator-start-shift change and the zod audit exception as separate commits.
+- **S2** Remove the zod audit exception (GHSA-mrhx-c7xc-m3w5, expires 2026-11-30) by migrating `backend` and `packages/shared` to zod `>=4.6.6`, then deleting the entry from `docs/security/audit-exceptions.json` and `auditConfig.ignoreGhsas` from `pnpm-workspace.yaml` (remediation text of the register). Public API validation behaviour must stay the same; the OpenAPI snapshot may change only in representation.
+- **S3** FR-22 (requirements v2.2): "LLM + regex contrasta el texto contra las normas vigentes de TalkyTimes. Si incumple alguna, el icebreaker queda bloqueado y no puede publicarse. Se indica qué regla específica fue incumplida." Local rules must always run; the AI engine may add a block but can never approve a text a BLOCKING local rule blocks.
+- **S4** FR-25: "Cada icebreaker bloqueado se registra con: texto, regla incumplida, operador, perfil y fecha." A block from the AI engine must also leave a violation trace.
+- **S5** FR-29: "Tasa de conversión y porcentaje de comisión individuales configurables por el administrador". Payroll compute must not assume a 100% commission (`'1'`) for an operator without a configured compensation; it fails closed and names the operators missing compensation. Assumption: compensation is looked up for the period, not for `now()`.
+- **S6** FR-28: "El operador ve sus puntos del mes y el equivalente en COP según su porcentaje de comisión asignado. No ve el total de puntos brutos ni el 100% si tiene un techo menor." `GET /payroll/me/summary` must not return raw points or gross COP. Assumption (to confirm with the client in T8): the operator sees points × commission and net COP.
+- **S7** Tableau fetch layer works against real Tableau Cloud (research 2026-11-22, help.tableau.com): PAT sign-in at `/api/{version}/auth/signin` with a token cache shared across instances (single-flight), `/api/{version}` prefix, no `Accept: text/csv` (406), durable job instead of `void`, 429 backoff, no hot retry on 401 (re-sign-in once), staging rows deduplicated on re-run, a required source timezone per view, raw checksum kept. Covered by tests against a stub server.
+- **S8** Draft the client message with every open decision: Tableau (flat hourly worksheet, columns, timezone, published data source, dedicated user + PAT, workbook refresh time), OQ-09 payroll formulas/goals/bonuses/events, FR-28 interpretation, written acceptance of single-VPS / deferred HA (ADR 0013) and OPS-04/SEC-09b moved to E2, icebreaker rules / blocking score / approval flow, OQ-11 TalkyTimes spike, OQ-13 max profiles per operator, competencias / traductor / horas extra in or out.
+
+## Tasks
+
+| ID | Specs | Route | Status | Evidence |
+|---|---|---|---|---|
+| T1 | S1 | inline | done | `529d0e2`; shifts-and-crews.int 41/41, web 78/78 |
+| T2 | S1 | inline | done | `3e43fbb`; audit-exceptions test pass, `pnpm audit --prod --audit-level high` exit 0 |
+| T3 | S3, S4 | inline | done | `df66823`; icebreakers.int RED 5/5 → GREEN 5/5, rls.int 17/17, unit 214/214. Risk: item 2 (guard on publishable content) |
+| T4 | S5, S6 | inline | done | `197ae77`; payroll.int RED 4 → GREEN 15/15, unit 13/13. Risk: item 3 (`/payroll/me/summary` drops `grossCop`; compute refuses without compensation, replacing the pinned "se paga el 100%" rule) |
+| T5 | S7 | inline | done | `d4f885f`; tableau unit 18/18, tableau.int 8/8, integration 302/302. Risk: item 1 (migration 0026: drops a column default, adds a unique index and worker grants) and item 3 (config: `TABLEAU_AUTH_TOKEN` replaced) |
+| T6 | S2 | inline | done | `7f8fa15`; `pnpm ci:quality` exit 0, `pnpm ci:database` exit 0 (302/302), OpenAPI snapshot byte-identical, `pnpm audit --prod --audit-level high` exit 0 with no exception. Risk: item 5 (dependency major) |
+| T8 | S8 | inline | done | `tasks/preguntas-cliente-2026-11-22.md` (draft, not sent) |
+| T9 | S2–S7 | delegated (verifier) | pending | Verification trigger: Risk lines name items 1, 2, 3, 5 |
+
+## Log
+
+- **L1** (2026-11-22) User: "vamos a acabar con todo el alcance del proyecto segun la documentacion que tenemos. revisa que necesitamos como por ejemplo la integracion y consumo de la api de tableau, investiga para eso."
+- **L2** (2026-11-22) Proposal accepted with "dale": start with points 1–3 (close open work; fix icebreaker rules, default commission and AI-block violations; rewrite the Tableau connection layer) and draft the client message with all open questions.
+- **L3** Scope audit and Tableau research done by two read-only explorers; findings saved in Engram (`agency-os/scope-gap-map-2026-11-22`, `architecture/tableau-etl-state`, `discovery/tableau-official-limits`). Key official-doc fact: VizQL Data Service has no HOUR/MINUTE aggregation, so hourly points need the client's flat worksheet.
+- **L4** (2026-11-22) T4: the previous unit test pinned "Sin comision vigente se paga el 100%: no se inventa un descuento" as an intentional rule. Replaced by refusing the computation (neither invents a discount nor overpays); flagged to the user. `defaultPointsToCopRate` of the period is now unused by compute because a compensation row always carries its own rate — raise with OQ-09. Mid-period commission changes are not split (compensation at period end applies to the whole period) — OQ-09.
+- **L5** (2026-11-22) T3: PLAN.md §6.7 already required "gana la regla"; the code had drifted. AI engine contract gains `violatedRules` (required non-empty on BLOCKED).
+- **L6** (2026-11-22) T5: the ETL runs only in the worker (single PAT holder); the API queues. Not done here, still open: per-view daily schedule (09:15, blocked on the client's refresh time), raw CSV artifact storage, hourly attribution 5/55 into points_ledger, reconciliation writer, freshness alerts. Their inputs depend on the client answers in T8.
+- **L7** (2026-11-22) T6: zod 4 gotchas: `.default()` takes the output value (place it before `.transform`); `extendZodWithOpenApi` does not reach schemas created before it runs — clone them; zod-to-openapi 8.5.0/9.1.0 ignore a bare `.meta({ id })`; `z.string().uuid()` checks version/variant bits.
