@@ -1416,7 +1416,11 @@ permitir todo.
 - **El texto del icebreaker es entrada de usuario que va a un prompt** (LLM01). Se envía como
   dato delimitado, y el resultado bloqueante lo decide el backend contra `icebreaker_rules`, no la
   narrativa del modelo: si el modelo dice "esto está bien" pero una regla `REGEX` de severidad
-  `BLOCKING` coincide, gana la regla.
+  `BLOCKING` coincide, gana la regla. Las reglas locales corren siempre; el ai-engine solo puede
+  añadir un bloqueo. Un veredicto `BLOCKED` debe nombrar en `violatedRules` los códigos de reglas
+  activas incumplidas (FR-22); si no los nombra o nombra uno inexistente, la evaluación es
+  `FAILED`. Cada regla incumplida, la encuentre quien la encuentre, deja una fila en
+  `icebreaker_violations` (FR-25).
 - **Costo acotado** (LLM10): tope de tokens por evaluación, rate limit por operador, y
   `token_cost_usd` registrado por evaluación para poder ver el gasto real.
 - **Los `pattern` de `icebreaker_rules` son regex escritas por un administrador**, no por un

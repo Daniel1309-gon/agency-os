@@ -2,13 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { ConfigService } from '../../config/config.service.js';
 
-const evaluationSchema = z.object({
-  status: z.enum(['APPROVED', 'BLOCKED']),
-  score: z.number().min(0).max(1),
-  result: z.record(z.unknown()).default({}),
-  model: z.string().max(160).optional(),
-  tokenCostUsd: z.number().nonnegative().optional(),
-});
+const evaluationSchema = z
+  .object({
+    status: z.enum(['APPROVED', 'BLOCKED']),
+    score: z.number().min(0).max(1),
+    /** Codes of the rules the engine found broken; FR-22 requires naming them on a block. */
+    violatedRules: z.array(z.string().min(1).max(64)).max(50).default([]),
+    result: z.record(z.unknown()).default({}),
+    model: z.string().max(160).optional(),
+    tokenCostUsd: z.number().nonnegative().optional(),
+  })
+  .refine((value) => value.status !== 'BLOCKED' || value.violatedRules.length > 0, 'a BLOCKED evaluation must name the violated rules');
 
 export type AiEvaluation = z.infer<typeof evaluationSchema>;
 

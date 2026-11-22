@@ -3,12 +3,21 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { icebreakerEffectiveness, icebreakerEvaluations, icebreakerReviews, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
 import type { IcebreakerCreateInput, IcebreakerUpdateInput, ReviewInput, RuleInput, RuleUpdateInput } from './icebreakers.schemas.js';
-import { AiEngineClient } from './ai-engine.client.js';
+import { AiEngineClient, type AiEvaluation } from './ai-engine.client.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 
 type IcebreakerActor = Pick<AccessTokenClaims, 'sub' | 'role'>;
 
 const isGlobalReviewer = (actor: IcebreakerActor): boolean => actor.role === 'ADMIN' || actor.role === 'DIRECTOR_OPERATIVO';
+
+/** A rule whose regex cannot compile counts as broken: a broken guard must not pass text. */
+function matchesRule(rule: { kind: string; pattern: string | null }, text: string): boolean {
+  if (!rule.pattern) return false;
+  if (rule.kind === 'REGEX') {
+    try { return new RegExp(rule.pattern, 'iu').test(text); } catch { return true; }
+  }
+  return rule.kind === 'KEYWORD' && text.toLocaleLowerCase().includes(rule.pattern.toLocaleLowerCase());
+}
 
 @Injectable()
 export class IcebreakersService {
@@ -29,38 +38,32 @@ export class IcebreakersService {
     const item = await this.db.db.query.icebreakers.findFirst({ where: and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub)) });
     if (!item) throw new NotFoundException('Icebreaker not found');
     const rules = await this.db.db.query.icebreakerRules.findMany({ where: eq(icebreakerRules.isActive, true) });
+    // FR-22: the local rules always run. The AI engine can add a block, never lift one.
+    const local = rules.filter((rule) => matchesRule(rule, item.text));
+    let remote: AiEvaluation | undefined;
     try {
-      const remote = await this.aiEngine.evaluate(item.text, rules.map((rule) => ({ code: rule.code, severity: rule.severity })));
-      if (remote) {
-        await this.db.db.transaction(async (tx) => {
-          await tx.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'AI_ENGINE', status: 'SUCCESS', result: remote.result, score: remote.score.toFixed(4), model: remote.model, tokenCostUsd: remote.tokenCostUsd?.toFixed(6) });
-          if (remote.status === 'BLOCKED') await tx.update(icebreakers).set({ status: 'BLOCKED', version: item.version + 1, updatedAt: new Date() }).where(eq(icebreakers.id, id));
-          else await tx.update(icebreakers).set({ status: 'APPROVED', version: item.version + 1, updatedAt: new Date() }).where(eq(icebreakers.id, id));
-        });
-        return { id, status: remote.status, blocking: remote.status === 'BLOCKED', score: remote.score, source: 'AI_ENGINE' };
-      }
+      remote = await this.aiEngine.evaluate(item.text, rules.map((rule) => ({ code: rule.code, severity: rule.severity })));
+      const unknown = remote?.violatedRules.filter((code) => !rules.some((rule) => rule.code === code)) ?? [];
+      if (unknown.length) throw new Error(`ai-engine named rules that are not active: ${unknown.join(', ')}`);
     } catch (error) {
       await this.db.db.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'AI_ENGINE', status: 'FAILED', result: { error: error instanceof Error ? error.message : 'Invalid AI response' } });
       throw new ConflictException('AI evaluation failed; the icebreaker was not published');
     }
-    const matches: Array<{ rule: typeof rules[number]; matched: boolean }> = [];
-    for (const rule of rules) {
-      let matched = false;
-      if (rule.kind === 'REGEX' && rule.pattern) {
-        try { matched = new RegExp(rule.pattern, 'iu').test(item.text); } catch { matched = true; }
-      } else if (rule.kind === 'KEYWORD' && rule.pattern) matched = item.text.toLocaleLowerCase().includes(rule.pattern.toLocaleLowerCase());
-      matches.push({ rule, matched });
-    }
-    const violations = matches.filter((match) => match.matched);
-    const blocking = violations.some((match) => match.rule.severity === 'BLOCKING');
+    // A rule named by the engine on a BLOCKED verdict counts as broken even if its
+    // own severity is a warning: the engine judged the text unpublishable for it.
+    const remoteBroken = remote?.status === 'BLOCKED' ? rules.filter((rule) => remote!.violatedRules.includes(rule.code)) : [];
+    const broken = [...new Map([...local, ...remoteBroken].map((rule) => [rule.id, rule])).values()];
+    const blocking = local.some((rule) => rule.severity === 'BLOCKING') || remote?.status === 'BLOCKED';
     const status = blocking ? 'BLOCKED' : 'APPROVED';
+    const matchedRules = broken.map((rule) => rule.code);
     await this.db.db.transaction(async (tx) => {
-      const [evaluation] = await tx.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'LOCAL_RULES', status: 'SUCCESS', result: { matchedRules: violations.map((v) => v.rule.code), blocking }, score: blocking ? '0' : '1' }).returning({ id: icebreakerEvaluations.id });
-      if (violations.length) await tx.insert(icebreakerViolations).values(violations.map(({ rule }) => ({ icebreakerId: id, ruleId: rule.id, severity: rule.severity, status: 'OPEN' })));
+      await tx.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'LOCAL_RULES', status: 'SUCCESS', result: { matchedRules: local.map((rule) => rule.code), blocking: local.some((rule) => rule.severity === 'BLOCKING') }, score: local.some((rule) => rule.severity === 'BLOCKING') ? '0' : '1' });
+      if (remote) await tx.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'AI_ENGINE', status: 'SUCCESS', result: { ...remote.result, verdict: remote.status, violatedRules: remote.violatedRules }, score: remote.score.toFixed(4), model: remote.model, tokenCostUsd: remote.tokenCostUsd?.toFixed(6) });
+      // FR-25: every broken rule leaves a trace, whoever found it.
+      if (broken.length) await tx.insert(icebreakerViolations).values(broken.map((rule) => ({ icebreakerId: id, ruleId: rule.id, severity: rule.severity, status: 'OPEN' })));
       await tx.update(icebreakers).set({ status, version: item.version + 1, updatedAt: new Date() }).where(eq(icebreakers.id, id));
-      return evaluation;
     });
-    return { id, status, blocking, matchedRules: violations.map((v) => v.rule.code) };
+    return { id, status, blocking, matchedRules, ...(remote ? { score: remote.score, source: 'AI_ENGINE' as const } : { source: 'LOCAL_RULES' as const }) };
   }
 
   async publish(id: string, actor: IcebreakerActor) {
