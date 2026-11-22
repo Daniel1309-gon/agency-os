@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import { asc, eq } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { IcebreakersService } from '../../modules/icebreakers/icebreakers.service.js';
 import type { AiEngineClient, AiEvaluation } from '../../modules/icebreakers/ai-engine.client.js';
-import { icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
+import { auditLog, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -14,7 +15,7 @@ let service: IcebreakersService;
 beforeAll(async () => {
   ctx = await createTestContext();
   const engine = { evaluate: async () => verdict } as unknown as AiEngineClient;
-  service = new IcebreakersService(ctx.database, engine);
+  service = new IcebreakersService(ctx.database, engine, new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -97,5 +98,25 @@ describe('IcebreakersService.evaluate (FR-22, FR-25)', () => {
 
     await expect(service.evaluate(id, actor)).resolves.toEqual({ id, status: 'APPROVED', blocking: false, matchedRules: ['SOFT_EMOJI'], source: 'LOCAL_RULES' });
     expect(await violationsOf(id)).toEqual([{ ruleId: warning.id, severity: 'WARNING' }]);
+  });
+
+  it('records audit entries for rule creation, evaluation, and publishing', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    await service.createRule({ code: 'NO_PHONE', name: 'No phone', kind: 'KEYWORD', pattern: 'tel:', severity: 'BLOCKING' }, admin.id);
+    const { actor, id } = await draft('Hola, buen dia');
+    verdict = approve(0.95);
+
+    await service.evaluate(id, actor);
+    await service.publish(id, actor);
+
+    const actions = await ctx.db
+      .select({ action: auditLog.action, metadata: auditLog.metadata })
+      .from(auditLog)
+      .orderBy(asc(auditLog.id));
+    expect(actions).toEqual([
+      { action: 'icebreaker.rule.created', metadata: { key: 'NO_PHONE' } },
+      { action: 'icebreaker.evaluated', metadata: { profileId: null, status: 'APPROVED', source: 'AI_ENGINE', count: 0 } },
+      { action: 'icebreaker.published', metadata: { status: 'PUBLISHED' } },
+    ]);
   });
 });

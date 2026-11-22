@@ -68,6 +68,17 @@ export const AUDIT_ACTIONS = {
   'rocketchat.bot.knowledge.updated': { entity: 'bot_knowledge', label: 'Conocimiento del bot actualizado' },
   'rocketchat.bot.query': { entity: 'user', label: 'Consulta al bot' },
   'outbox.requeued': { entity: 'outbox_event', label: 'Entrega reintentada' },
+
+  'payroll.exported': { entity: 'payroll_period', label: 'Nómina exportada a Excel' },
+  'payroll.period.computed': { entity: 'payroll_period', label: 'Nómina calculada' },
+  'payroll.period.status_changed': { entity: 'payroll_period', label: 'Estado de periodo de nómina actualizado' },
+  'payroll.adjustment.created': { entity: 'payroll_line', label: 'Ajuste de nómina registrado' },
+  'payroll.points_adjusted': { entity: 'user', label: 'Ajuste manual de puntos registrado' },
+
+  'icebreaker.evaluated': { entity: 'icebreaker', label: 'Icebreaker evaluado' },
+  'icebreaker.published': { entity: 'icebreaker', label: 'Icebreaker publicado' },
+  'icebreaker.rule.created': { entity: 'icebreaker_rule', label: 'Regla de icebreaker creada' },
+  'icebreaker.reviewed': { entity: 'icebreaker', label: 'Icebreaker revisado' },
 } as const satisfies Record<string, { entity: string | null; label: string }>;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

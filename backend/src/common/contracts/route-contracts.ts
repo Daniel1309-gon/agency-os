@@ -127,6 +127,7 @@ export const routeContracts = [
   route('POST', '/api/v1/payroll/periods/{id}/close', 'RESOURCE'),
   route('POST', '/api/v1/payroll/lines/{id}/adjustments', 'RESOURCE'),
   route('GET', '/api/v1/payroll/periods/{id}/lines', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
+  route('GET', '/api/v1/payroll/periods/{id}/export', 'RESOURCE'),
   route('GET', '/api/v1/payroll/goals', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/payroll/goals', 'GLOBAL'),
   route('GET', '/api/v1/payroll/goals/me/progress', 'SELF'),

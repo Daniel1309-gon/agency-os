@@ -4706,6 +4706,57 @@
         }
       }
     },
+    "/api/v1/payroll/periods/{id}/export": {
+      "get": {
+        "operationId": "PayrollController.exportPeriod",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.configure"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.configure"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/payroll/periods/{id}/export",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/payroll/periods/{id}/lines": {
       "get": {
         "operationId": "PayrollController.lines",
