@@ -34,8 +34,7 @@ describe('PayrollService.compute', () => {
   });
 
   it('multiplies points by rate for gross, and gross by commission for net', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1000.0000' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.3000', pointsToCopRate: '10.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1000.0000', compensationId: 'c1', commissionRate: '0.3000', pointsToCopRate: '10.0000', lastDate: '2026-08-10' }]);
 
     const result = await h.service.compute(PERIOD, ACTOR);
 
@@ -45,8 +44,7 @@ describe('PayrollService.compute', () => {
 
   it('snapshots the commission and the rate onto the line', async () => {
     // Decision #13: cambiar la comision manana no puede reescribir lo ya liquidado.
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '500.0000' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.4500', pointsToCopRate: '8.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '500.0000', compensationId: 'c1', commissionRate: '0.4500', pointsToCopRate: '8.0000', lastDate: '2026-08-10' }]);
 
     await h.service.compute(PERIOD, ACTOR);
 
@@ -61,8 +59,7 @@ describe('PayrollService.compute', () => {
   });
 
   it('refuses to compute when the operator has no compensation row', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '100.0000' }]);
-    h.db.stub('operator_compensation').findFirst(undefined);
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '100.0000', compensationId: null, commissionRate: null, pointsToCopRate: null, lastDate: '2026-08-10' }]);
 
     // FR-29: the commission is individual. Neither an invented discount nor an
     // assumed 100%: the administrator configures it before payroll runs.
@@ -71,8 +68,7 @@ describe('PayrollService.compute', () => {
   });
 
   it('rounds money to two decimals, and derives net from the already rounded gross', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '333.3333' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.3333', pointsToCopRate: '3.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '333.3333', compensationId: 'c1', commissionRate: '0.3333', pointsToCopRate: '3.0000', lastDate: '2026-08-10' }]);
 
     await h.service.compute(PERIOD, ACTOR);
     const line = lastLine(h.db);
@@ -88,10 +84,9 @@ describe('PayrollService.compute', () => {
 
   it('computes a line per operator', async () => {
     h.db.stub('points_ledger').select([
-      { operatorId: OPERATOR, points: '10.0000' },
-      { operatorId: ACTOR, points: '20.0000' },
+      { operatorId: OPERATOR, points: '10.0000', compensationId: 'c1', commissionRate: '1.0000', pointsToCopRate: '2.0000', lastDate: '2026-08-10' },
+      { operatorId: ACTOR, points: '20.0000', compensationId: 'c2', commissionRate: '1.0000', pointsToCopRate: '2.0000', lastDate: '2026-08-10' },
     ]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '1.0000', pointsToCopRate: '2.0000' });
 
     const result = await h.service.compute(PERIOD, ACTOR);
 
@@ -144,8 +139,7 @@ describe('PayrollService.summary', () => {
     // Criterio de entrega de PLAN.md §9 y FR-28.
     const { service, db } = harness();
     db.stub('payroll_periods').findFirst(openPeriod);
-    db.stub('points_ledger').select([{ points: '1200.0000' }]);
-    db.stub('operator_compensation').findFirst({ commissionRate: '0.3000', pointsToCopRate: '10.0000' });
+    db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1200.0000', compensationId: 'c1', commissionRate: '0.3000', pointsToCopRate: '10.0000', lastDate: '2026-08-10' }]);
 
     const summary = await service.summary(OPERATOR);
 

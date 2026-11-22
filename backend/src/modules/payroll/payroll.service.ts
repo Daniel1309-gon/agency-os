@@ -4,6 +4,59 @@ import { DatabaseService } from '../../database/database.service.js';
 import { competitions, competitionParticipants, goals, operatorCompensation, payrollAdjustments, payrollLines, payrollPeriods, pointsLedger, users } from '../../database/schema/index.js';
 import type { AdjustmentInput, CompetitionInput, GoalInput, PeriodCreateInput, PointsAdjustmentInput } from './payroll.schemas.js';
 
+interface PricedSegment {
+  operatorId: string;
+  points: string;
+  compensationId: string | null;
+  commissionRate: string | null;
+  pointsToCopRate: string | null;
+  lastDate: string;
+}
+
+function groupByOperator(segments: PricedSegment[]): Map<string, PricedSegment[]> {
+  const grouped = new Map<string, PricedSegment[]>();
+  for (const segment of segments) grouped.set(segment.operatorId, [...(grouped.get(segment.operatorId) ?? []), segment]);
+  return grouped;
+}
+
+/**
+ * Money is rounded per segment exactly as a single-rate line is: gross to two
+ * decimals first, then net from that rounded gross. The line snapshots the
+ * compensation of the latest priced day. `missing` is true when points that do not
+ * net to zero fall on a day without a compensation in force.
+ */
+function priceSegments(segments: PricedSegment[]) {
+  let points = 0;
+  let commissioned = 0;
+  let gross = 0;
+  let net = 0;
+  let missing = false;
+  let latest: PricedSegment | undefined;
+  for (const segment of segments) {
+    const value = Number(segment.points);
+    points += value;
+    if (!segment.compensationId || segment.commissionRate === null || segment.pointsToCopRate === null) {
+      if (value !== 0) missing = true;
+      continue;
+    }
+    const commission = Number(segment.commissionRate);
+    const segmentGross = Number((value * Number(segment.pointsToCopRate)).toFixed(2));
+    commissioned += value * commission;
+    gross += segmentGross;
+    net += Number((segmentGross * commission).toFixed(2));
+    if (!latest || segment.lastDate > latest.lastDate) latest = segment;
+  }
+  return {
+    missing: missing || !latest,
+    pointsTotal: points.toFixed(4),
+    commissionedPoints: commissioned.toFixed(4),
+    grossCop: gross.toFixed(2),
+    netCop: net.toFixed(2),
+    commissionRate: latest?.commissionRate ?? '0',
+    pointsToCopRate: latest?.pointsToCopRate ?? '0',
+  };
+}
+
 @Injectable()
 export class PayrollService {
   constructor(private readonly db: DatabaseService) {}
@@ -20,20 +73,17 @@ export class PayrollService {
     const period = await this.db.db.query.payrollPeriods.findFirst({ where: eq(payrollPeriods.id, periodId) });
     if (!period) throw new NotFoundException('Payroll period not found');
     if (period.status !== 'OPEN') throw new ConflictException('Payroll period is not open');
-    const totals = await this.db.db.select({ operatorId: pointsLedger.operatorId, points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)` }).from(pointsLedger).where(and(gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn))).groupBy(pointsLedger.operatorId);
-    const priced = await Promise.all(totals.map(async (total) => ({ total, compensation: await this.compensationFor(total.operatorId, period.endsOn) })));
+    const byOperator = groupByOperator(await this.pricedSegments(period));
     // FR-29: the commission is individual. Paying an operator without one at an
     // assumed 100% overpays silently, so the whole computation is refused instead.
-    const missing = priced.filter((entry) => !entry.compensation).map((entry) => entry.total.operatorId);
+    const missing = [...byOperator].filter(([, segments]) => priceSegments(segments).missing).map(([operatorId]) => operatorId);
     if (missing.length) throw new ConflictException(`Compensation is not configured for operators: ${missing.join(', ')}`);
-    for (const { total, compensation } of priced) {
-      const commission = compensation!.commissionRate;
-      const rate = compensation!.pointsToCopRate;
-      const gross = (Number(total.points) * Number(rate)).toFixed(2);
-      const net = (Number(gross) * Number(commission)).toFixed(2);
-      await this.db.db.insert(payrollLines).values({ periodId, operatorId: total.operatorId, pointsTotal: total.points, commissionRateSnapshot: commission, pointsToCopRateSnapshot: rate, grossCop: gross, netCop: net, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { pointsTotal: total.points, commissionRateSnapshot: commission, pointsToCopRateSnapshot: rate, grossCop: gross, netCop: net, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
+    for (const [operatorId, segments] of byOperator) {
+      const priced = priceSegments(segments);
+      const line = { pointsTotal: priced.pointsTotal, commissionRateSnapshot: priced.commissionRate, pointsToCopRateSnapshot: priced.pointsToCopRate, grossCop: priced.grossCop, netCop: priced.netCop };
+      await this.db.db.insert(payrollLines).values({ periodId, operatorId, ...line, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { ...line, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
     }
-    return { periodId, linesComputed: totals.length };
+    return { periodId, linesComputed: byOperator.size };
   }
 
   /**
@@ -49,15 +99,34 @@ export class PayrollService {
       if (periodId) throw new NotFoundException('Payroll period not found');
       return { periodId: null, points: '0.0000', netCop: '0.00', compensationConfigured: false };
     }
-    const [raw] = await this.db.db.select({ points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)` }).from(pointsLedger).where(and(eq(pointsLedger.operatorId, operatorId), gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn)));
-    const compensation = await this.compensationFor(operatorId, period.endsOn);
-    if (!compensation) return { periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false };
-    const points = Number(raw?.points ?? 0);
-    const commission = Number(compensation.commissionRate);
-    // Same rounding as compute(): net comes from the already rounded gross, so the
-    // live figure matches the payroll line once it is computed.
-    const gross = Number((points * Number(compensation.pointsToCopRate)).toFixed(2));
-    return { periodId: period.id, points: (points * commission).toFixed(4), netCop: (gross * commission).toFixed(2), compensationConfigured: true };
+    const segments = await this.pricedSegments(period, operatorId);
+    const unpaid = { periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false };
+    if (!segments.length) return (await this.compensationFor(operatorId, period.endsOn)) ? { ...unpaid, compensationConfigured: true } : unpaid;
+    const priced = priceSegments(segments);
+    if (priced.missing) return unpaid;
+    return { periodId: period.id, points: priced.commissionedPoints, netCop: priced.netCop, compensationConfigured: true };
+  }
+
+  /**
+   * Ledger points of the period grouped by the compensation in force on each shift
+   * business date (start of that day in Bogota). operator_compensation forbids
+   * overlapping ranges, so every ledger row joins at most one compensation; a
+   * mid-period change prices each day with its own rate and commission.
+   */
+  private pricedSegments(period: { startsOn: string; endsOn: string }, operatorId?: string): Promise<PricedSegment[]> {
+    return this.db.db
+      .select({
+        operatorId: pointsLedger.operatorId,
+        points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)`,
+        compensationId: operatorCompensation.id,
+        commissionRate: operatorCompensation.commissionRate,
+        pointsToCopRate: operatorCompensation.pointsToCopRate,
+        lastDate: sql<string>`max(${pointsLedger.shiftBusinessDate})::text`,
+      })
+      .from(pointsLedger)
+      .leftJoin(operatorCompensation, and(eq(operatorCompensation.operatorId, pointsLedger.operatorId), sql`${operatorCompensation.validRange} @> (${pointsLedger.shiftBusinessDate}::timestamp at time zone 'America/Bogota')`))
+      .where(and(gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn), operatorId ? eq(pointsLedger.operatorId, operatorId) : undefined))
+      .groupBy(pointsLedger.operatorId, operatorCompensation.id, operatorCompensation.commissionRate, operatorCompensation.pointsToCopRate);
   }
 
   /** Compensation in force at the end of the period, or now if the period has not ended yet. */

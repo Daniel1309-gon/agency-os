@@ -141,6 +141,42 @@ describe('PayrollService.compute against a real ledger', () => {
     expect(await payroll.lines(period.id)).toHaveLength(0);
   });
 
+  it('pays an operator whose compensation ended mid-period, without blocking anyone else', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const leaver = await createUser(ctx);
+    const stayer = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    // Left on 2026-08-21 (Bogota): the compensation covers the days actually worked.
+    await ctx.db.insert(operatorCompensation).values({ operatorId: leaver.id, commissionRate: '0.5000', pointsToCopRate: '10.0000', validRange: halfOpen('2026-07-01T05:00:00Z', '2026-08-21T05:00:00Z'), createdBy: admin.id });
+    await compensate(stayer.id, admin.id);
+    await ledger(leaver.id, profile.id, '2026-08-10', '100.0000');
+    await ledger(stayer.id, profile.id, '2026-08-10', '10.0000');
+
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 2 });
+    const lines = await payroll.lines(period.id);
+    expect(lines.find((line) => line.operatorId === leaver.id)).toMatchObject({ commissionRateSnapshot: '0.5000', grossCop: '1000.00', netCop: '500.00' });
+  });
+
+  it('prices each day with the compensation in force that day when it changes mid-period', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await ctx.db.insert(operatorCompensation).values([
+      { operatorId: operator.id, commissionRate: '0.3000', pointsToCopRate: '10.0000', validRange: halfOpen('2026-07-01T05:00:00Z', '2026-08-16T05:00:00Z'), createdBy: admin.id },
+      { operatorId: operator.id, commissionRate: '0.5000', pointsToCopRate: '20.0000', validRange: halfOpen('2026-08-16T05:00:00Z', '2027-01-01T05:00:00Z'), createdBy: admin.id },
+    ]);
+    await ledger(operator.id, profile.id, '2026-08-10', '100.0000');
+    await ledger(operator.id, profile.id, '2026-08-20', '100.0000');
+
+    await payroll.compute(period.id, admin.id);
+
+    // 100 x 10 x 0.3 = 300 and 100 x 20 x 0.5 = 1000. The line snapshots the latest compensation.
+    expect((await payroll.lines(period.id))[0]).toMatchObject({ pointsTotal: '200.0000', grossCop: '3000.00', netCop: '1300.00', commissionRateSnapshot: '0.5000', pointsToCopRateSnapshot: '20.0000' });
+    await expect(payroll.summary(operator.id, period.id)).resolves.toEqual({ periodId: period.id, points: '80.0000', netCop: '1300.00', compensationConfigured: true });
+  });
+
   it('applies the compensation in force when the period ended, not the one in force today', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
