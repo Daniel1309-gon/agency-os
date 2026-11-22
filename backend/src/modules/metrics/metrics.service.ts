@@ -1,15 +1,48 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { and, asc, count, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { cafeteriaOrders, crewMembers, crews, metricEvents, metricReconciliation, profileDailyMetrics, profileSessions, shifts, ttProfiles } from '../../database/schema/index.js';
+import { cafeteriaOrders, crewMembers, crews, metricEvents, metricReconciliation, profileAssignments, profileDailyMetrics, profileSessions, shifts, ttProfiles } from '../../database/schema/index.js';
 import type { MetricBatchInput } from './metrics.schemas.js';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class MetricsService {
   constructor(private readonly db: DatabaseService) {}
 
   async ingest(input: MetricBatchInput, operatorId: string, sessionId?: string) {
+    if (sessionId !== undefined) {
+      if (!UUID_PATTERN.test(sessionId)) throw new BadRequestException('Invalid x-session-id header');
+      const [session] = await this.db.db
+        .select({ id: profileSessions.id, profileId: profileSessions.profileId })
+        .from(profileSessions)
+        .where(and(eq(profileSessions.id, sessionId), eq(profileSessions.operatorId, operatorId)))
+        .limit(1);
+      if (!session) throw new ForbiddenException('Session does not belong to this operator');
+      if (input.events.some((event) => event.profileId !== session.profileId)) {
+        throw new ForbiddenException('Metric event profile does not match session profile');
+      }
+    }
+
+    const distinctPairs = new Map<string, { profileId: string; occurredAt: string }>();
+    for (const event of input.events) {
+      distinctPairs.set(`${event.profileId}|${event.occurredAt}`, { profileId: event.profileId, occurredAt: event.occurredAt });
+    }
+    for (const pair of distinctPairs.values()) {
+      const [owned] = await this.db.db
+        .select({ id: profileAssignments.id })
+        .from(profileAssignments)
+        .where(and(
+          eq(profileAssignments.operatorId, operatorId),
+          eq(profileAssignments.profileId, pair.profileId),
+          inArray(profileAssignments.status, ['ACTIVE', 'ENDED']),
+          sql`${profileAssignments.validRange} @> ${pair.occurredAt}::timestamptz`,
+        ))
+        .limit(1);
+      if (!owned) throw new ForbiddenException('Operator does not hold an assignment for this profile at event time');
+    }
+
     const rows = input.events.map((event) => ({
       dedupeKey: event.dedupeKey,
       profileId: event.profileId,

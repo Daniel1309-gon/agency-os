@@ -116,6 +116,33 @@ describe('placing an order', () => {
     expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(0);
     expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(0);
   });
+
+  it('rejects a soft-deleted product even if isAvailable is still true (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    await ctx.pool.query('UPDATE cafeteria_products SET deleted_at = now() WHERE id = $1', [lunch.id]);
+
+    await expect(
+      cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }] }, operator.id, 'key-deleted'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('handles concurrent createOrder calls with the same idempotencyKey without 23505 and with a consistent response shape (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    const input = { items: [{ productId: lunch.id, quantity: 2 }] };
+
+    // Race both inside withRequestContext (matching TransactionInterceptor savepoints in HTTP).
+    const [first, second] = await Promise.all([
+      ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+      ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+    ]);
+
+    expect(second.id).toBe(first.id);
+    expect(Object.keys(first).sort()).toEqual(Object.keys(second).sort());
+    expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(1);
+    expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(1);
+  });
 });
 
 describe('the kitchen flow and the debit', () => {

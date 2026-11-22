@@ -1,5 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
-import { and, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { breaks, cafeteriaOrders, crewMembers, outboxEvents, profileAssignments, profileSessions, roles, shiftTemplates, shifts, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
@@ -151,7 +151,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async expireOrders(): Promise<void> {
-    await this.db.db.update(cafeteriaOrders).set({ status: 'EXPIRED' }).where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())));
+    const expired = await this.db.db
+      .update(cafeteriaOrders)
+      .set({ status: 'EXPIRED' })
+      .where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())))
+      .returning({ id: cafeteriaOrders.id });
+    await Promise.all(expired.map((row) => this.realtime.publishCafeteriaOrderChanged(row.id)));
   }
 
   private async materializeShifts(businessDate = businessDateInBogota(new Date())): Promise<number> {
@@ -235,11 +240,59 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * FR-16 (A11): avisa por Rocket.Chat (via outbox durable) 5 minutos antes del
+   * tope de 20 minutos, marcando `breaks.notified_at` en la misma transaccion
+   * para no duplicar avisos entre ticks o workers.
+   */
+  private async notifyEndingBreaks(now = new Date()): Promise<number> {
+    const warnBefore = new Date(now.getTime() - 15 * 60_000);
+    const closeBefore = new Date(now.getTime() - 20 * 60_000);
+    return this.db.transaction(async () => {
+      const due = await this.db.db
+        .update(breaks)
+        .set({ notifiedAt: now })
+        .where(and(
+          eq(breaks.status, 'IN_PROGRESS'),
+          isNull(breaks.notifiedAt),
+          isNotNull(breaks.startedAt),
+          lte(breaks.startedAt, warnBefore),
+          gt(breaks.startedAt, closeBefore),
+        ))
+        .returning({ id: breaks.id, shiftId: breaks.shiftId, startedAt: breaks.startedAt });
+      if (!due.length) return 0;
+      const shiftRows = await this.db.db
+        .select({ id: shifts.id, operatorId: shifts.operatorId })
+        .from(shifts)
+        .where(inArray(shifts.id, due.map((row) => row.shiftId)));
+      const operatorByShift = new Map(shiftRows.map((row) => [row.id, row.operatorId]));
+      const notices = due
+        .map((row) => {
+          const operatorId = operatorByShift.get(row.shiftId);
+          if (!operatorId || !row.startedAt) return null;
+          const remainingMinutes = Math.max(1, Math.ceil((row.startedAt.getTime() + 20 * 60_000 - now.getTime()) / 60_000));
+          return {
+            eventType: 'rocketchat.message.send',
+            aggregateType: 'break',
+            aggregateId: row.id,
+            payload: {
+              targetUserId: operatorId,
+              body: `Tu break termina en ${remainingMinutes} min (límite máximo de 20 min).`,
+            },
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+      if (notices.length) await this.db.db.insert(outboxEvents).values(notices);
+      return notices.length;
+    });
+  }
+
+  /**
    * Cierra a los 20 minutos los breaks que el operador inicio y no termino. El
    * `ended_at` sale de `started_at + 20 min` en Postgres, no del reloj del
    * worker: el tope es una regla de la plataforma, no del proceso que la aplica.
    */
   private async autoCloseBreaks(): Promise<void> {
+    await this.notifyEndingBreaks();
     const closed = await this.db.db
       .update(breaks)
       .set({ status: 'COMPLETED', endedAt: sql`${breaks.startedAt} + interval '20 minutes'`, durationMinutes: 20 })
