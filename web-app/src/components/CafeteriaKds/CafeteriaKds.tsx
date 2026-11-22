@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
+import { applyOrderSnapshot, mergeOrders } from './cafeteria-orders-view';
 
 const columns: Array<{ status: CafeteriaOrderStatus; label: string }> = [
   { status: 'PLACED', label: 'Recibidos' },
@@ -23,12 +24,6 @@ function socketOrigin(): string {
   return new URL(baseUrl).origin;
 }
 
-function mergeOrders(current: CafeteriaOrder[], incoming: CafeteriaOrder[]): CafeteriaOrder[] {
-  const byId = new Map(current.map((order) => [order.id, order]));
-  for (const order of incoming) byId.set(order.id, order);
-  return [...byId.values()].sort((left, right) => right.placedAt.localeCompare(left.placedAt));
-}
-
 function formatCop(value: string): string {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value));
 }
@@ -44,7 +39,8 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     setError(null);
     try {
       const raw = await apiClient.request<unknown>('/cafeteria/orders');
-      setOrders(cafeteriaOrderSchema.array().parse(raw));
+      const parsed = cafeteriaOrderSchema.array().parse(raw);
+      setOrders((current) => applyOrderSnapshot(current, parsed));
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar los pedidos de cafetería.');
     } finally {

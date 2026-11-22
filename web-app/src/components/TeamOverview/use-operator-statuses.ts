@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { operatorStatusSnapshotSchema, type OperatorStatusSnapshot } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
-import { mergeOperatorStatuses } from './operator-status-view';
+import { applyOperatorSnapshot, mergeOperatorStatuses } from './operator-status-view';
 
 interface OperatorStatusesState {
   statuses: OperatorStatusSnapshot[];
@@ -29,7 +29,8 @@ export function useOperatorStatuses(accessToken: string | null): OperatorStatuse
     setError(null);
     try {
       const raw = await apiClient.request<unknown>('/operators/status');
-      setStatuses(operatorStatusSnapshotSchema.array().parse(raw));
+      const parsed = operatorStatusSnapshotSchema.array().parse(raw);
+      setStatuses((current) => applyOperatorSnapshot(current, parsed));
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar el semáforo operativo.');
     } finally {
@@ -61,7 +62,7 @@ export function useOperatorStatuses(accessToken: string | null): OperatorStatuse
     const renewSession = () => apiClient.request('/auth/me').then(() => undefined);
     const onSnapshot = (payload: unknown) => {
       const parsed = operatorStatusSnapshotSchema.array().safeParse(payload);
-      if (parsed.success) setStatuses(parsed.data);
+      if (parsed.success) setStatuses((current) => applyOperatorSnapshot(current, parsed.data));
     };
     const onChanged = (payload: unknown) => {
       const parsed = operatorStatusSnapshotSchema.safeParse(payload);

@@ -175,6 +175,10 @@
             "nullable": true,
             "type": "string"
           },
+          "seq": {
+            "minimum": 0,
+            "type": "integer"
+          },
           "status": {
             "enum": [
               "PLACED",
