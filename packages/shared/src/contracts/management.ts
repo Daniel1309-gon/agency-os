@@ -142,7 +142,7 @@ function validateAuditMetadata(value: unknown, path: string, context: z.Refineme
   });
 }
 
-const auditMetadataSchema = z.record(z.unknown()).superRefine((value, context) => validateAuditMetadata(value, 'metadata', context));
+const auditMetadataSchema = z.record(z.string(), z.unknown()).superRefine((value, context) => validateAuditMetadata(value, 'metadata', context));
 
 export const auditRecordSchema = z.object({
   id: z.number().int().nonnegative(),
@@ -239,6 +239,6 @@ export type NotificationRecord = z.infer<typeof notificationRecordSchema>;
 
 export const readinessResponseSchema = z.object({
   status: z.string(),
-  checks: z.record(z.boolean()),
+  checks: z.record(z.string(), z.boolean()),
 }).strict();
 export type ReadinessResponse = z.infer<typeof readinessResponseSchema>;

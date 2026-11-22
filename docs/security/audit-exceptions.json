@@ -1,9 +1,1 @@
-[
-  {
-    "ghsa": "GHSA-mrhx-c7xc-m3w5",
-    "package": "zod (backend, @agency-os/shared) 3.25.76; fixed only in zod >=4.6.6",
-    "reason": "No zod 3.x release is patched; the fix requires the zod 4 major upgrade. Exposure measured on 2026-10-26: Fastify bodyLimit is 256 KiB, and zod 3 keeps validating every element past .max(), so a worst-case array of 131,065 elements produces 131,066 issues and about 69 MB of heap per request. Every request schema with an array or record is behind authentication and, in production, behind Cloudflare mTLS plus an approved device (ClientCertGuard): metricBatchSchema.events (max 500, station device + operator on shift), cafeteria orderSchema.items (max 30, operator on shift, any approved device), assignmentBatchSchema.windows (max 366, profiles.update), botKnowledgeSchema keywords/crewIds and scheduled-message recurrence weekdays (chat.manage), shiftTemplateSchema.weekdays (shifts.manage), goalSchema.tiers (payroll.configure) and tableauViewSchema.columnMapping (etl.manage). The public routes (login, refresh, device enroll, bot webhook) validate no arrays.",
-    "remediation": "Migrate backend and packages/shared to zod >=4.6.6, then remove this entry and auditConfig.ignoreGhsas from pnpm-workspace.yaml.",
-    "expires": "2026-11-30"
-  }
-]
+[]
