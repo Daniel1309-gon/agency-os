@@ -178,23 +178,27 @@ describe('the kitchen flow and the debit', () => {
     expect(order.pickupDeadlineAt?.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it('lets only one of two concurrent transitions win, so a delivered order is never cancelled afterwards', async () => {
+  it('lets only one of two concurrent transitions win, and debits a delivered order once', async () => {
     // CAF-02: "dos entregas concurrentes producen una sola transición/débito".
     // A third connection holds the row lock, so both transitions read READY and then
     // queue on the UPDATE; releasing it makes the race deterministic.
-    for (const second of ['CANCELLED', 'DELIVERED'] as const) {
+    // Pairs that are both valid from the starting status, so the SQL compare-and-swap
+    // (not the transition table) is what decides the winner.
+    const races = [
+      { from: 'READY', first: { status: 'DELIVERED' }, second: { status: 'DELIVERED' } },
+      { from: 'PREPARING', first: { status: 'READY' }, second: { status: 'CANCELLED', cancelReason: 'carrera' } },
+    ] as const;
+    for (const race of races) {
       const { operatorId, orderId, kitchenId } = await placedOrder();
-      for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+      const path = race.from === 'READY' ? (['ACCEPTED', 'PREPARING', 'READY'] as const) : (['ACCEPTED', 'PREPARING'] as const);
+      for (const status of path) await cafeteria.updateStatus(orderId, { status }, kitchenId);
 
       const blocker = await ctx.pool.connect();
       let results: PromiseSettledResult<unknown>[];
       try {
         await blocker.query('BEGIN');
         await blocker.query('SELECT id FROM cafeteria_orders WHERE id = $1 FOR UPDATE', [orderId]);
-        const racing = Promise.allSettled([
-          cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId),
-          cafeteria.updateStatus(orderId, second === 'CANCELLED' ? { status: 'CANCELLED', cancelReason: 'carrera' } : { status: 'DELIVERED' }, kitchenId),
-        ]);
+        const racing = Promise.allSettled([cafeteria.updateStatus(orderId, race.first, kitchenId), cafeteria.updateStatus(orderId, race.second, kitchenId)]);
         await new Promise((resolve) => setTimeout(resolve, 300));
         await blocker.query('COMMIT');
         results = await racing;
@@ -205,6 +209,7 @@ describe('the kitchen flow and the debit', () => {
       expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
       const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
       expect(rejected.reason).toBeInstanceOf(ConflictException);
+      expect(String(rejected.reason.message)).toMatch(/changed concurrently/);
       const [order] = await ctx.db.select({ status: cafeteriaOrders.status }).from(cafeteriaOrders).where(eq(cafeteriaOrders.id, orderId));
       const debits = await ctx.db.select({ id: operatorAccountEntries.id }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
       expect(debits).toHaveLength(order.status === 'DELIVERED' ? 1 : 0);
@@ -238,6 +243,24 @@ describe('the kitchen flow and the debit', () => {
 
     const [entry] = await ctx.db.select({ businessDate: operatorAccountEntries.businessDate }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
     expect(entry.businessDate).toBe('2026-08-03');
+  });
+
+  it('counts the month consumption by the Bogota business date of the debit', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+    // Delivered on 2026-08-31 22:00 Bogota (2026-09-01 03:00Z): an August debit.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-09-01T03:00:00Z') });
+    try {
+      await cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId);
+      // Still 2026-08-31 in Bogota: August's consumption includes it.
+      vi.setSystemTime(new Date('2026-09-01T04:30:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('25000.00');
+      // 2026-09-01 in Bogota: a new month, nothing consumed yet.
+      vi.setSystemTime(new Date('2026-09-01T06:00:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('0');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not debit a cancelled order', async () => {

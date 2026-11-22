@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
@@ -107,9 +107,9 @@ export class CafeteriaService {
 
   async account(operatorId: string) {
     const [balance] = await this.db.db.select({ balance: sql<string>`coalesce(sum(${operatorAccountEntries.amountCop}), 0)` }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
-    const firstOfMonth = new Date();
-    firstOfMonth.setUTCDate(1); firstOfMonth.setUTCHours(0, 0, 0, 0);
-    const [consumption] = await this.db.db.select({ consumedCop: sql<string>`coalesce(sum(abs(${operatorAccountEntries.amountCop})), 0)` }).from(operatorAccountEntries).where(and(eq(operatorAccountEntries.operatorId, operatorId), eq(operatorAccountEntries.entryType, 'DEBIT_CAFETERIA'), sql`${operatorAccountEntries.createdAt} >= ${firstOfMonth}`));
+    // Same calendar as the debit itself: the month in Bogota, by business date.
+    const firstOfMonth = `${bogotaDate(new Date()).slice(0, 7)}-01`;
+    const [consumption] = await this.db.db.select({ consumedCop: sql<string>`coalesce(sum(abs(${operatorAccountEntries.amountCop})), 0)` }).from(operatorAccountEntries).where(and(eq(operatorAccountEntries.operatorId, operatorId), eq(operatorAccountEntries.entryType, 'DEBIT_CAFETERIA'), gte(operatorAccountEntries.businessDate, firstOfMonth)));
     return { balanceCop: balance?.balance ?? '0', monthConsumedCop: consumption?.consumedCop ?? '0' };
   }
 
