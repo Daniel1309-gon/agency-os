@@ -541,6 +541,8 @@ export const payrollLines = pgTable('payroll_lines', {
   pointsToCopRateSnapshot: numeric('points_to_cop_rate_snapshot', { precision: 12, scale: 4 }).notNull(),
   grossCop: numeric('gross_cop', { precision: 14, scale: 2 }).notNull(),
   netCop: numeric('net_cop', { precision: 14, scale: 2 }).notNull(),
+  /** FR-35: period cafeteria debits net of refunds, a positive amount to deduct. */
+  cafeteriaDebitCop: numeric('cafeteria_debit_cop', { precision: 14, scale: 2 }).notNull().default('0'),
   status: varchar('status', { length: 16 }).notNull().default('DRAFT'),
   version: integer('version').notNull().default(0),
   computedAt: ts('computed_at'),
