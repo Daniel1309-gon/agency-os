@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CafeteriaOrder } from '@agency-os/shared';
-import { applyOrderSnapshot, mergeOrders } from './cafeteria-orders-view';
+import { applyOrderSnapshot, mergeOrders, statusUpdateFailure } from './cafeteria-orders-view';
 
 const order = (overrides: Partial<CafeteriaOrder>): CafeteriaOrder => ({
   id: '11111111-1111-4111-8111-111111111111',
@@ -42,5 +42,11 @@ describe('cafeteria orders monotonic view (OPS-04)', () => {
     const snapshot = [order({ id: '44444444-4444-4444-8444-444444444444', seq: 200 })];
 
     expect(applyOrderSnapshot([later], snapshot).map((item) => item.id)).toEqual(['55555555-5555-4555-8555-555555555555', '44444444-4444-4444-8444-444444444444']);
+  });
+
+  it('reloads instead of retrying when another device already moved the order (409)', () => {
+    expect(statusUpdateFailure({ status: 409, message: 'Order changed concurrently' })).toEqual({ message: 'Otro usuario ya actualizó este pedido. Recargamos la lista.', reload: true });
+    expect(statusUpdateFailure({ status: 500, message: 'Fallo' })).toEqual({ message: 'Fallo', reload: false });
+    expect(statusUpdateFailure(undefined)).toEqual({ message: 'No pudimos actualizar el pedido.', reload: false });
   });
 });

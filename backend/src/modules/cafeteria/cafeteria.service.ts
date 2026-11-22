@@ -6,7 +6,15 @@ import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccoun
 import { RealtimeService } from '../realtime/realtime.service.js';
 import type { OrderInput, OrderStatusInput, ProductInput, ProductUpdateInput } from './cafeteria.schemas.js';
 
+/** Calendar date in Bogota: a debit at 22:00 belongs to that day, not to the next UTC day. */
+function bogotaDate(at: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
 const transitions: Record<string, string[]> = { PLACED: ['ACCEPTED', 'CANCELLED'], ACCEPTED: ['PREPARING', 'CANCELLED'], PREPARING: ['READY', 'CANCELLED'], READY: ['DELIVERED', 'EXPIRED'], DELIVERED: [], CANCELLED: [], EXPIRED: [] };
+
+/** Same default as cafeteria_products.pickup_deadline_minutes. */
+const DEFAULT_PICKUP_DEADLINE_MINUTES = 30;
 
 @Injectable()
 export class CafeteriaService {
@@ -69,15 +77,25 @@ export class CafeteriaService {
       const now = new Date();
       const values: Record<string, unknown> = { status: input.status };
       if (input.status === 'ACCEPTED') values.acceptedAt = now;
-      if (input.status === 'READY') { values.readyAt = now; values.pickupDeadlineAt = new Date(now.getTime() + 30 * 60_000); }
+      if (input.status === 'READY') { values.readyAt = now; values.pickupDeadlineAt = new Date(now.getTime() + (await this.pickupDeadlineMinutes(tx, orderId)) * 60_000); }
       if (input.status === 'DELIVERED') { values.deliveredAt = now; values.deliveredBy = actorId; }
       if (input.status === 'CANCELLED') { values.cancelledAt = now; values.cancelReason = input.cancelReason ?? 'Cancelled'; }
-      const [updated] = await tx.update(cafeteriaOrders).set(values as never).where(eq(cafeteriaOrders.id, orderId)).returning({ id: cafeteriaOrders.id, status: cafeteriaOrders.status, totalCop: cafeteriaOrders.totalCop });
-      if (input.status === 'DELIVERED') await tx.insert(operatorAccountEntries).values({ operatorId: order.operatorId, entryType: 'DEBIT_CAFETERIA', amountCop: `-${order.totalCop}`, referenceType: 'cafeteria_order', referenceId: order.id, businessDate: now.toISOString().slice(0, 10), createdBy: actorId }).onConflictDoNothing();
+      // Compare-and-swap on the status read above: of two concurrent transitions only
+      // the first to commit matches; the other finds the row moved on and is refused,
+      // so a delivered (and debited) order can never be cancelled afterwards.
+      const [updated] = await tx.update(cafeteriaOrders).set(values as never).where(and(eq(cafeteriaOrders.id, orderId), eq(cafeteriaOrders.status, order.status))).returning({ id: cafeteriaOrders.id, status: cafeteriaOrders.status, totalCop: cafeteriaOrders.totalCop });
+      if (!updated) throw new ConflictException(`Order ${orderId} changed concurrently; reload it and try again`);
+      if (input.status === 'DELIVERED') await tx.insert(operatorAccountEntries).values({ operatorId: order.operatorId, entryType: 'DEBIT_CAFETERIA', amountCop: `-${order.totalCop}`, referenceType: 'cafeteria_order', referenceId: order.id, businessDate: bogotaDate(now), createdBy: actorId }).onConflictDoNothing();
       return updated;
     });
     await this.realtime?.publishCafeteriaOrderChanged(updated.id);
     return this.withOrderItems(updated);
+  }
+
+  /** FR-34: the most perishable product of the order sets its pickup deadline. */
+  private async pickupDeadlineMinutes(tx: Pick<DatabaseService['db'], 'select'>, orderId: string): Promise<number> {
+    const [row] = await tx.select({ minutes: sql<number | null>`min(${cafeteriaProducts.pickupDeadlineMinutes})` }).from(cafeteriaOrderItems).innerJoin(cafeteriaProducts, eq(cafeteriaProducts.id, cafeteriaOrderItems.productId)).where(eq(cafeteriaOrderItems.orderId, orderId));
+    return Number(row?.minutes ?? DEFAULT_PICKUP_DEADLINE_MINUTES);
   }
 
   async orders(status?: string, operatorId?: string) {
