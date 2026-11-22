@@ -162,7 +162,8 @@ export class PayrollService {
       .from(operatorAccountEntries)
       .where(and(inArray(operatorAccountEntries.entryType, ['DEBIT_CAFETERIA', 'CREDIT_REFUND']), gte(operatorAccountEntries.businessDate, period.startsOn), lte(operatorAccountEntries.businessDate, period.endsOn)))
       .groupBy(operatorAccountEntries.operatorId);
-    return new Map(rows.map((row) => [row.operatorId, -Number(row.total)]));
+    // A debit fully refunded within the period nets to zero: nothing to deduct, no line.
+    return new Map(rows.map((row) => [row.operatorId, -Number(row.total)] as const).filter(([, amount]) => amount !== 0));
   }
 
   /** Compensation in force at the end of the period, or now if the period has not ended yet. */

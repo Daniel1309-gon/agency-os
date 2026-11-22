@@ -398,6 +398,17 @@ describe('cafeteria consumption in payroll (FR-35)', () => {
     expect((await payroll.lines(period.id))[0]).toMatchObject({ operatorId: operator.id, pointsTotal: '0.0000', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop: '12500.00' });
   });
 
+  it('writes no line for an operator without points whose consumption was fully refunded', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await account(operator.id, 'DEBIT_CAFETERIA', '-3500.00', '2026-08-10');
+    await account(operator.id, 'CREDIT_REFUND', '3500.00', '2026-08-11');
+
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 0 });
+    expect(await payroll.lines(period.id)).toHaveLength(0);
+  });
+
   it('records a zero deduction when the operator consumed nothing', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);

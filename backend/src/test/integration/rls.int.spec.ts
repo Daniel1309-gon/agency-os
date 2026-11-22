@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
 import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
@@ -270,6 +272,24 @@ describe('cafeteria delivery debit under row level security (FR-35)', () => {
         await expect(client.query(insertDebit, values)).rejects.toMatchObject({ code: '42501' });
       });
     }
+  });
+
+  it('delivers an order end to end through CafeteriaService under agency_app and the CAFETERIA context', async () => {
+    const cafeteria = new CafeteriaService(ctx.database);
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const product = await cafeteria.createProduct({ sku: 'RLS-ALM', name: 'Almuerzo', category: 'almuerzos', priceCop: 14500, pickupDeadlineMinutes: 30 });
+    const order = await cafeteria.createOrder({ items: [{ productId: product.id, quantity: 2 }] }, operator.id, `rls-svc-${operator.id}`);
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(order.id, { status }, kitchen.id);
+
+    // The production path: the request transaction runs as agency_app with RLS forced.
+    await ctx.database.withRequestContext(kitchen.id, 'CAFETERIA', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_app`);
+      await expect(cafeteria.updateStatus(order.id, { status: 'DELIVERED' }, kitchen.id)).resolves.toMatchObject({ status: 'DELIVERED', totalCop: '29000.00' });
+    });
+
+    const entries = await ctx.db.select().from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operator.id));
+    expect(entries).toMatchObject([{ entryType: 'DEBIT_CAFETERIA', amountCop: '-29000.00', referenceId: order.id }]);
   });
 
   it('still refuses an operator writing a debit or credit for themselves', async () => {
