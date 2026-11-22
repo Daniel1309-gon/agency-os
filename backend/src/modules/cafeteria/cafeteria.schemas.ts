@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-export const productSchema = z.object({ sku: z.string().trim().min(1).max(64), name: z.string().trim().min(1).max(160), description: z.string().max(1000).optional(), category: z.string().trim().min(1).max(80), priceCop: z.number().positive().max(10_000_000), prepMinutes: z.number().int().nonnegative().max(1440).optional(), pickupDeadlineMinutes: z.number().int().positive().max(1440).default(30), imageUri: z.string().url().optional() });
-export const productUpdateSchema = productSchema.partial().extend({ isAvailable: z.boolean().optional() });
+const productFields = z.object({ sku: z.string().trim().min(1).max(64), name: z.string().trim().min(1).max(160), description: z.string().max(1000).optional(), category: z.string().trim().min(1).max(80), priceCop: z.number().positive().max(10_000_000), prepMinutes: z.number().int().nonnegative().max(1440).optional(), pickupDeadlineMinutes: z.number().int().positive().max(1440).optional(), imageUri: z.string().url().optional() });
+export const productSchema = productFields.extend({ pickupDeadlineMinutes: z.number().int().positive().max(1440).default(30) });
+// Built from the fields without defaults: zod 4 applies .default() inside .partial(),
+// which would reset pickupDeadlineMinutes to 30 on every PATCH that omits it.
+export const productUpdateSchema = productFields.partial().extend({ isAvailable: z.boolean().optional() });
 export const orderSchema = z.object({ items: z.array(z.object({ productId: z.string().uuid(), quantity: z.number().int().positive().max(20), notes: z.string().max(300).optional() })).min(1).max(30), notes: z.string().max(1000).optional() });
 export const orderStatusSchema = z.object({ status: z.enum(['ACCEPTED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED']), cancelReason: z.string().max(500).optional() });
 export type ProductInput = z.infer<typeof productSchema>;
