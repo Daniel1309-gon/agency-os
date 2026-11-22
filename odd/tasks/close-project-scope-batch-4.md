@@ -1,0 +1,26 @@
+# Close project scope — batch 4 (production-role RLS write sweep)
+
+Objective: sweep every non-ADMIN service write to a `FORCE ROW LEVEL SECURITY` table under a real non-superuser `agency_app` login role (covering both `withRequestContext` and `independentTransaction`), reproduce production blockers RED→GREEN, and fix them with narrowly scoped RLS policies and regression tests. Branch: `feat/scope-10-rls-write-sweep` (based on `feat/scope-09-cafeteria-payroll`, PR #13). Delivery: `stacked-to-main`, continuing the #5–#13 chain (never push or open PR without user OK). Test runners: vitest (unit), `vitest.integration.config.ts` (Postgres + Redis), `pnpm ci:quality`, `TEST_DB_RECREATE=1 pnpm ci:database`.
+
+## Specs
+
+- **S1 (RLS write sweep)** Exercise every non-ADMIN service write to the 6 `FORCE ROW LEVEL SECURITY` tables (`tt_profile_credentials`, `points_ledger`, `payroll_lines`, `operator_account_entries`, `icebreakers`, `credential_access_log`) end-to-end through the real NestJS services under a real non-superuser `agency_app` login role (so `independentTransaction` also enforces RLS):
+  - `CafeteriaService.updateStatus('DELIVERED')` as `CAFETERIA` and `DIRECTOR_OPERATIVO`
+  - `VaultService.rotate` as `DIRECTOR_OPERATIVO` and `COORDINADOR` (in-crew assigned profile succeeds; out-of-scope profile refused)
+  - `VaultService.grant`, `redeem`, `handoff`, `deny` (`NO_ASSIGNMENT`), and `recordGrantReuse` (ended assignment + cross-operator replay) as `OPERADOR`
+  - `IcebreakersService.create`, `update`, `evaluate`, `publish` as `OPERADOR`, and `review('OVERRIDDEN_ALLOW')` as `COORDINADOR` (managed crew) and `DIRECTOR_OPERATIVO`
+- **S2 (`DIRECTOR_OPERATIVO` cafeteria delivery debit)** `CafeteriaController.updateStatus` grants `cafeteria.manage` to `CAFETERIA` and `DIRECTOR_OPERATIVO`, but migration `0027` only allowed `CAFETERIA` on `operator_account_entries`. Migration `0029` must widen `account_cafeteria_delivery_debit` to `('CAFETERIA', 'DIRECTOR_OPERATIVO')` while keeping every order/operator/status/amount check intact and proving `OPERADOR` / `COORDINADOR` / mismatched debits are still refused (`42501`).
+- **S3 (`VaultService.recordGrantReuse` under `agency_app`)** Under `agency_app`, `markGrantReuse` silently matches 0 rows when an operator replays a grant after their assignment ends or when another operator replays someone else's grant, so `reuse_attempted` stays `false` and `GRANT_REUSE` alerts never fire. Migration `0029` must allow `role = 'JOB'` in `credential_access_audit_scope` (matching `0004` UPDATE and `0014` INSERT) without widening `OPERADOR`/`COORDINADOR` access, and `VaultService.recordGrantReuse` must run its internal bookkeeping `independentTransaction` under `'JOB'` while preserving the attacking `actorUserId`/`actorDeviceId` in `audit_log` and `VaultAlertService`.
+
+## Tasks
+
+| ID | Specs | Route | Status | Evidence |
+|---|---|---|---|---|
+| T1 | S1, S2, S3 | inline | done | `rls-service-writes.int.spec.ts` under real non-superuser `agency_app` login role observed RED 3/7: `DIRECTOR_OPERATIVO` delivery `42501` and both `recordGrantReuse` replay cases (`reuseAttempted: false`, no `GRANT_REUSE` alert) |
+| T2 | S2, S3 | inline | done | Migration `0029_rls_sweep_policies.sql` + `_journal.json` + `VaultService.recordGrantReuse` (`JOB` bookkeeping tx): RED→GREEN 7/7 + `rls.int` 21/21; `TEST_DB_RECREATE=1 pnpm ci:database` exit 0 (330/330, `drizzle-kit check` clean); `ci:quality` local gates (38 req, 10 contracts, lint, typecheck, 239 backend + 86 web) + `pnpm audit --prod --audit-level high` exit 0. Risk: item 2 (RLS policies & vault security) |
+| T3 | S1–S3 | delegated (verifier) | in_progress | Independent verifier (`odd-verifier`) over `feat/scope-09-cafeteria-payroll..HEAD` |
+
+## Log
+
+- **L1** (2026-11-22) User: "mientras trabaje con claude, sigamos, revisa lo que esta en odd/tasks/HANDOFF-2026-11-22.md,"
+- **L2** (2026-11-22) Read-only explorer mapped all 6 `FORCE ROW LEVEL SECURITY` tables, active policies (`0004`/`0014`/`0018`/`0027`), table grants (`0008`/`0017`/`0022`/`0024`/`0026`), and every non-ADMIN service write path. Found 2 real production blockers: (1) `CafeteriaService.updateStatus('DELIVERED')` as `DIRECTOR_OPERATIVO` fails with `42501` under `agency_app`; (2) `VaultService.recordGrantReuse` silently updates 0 rows under `agency_app` when the operator's assignment ended or another operator replays a grant, dropping both `reuse_attempted` and the `GRANT_REUSE` alert.
