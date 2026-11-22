@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
   auditLog,
+  cafeteriaOrders,
   crewMembers,
   crews,
   icebreakers,
@@ -232,6 +233,49 @@ describe('operator_account_entries row level security', () => {
     });
     await asRequest({}, async (client) => {
       expect(await countOf(client, 'operator_account_entries')).toBe(0);
+    });
+  });
+});
+
+describe('cafeteria delivery debit under row level security (FR-35)', () => {
+  async function deliveredOrder(status = 'DELIVERED') {
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const [order] = await ctx.db.insert(cafeteriaOrders).values({ operatorId: operator.id, status, totalCop: '12500.00', idempotencyKey: `rls-${operator.id}` }).returning({ id: cafeteriaOrders.id });
+    return { operatorId: operator.id, kitchenId: kitchen.id, orderId: order.id };
+  }
+  const insertDebit = `INSERT INTO operator_account_entries (operator_id, entry_type, amount_cop, reference_type, reference_id, business_date, created_by)
+    VALUES ($1, $2, $3, $4, $5, '2026-08-04', $6)`;
+
+  it('lets the kitchen write the exact debit of an order it delivered', async () => {
+    const { operatorId, kitchenId, orderId } = await deliveredOrder();
+    await asRequest({ userId: kitchenId, roleCode: 'CAFETERIA' }, async (client) => {
+      await expect(client.query(insertDebit, [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, kitchenId])).resolves.toMatchObject({ rowCount: 1 });
+    });
+  });
+
+  it('refuses any other entry the kitchen tries to write', async () => {
+    const { operatorId, kitchenId, orderId } = await deliveredOrder();
+    const other = await createUser(ctx);
+    const pending = await deliveredOrder('READY');
+    const attempts: Array<[string, unknown[]]> = [
+      ['credit instead of a debit', [operatorId, 'CREDIT_ADJUSTMENT', '12500.00', 'cafeteria_order', orderId, kitchenId]],
+      ['a different amount', [operatorId, 'DEBIT_CAFETERIA', '-1.00', 'cafeteria_order', orderId, kitchenId]],
+      ['another operator', [other.id, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, kitchenId]],
+      ['an order that is not delivered', [pending.operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', pending.orderId, kitchenId]],
+      ['another reference type', [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'payroll_line', orderId, kitchenId]],
+    ];
+    for (const [, values] of attempts) {
+      await asRequest({ userId: kitchenId, roleCode: 'CAFETERIA' }, async (client) => {
+        await expect(client.query(insertDebit, values)).rejects.toMatchObject({ code: '42501' });
+      });
+    }
+  });
+
+  it('still refuses an operator writing a debit or credit for themselves', async () => {
+    const { operatorId, orderId } = await deliveredOrder();
+    await asRequest({ userId: operatorId, roleCode: 'OPERADOR' }, async (client) => {
+      await expect(client.query(insertDebit, [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, operatorId])).rejects.toMatchObject({ code: '42501' });
     });
   });
 });
