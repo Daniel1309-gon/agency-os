@@ -7118,6 +7118,48 @@
         }
       }
     },
+    "/api/v1/vault/keys/reencrypt": {
+      "post": {
+        "operationId": "VaultKeyController.reencryptCredentials",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "VaultKey"
+        ],
+        "x-agency-permissions": [
+          "vault.keys.rotate"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "vault.keys.rotate"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "POST",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/vault/keys/reencrypt",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/vault/keys/rotate": {
       "post": {
         "operationId": "VaultKeyController.rotateKey",

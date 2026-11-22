@@ -138,6 +138,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/users/{id}/compensation` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/users/{id}/compensation` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/users/{id}/disable` | ADMIN | authenticated; permissions: users.disable | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/vault/keys/reencrypt` | ADMIN | authenticated; permissions: vault.keys.rotate | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/vault/keys/rotate` | ADMIN | authenticated; permissions: vault.keys.rotate | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /health/live` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /health/ready` | ANONYMOUS | public | NOT_REQUIRED | NOT_REQUIRED | PUBLIC | NOT_APPLICABLE | NOT_APPLICABLE |
