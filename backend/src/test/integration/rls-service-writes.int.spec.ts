@@ -89,13 +89,18 @@ beforeAll(async () => {
   appDb = new DatabaseService(appConfig, logger);
   await appDb.onModuleInit();
 
-  // Prove the connection is non-superuser and inherits agency_app on BOTH pools.
-  const identity = await appDb.db.execute(sql`
+  // Prove the connection is non-superuser, has NOBYPASSRLS, and inherits agency_app on BOTH pools.
+  const identityQuery = sql`
     SELECT current_user AS role_name,
            (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS is_super,
+           (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) AS bypass_rls,
            pg_has_role(current_user, 'agency_app', 'MEMBER') AS has_app
-  `);
-  expect(identity.rows[0]).toEqual({ role_name: APP_LOGIN_ROLE, is_super: false, has_app: true });
+  `;
+  const expectedIdentity = { role_name: APP_LOGIN_ROLE, is_super: false, bypass_rls: false, has_app: true };
+  expect((await appDb.db.execute(identityQuery)).rows[0]).toEqual(expectedIdentity);
+  await appDb.independentTransaction('00000000-0000-4000-8000-000000000000', 'OPERADOR', async () => {
+    expect((await appDb.db.execute(identityQuery)).rows[0]).toEqual(expectedIdentity);
+  });
 
   const audit = new AuditService(appDb);
   const vaultRepo = new DrizzleVaultRepository(appDb);
@@ -137,38 +142,86 @@ describe('CafeteriaService writes under production agency_app role', () => {
     return { operatorId: operator.id, orderId: order.id };
   }
 
-  it('lets DIRECTOR_OPERATIVO mark an order DELIVERED and insert its exact debit under RLS (S2)', async () => {
-    const director = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
-    const { operatorId, orderId } = await readyOrder(director.id);
-
-    await appDb.withRequestContext(director.id, 'DIRECTOR_OPERATIVO', async () => {
-      await expect(cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, director.id)).resolves.toMatchObject({
+  it('lets CAFETERIA and DIRECTOR_OPERATIVO mark orders DELIVERED and insert their exact debits under RLS (S1, S2)', async () => {
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const kitchenOrder = await readyOrder(kitchen.id);
+    await appDb.withRequestContext(kitchen.id, 'CAFETERIA', async () => {
+      await expect(cafeteria.updateStatus(kitchenOrder.orderId, { status: 'DELIVERED' }, kitchen.id)).resolves.toMatchObject({
         status: 'DELIVERED',
         totalCop: '17000.00',
       });
     });
 
-    const entries = await ctx.db.select().from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
-    expect(entries).toMatchObject([{ entryType: 'DEBIT_CAFETERIA', amountCop: '-17000.00', referenceId: orderId }]);
+    const director = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
+    const directorOrder = await readyOrder(director.id);
+    await appDb.withRequestContext(director.id, 'DIRECTOR_OPERATIVO', async () => {
+      await expect(cafeteria.updateStatus(directorOrder.orderId, { status: 'DELIVERED' }, director.id)).resolves.toMatchObject({
+        status: 'DELIVERED',
+        totalCop: '17000.00',
+      });
+    });
+
+    const entries = await ctx.db.select().from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, directorOrder.operatorId));
+    expect(entries).toMatchObject([{ entryType: 'DEBIT_CAFETERIA', amountCop: '-17000.00', referenceId: directorOrder.orderId }]);
   });
 
-  it('still refuses DIRECTOR_OPERATIVO writing an arbitrary or mismatched debit directly under RLS (S2)', async () => {
+  it('refuses COORDINADOR, OPERADOR, and forged DIRECTOR_OPERATIVO debits against a DELIVERED order under RLS (S2)', async () => {
     const director = await createUser(ctx, { role: 'DIRECTOR_OPERATIVO' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const otherOperator = await createUser(ctx, { role: 'OPERADOR' });
     const { operatorId, orderId } = await readyOrder(director.id);
+    // Mark DELIVERED directly (without inserting a debit) so every probe tests one isolated policy guard.
+    await ctx.db.execute(sql`UPDATE cafeteria_orders SET status = 'DELIVERED' WHERE id = ${orderId}`);
 
+    // COORDINADOR cannot insert even an exact-matching debit for a DELIVERED order.
     await expect(
-      appDb.withRequestContext(director.id, 'DIRECTOR_OPERATIVO', () =>
+      appDb.withRequestContext(coordinator.id, 'COORDINADOR', () =>
         appDb.db.insert(operatorAccountEntries).values({
           operatorId,
           entryType: 'DEBIT_CAFETERIA',
-          amountCop: '-1.00',
+          amountCop: '-17000.00',
           referenceType: 'cafeteria_order',
           referenceId: orderId,
           businessDate: '2026-08-04',
-          createdBy: director.id,
+          createdBy: coordinator.id,
         }),
       ),
     ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+    // OPERADOR cannot insert a debit for themselves.
+    await expect(
+      appDb.withRequestContext(operatorId, 'OPERADOR', () =>
+        appDb.db.insert(operatorAccountEntries).values({
+          operatorId,
+          entryType: 'DEBIT_CAFETERIA',
+          amountCop: '-17000.00',
+          referenceType: 'cafeteria_order',
+          referenceId: orderId,
+          businessDate: '2026-08-04',
+          createdBy: operatorId,
+        }),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+    // DIRECTOR_OPERATIVO is refused on credit, wrong amount, wrong operator, or wrong referenceType.
+    const forgedAttempts = [
+      { operatorId, entryType: 'CREDIT_ADJUSTMENT', amountCop: '17000.00', referenceType: 'cafeteria_order' },
+      { operatorId, entryType: 'DEBIT_CAFETERIA', amountCop: '-1.00', referenceType: 'cafeteria_order' },
+      { operatorId: otherOperator.id, entryType: 'DEBIT_CAFETERIA', amountCop: '-17000.00', referenceType: 'cafeteria_order' },
+      { operatorId, entryType: 'DEBIT_CAFETERIA', amountCop: '-17000.00', referenceType: 'payroll_line' },
+    ] as const;
+    for (const attempt of forgedAttempts) {
+      await expect(
+        appDb.withRequestContext(director.id, 'DIRECTOR_OPERATIVO', () =>
+          appDb.db.insert(operatorAccountEntries).values({
+            ...attempt,
+            referenceId: orderId,
+            businessDate: '2026-08-04',
+            createdBy: director.id,
+          }),
+        ),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+    }
   });
 });
 
@@ -390,14 +443,22 @@ describe('IcebreakersService writes under production agency_app role', () => {
       await expect(icebreakersService.publish(created.id, opActor)).resolves.toMatchObject({ status: 'PUBLISHED' });
     });
 
-    // DIRECTOR_OPERATIVO can also review under agency_app.
+    // DIRECTOR_OPERATIVO can also override a blocked icebreaker (executes UPDATE icebreakers under agency_app).
+    const secondBlocked = await appDb.withRequestContext(operator.id, 'OPERADOR', async () => {
+      const item = await icebreakersService.create({ text: 'Another http://bad.test' }, opActor);
+      const evaluated = await icebreakersService.evaluate(item.id, opActor);
+      expect(evaluated.status).toBe('BLOCKED');
+      return item;
+    });
     await appDb.withRequestContext(director.id, 'DIRECTOR_OPERATIVO', async () => {
       await expect(
-        icebreakersService.review(created.id, { verdict: 'TRUE_POSITIVE', reason: 'audit note' }, { sub: director.id, role: 'DIRECTOR_OPERATIVO' }),
-      ).resolves.toMatchObject({ verdict: 'TRUE_POSITIVE' });
+        icebreakersService.review(secondBlocked.id, { verdict: 'OVERRIDDEN_ALLOW', reason: 'director override' }, { sub: director.id, role: 'DIRECTOR_OPERATIVO' }),
+      ).resolves.toMatchObject({ verdict: 'OVERRIDDEN_ALLOW' });
     });
 
     const [row] = await ctx.db.select({ status: icebreakers.status }).from(icebreakers).where(eq(icebreakers.id, created.id));
     expect(row?.status).toBe('PUBLISHED');
+    const [secondRow] = await ctx.db.select({ status: icebreakers.status }).from(icebreakers).where(eq(icebreakers.id, secondBlocked.id));
+    expect(secondRow?.status).toBe('APPROVED');
   });
 });
