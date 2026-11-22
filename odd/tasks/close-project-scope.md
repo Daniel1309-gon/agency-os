@@ -24,7 +24,7 @@ Objective: close the open work, fix the payroll and icebreaker defects found in 
 | T5 | S7 | inline | done | `d4f885f`; tableau unit 18/18, tableau.int 8/8, integration 302/302. Risk: item 1 (migration 0026: drops a column default, adds a unique index and worker grants) and item 3 (config: `TABLEAU_AUTH_TOKEN` replaced) |
 | T6 | S2 | inline | done | `7f8fa15`; `pnpm ci:quality` exit 0, `pnpm ci:database` exit 0 (302/302), OpenAPI snapshot byte-identical, `pnpm audit --prod --audit-level high` exit 0 with no exception. Risk: item 5 (dependency major) |
 | T8 | S8 | inline | done | `tasks/preguntas-cliente-2026-11-22.md` (draft, not sent) |
-| T9 | S2–S7 | delegated (verifier) | pending | Verification trigger: Risk lines name items 1, 2, 3, 5 |
+| T9 | S2–S7 | delegated (verifier) | blocked | gentle-ai-verify unavailable: "Insufficient balance" (OpenCode Models credits). Parent spot check only (not independent): zod 4 validation envelope keeps `{code, message, details:{formErrors, fieldErrors}}`; only default message wording changed ("Invalid input: expected string, received undefined"); no consumer parses it. |
 
 ## Log
 
@@ -35,3 +35,4 @@ Objective: close the open work, fix the payroll and icebreaker defects found in 
 - **L5** (2026-11-22) T3: PLAN.md §6.7 already required "gana la regla"; the code had drifted. AI engine contract gains `violatedRules` (required non-empty on BLOCKED).
 - **L6** (2026-11-22) T5: the ETL runs only in the worker (single PAT holder); the API queues. Not done here, still open: per-view daily schedule (09:15, blocked on the client's refresh time), raw CSV artifact storage, hourly attribution 5/55 into points_ledger, reconciliation writer, freshness alerts. Their inputs depend on the client answers in T8.
 - **L7** (2026-11-22) T6: zod 4 gotchas: `.default()` takes the output value (place it before `.transform`); `extendZodWithOpenApi` does not reach schemas created before it runs — clone them; zod-to-openapi 8.5.0/9.1.0 ignore a bare `.meta({ id })`; `z.string().uuid()` checks version/variant bits.
+- **L8** (2026-11-22) Independent verifier could not run (billing). Re-run T9 once credits are available or with another verifier model.
