@@ -21,10 +21,14 @@ export class PayrollService {
     if (!period) throw new NotFoundException('Payroll period not found');
     if (period.status !== 'OPEN') throw new ConflictException('Payroll period is not open');
     const totals = await this.db.db.select({ operatorId: pointsLedger.operatorId, points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)` }).from(pointsLedger).where(and(gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn))).groupBy(pointsLedger.operatorId);
-    for (const total of totals) {
-      const compensation = await this.db.db.query.operatorCompensation.findFirst({ where: and(eq(operatorCompensation.operatorId, total.operatorId), sql`${operatorCompensation.validRange} @> now()`) });
-      const commission = compensation?.commissionRate ?? '1';
-      const rate = compensation?.pointsToCopRate ?? period.defaultPointsToCopRate;
+    const priced = await Promise.all(totals.map(async (total) => ({ total, compensation: await this.compensationFor(total.operatorId, period.endsOn) })));
+    // FR-29: the commission is individual. Paying an operator without one at an
+    // assumed 100% overpays silently, so the whole computation is refused instead.
+    const missing = priced.filter((entry) => !entry.compensation).map((entry) => entry.total.operatorId);
+    if (missing.length) throw new ConflictException(`Compensation is not configured for operators: ${missing.join(', ')}`);
+    for (const { total, compensation } of priced) {
+      const commission = compensation!.commissionRate;
+      const rate = compensation!.pointsToCopRate;
       const gross = (Number(total.points) * Number(rate)).toFixed(2);
       const net = (Number(gross) * Number(commission)).toFixed(2);
       await this.db.db.insert(payrollLines).values({ periodId, operatorId: total.operatorId, pointsTotal: total.points, commissionRateSnapshot: commission, pointsToCopRateSnapshot: rate, grossCop: gross, netCop: net, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { pointsTotal: total.points, commissionRateSnapshot: commission, pointsToCopRateSnapshot: rate, grossCop: gross, netCop: net, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
@@ -32,16 +36,36 @@ export class PayrollService {
     return { periodId, linesComputed: totals.length };
   }
 
+  /**
+   * FR-28: the operator sees their points and COP after their commission, live from
+   * the ledger. Raw points, gross COP, the rate and the commission never leave here.
+   * Without `periodId` it reports the period covering today in Bogota.
+   */
   async summary(operatorId: string, periodId?: string) {
-    const filters = [eq(pointsLedger.operatorId, operatorId)];
-    if (periodId) {
-      const period = await this.db.db.query.payrollPeriods.findFirst({ where: eq(payrollPeriods.id, periodId) });
-      if (!period) throw new NotFoundException('Payroll period not found');
-      filters.push(gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn));
+    const period = periodId
+      ? await this.db.db.query.payrollPeriods.findFirst({ where: eq(payrollPeriods.id, periodId) })
+      : await this.db.db.query.payrollPeriods.findFirst({ where: sql`(now() at time zone 'America/Bogota')::date between ${payrollPeriods.startsOn} and ${payrollPeriods.endsOn}`, orderBy: desc(payrollPeriods.startsOn) });
+    if (!period) {
+      if (periodId) throw new NotFoundException('Payroll period not found');
+      return { periodId: null, points: '0.0000', netCop: '0.00', compensationConfigured: false };
     }
-    const [points] = await this.db.db.select({ points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)` }).from(pointsLedger).where(and(...filters));
-    const [line] = await this.db.db.select({ netCop: payrollLines.netCop, grossCop: payrollLines.grossCop }).from(payrollLines).where(and(eq(payrollLines.operatorId, operatorId), periodId ? eq(payrollLines.periodId, periodId) : undefined)).orderBy(sql`${payrollLines.createdAt} DESC`).limit(1);
-    return { points: points?.points ?? '0', netCop: line?.netCop ?? '0', grossCop: line?.grossCop ?? '0' };
+    const [raw] = await this.db.db.select({ points: sql<string>`coalesce(sum(${pointsLedger.points}), 0)` }).from(pointsLedger).where(and(eq(pointsLedger.operatorId, operatorId), gte(pointsLedger.shiftBusinessDate, period.startsOn), lte(pointsLedger.shiftBusinessDate, period.endsOn)));
+    const compensation = await this.compensationFor(operatorId, period.endsOn);
+    if (!compensation) return { periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false };
+    const points = Number(raw?.points ?? 0);
+    const commission = Number(compensation.commissionRate);
+    // Same rounding as compute(): net comes from the already rounded gross, so the
+    // live figure matches the payroll line once it is computed.
+    const gross = Number((points * Number(compensation.pointsToCopRate)).toFixed(2));
+    return { periodId: period.id, points: (points * commission).toFixed(4), netCop: (gross * commission).toFixed(2), compensationConfigured: true };
+  }
+
+  /** Compensation in force at the end of the period, or now if the period has not ended yet. */
+  private compensationFor(operatorId: string, endsOn: string) {
+    return this.db.db.query.operatorCompensation.findFirst({
+      where: and(eq(operatorCompensation.operatorId, operatorId), sql`${operatorCompensation.validRange} @> least(now(), ((${endsOn}::date + 1)::timestamp at time zone 'America/Bogota') - interval '1 microsecond')`),
+      orderBy: desc(operatorCompensation.createdAt),
+    });
   }
 
   async setStatus(periodId: string, status: 'LOCKED' | 'CLOSED', actorId: string) {

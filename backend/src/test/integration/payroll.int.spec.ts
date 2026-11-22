@@ -45,12 +45,24 @@ async function ledger(operatorId: string, profileId: string, businessDate: strin
   });
 }
 
+/** Compensation in force for the whole test period (August 2026) and beyond. */
+async function compensate(operatorId: string, adminId: string, commissionRate = '1.0000', pointsToCopRate = '10.0000'): Promise<void> {
+  await ctx.db.insert(operatorCompensation).values({
+    operatorId,
+    commissionRate,
+    pointsToCopRate,
+    validRange: halfOpen('2026-07-01T05:00:00Z', '2027-01-01T05:00:00Z'),
+    createdBy: adminId,
+  });
+}
+
 describe('PayrollService.compute against a real ledger', () => {
   it('sums only the rows inside the period', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
 
     await ledger(operator.id, profile.id, '2026-08-01', '100.0000');
     await ledger(operator.id, profile.id, '2026-08-31', '50.0000');
@@ -70,6 +82,7 @@ describe('PayrollService.compute against a real ledger', () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
 
     await ledger(operator.id, profile.id, '2026-08-10', '200.0000');
     await payroll.addPointsAdjustment(
@@ -90,13 +103,7 @@ describe('PayrollService.compute against a real ledger', () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
-    await ctx.db.insert(operatorCompensation).values({
-      operatorId: operator.id,
-      commissionRate: '0.3500',
-      pointsToCopRate: '20.0000',
-      validRange: halfOpen(new Date(Date.now() - 86_400_000), new Date(Date.now() + 86_400_000)),
-      createdBy: admin.id,
-    });
+    await compensate(operator.id, admin.id, '0.3500', '20.0000');
 
     await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
     await payroll.compute(period.id, admin.id);
@@ -110,25 +117,44 @@ describe('PayrollService.compute against a real ledger', () => {
     });
   });
 
-  it('ignores a compensation row that is no longer in force', async () => {
+  it('refuses to compute when an operator has no compensation in force, instead of assuming 100%', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const paid = await createUser(ctx);
+    const unpaid = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(paid.id, admin.id, '0.3500', '20.0000');
+    // Only a compensation that had already expired before the period ended.
+    await ctx.db.insert(operatorCompensation).values({
+      operatorId: unpaid.id,
+      commissionRate: '0.1000',
+      pointsToCopRate: '99.0000',
+      validRange: halfOpen('2026-06-01T05:00:00Z', '2026-07-01T05:00:00Z'),
+      createdBy: admin.id,
+    });
+
+    await ledger(paid.id, profile.id, '2026-08-05', '100.0000');
+    await ledger(unpaid.id, profile.id, '2026-08-05', '100.0000');
+
+    await expect(payroll.compute(period.id, admin.id)).rejects.toThrow(new RegExp(`Compensation is not configured for operators: ${unpaid.id}$`));
+    // Nothing is written for anyone: a partial payroll would look complete.
+    expect(await payroll.lines(period.id)).toHaveLength(0);
+  });
+
+  it('applies the compensation in force when the period ended, not the one in force today', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
-    await ctx.db.insert(operatorCompensation).values({
-      operatorId: operator.id,
-      commissionRate: '0.1000',
-      pointsToCopRate: '99.0000',
-      validRange: halfOpen(new Date(Date.now() - 172_800_000), new Date(Date.now() - 86_400_000)),
-      createdBy: admin.id,
-    });
+    await ctx.db.insert(operatorCompensation).values([
+      { operatorId: operator.id, commissionRate: '0.3000', pointsToCopRate: '10.0000', validRange: halfOpen('2026-07-01T05:00:00Z', '2026-10-01T05:00:00Z'), createdBy: admin.id },
+      { operatorId: operator.id, commissionRate: '0.9000', pointsToCopRate: '50.0000', validRange: halfOpen('2026-10-01T05:00:00Z', '2027-01-01T05:00:00Z'), createdBy: admin.id },
+    ]);
 
     await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
     await payroll.compute(period.id, admin.id);
-    const [line] = await payroll.lines(period.id);
 
-    // Cae a la tasa por defecto del periodo, no a la comision vencida.
-    expect(line).toMatchObject({ pointsToCopRateSnapshot: '10.0000', grossCop: '1000.00', netCop: '1000.00' });
+    expect((await payroll.lines(period.id))[0]).toMatchObject({ commissionRateSnapshot: '0.3000', pointsToCopRateSnapshot: '10.0000', netCop: '300.00' });
   });
 
   it('recomputing updates the line in place and bumps its version', async () => {
@@ -136,6 +162,7 @@ describe('PayrollService.compute against a real ledger', () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
 
     await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
     await payroll.compute(period.id, admin.id);
@@ -154,6 +181,8 @@ describe('PayrollService.compute against a real ledger', () => {
     const second = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(first.id, admin.id);
+    await compensate(second.id, admin.id);
 
     await ledger(first.id, profile.id, '2026-08-05', '10.0000');
     await ledger(second.id, profile.id, '2026-08-05', '30.0000');
@@ -219,26 +248,31 @@ describe('payroll period lifecycle', () => {
 });
 
 describe('what the operator can see of their own payroll', () => {
-  it('reports points and money but not the commission rate', async () => {
-    // Criterio de entrega de PLAN.md §9.
+  it('reports points and COP after the commission, live, without raw points, gross COP, rate or commission', async () => {
+    // FR-28 and PLAN.md §9: "No ve el total de puntos brutos ni el 100% si tiene un techo menor."
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
-    await ctx.db.insert(operatorCompensation).values({
-      operatorId: operator.id,
-      commissionRate: '0.3500',
-      pointsToCopRate: '20.0000',
-      validRange: halfOpen(new Date(Date.now() - 86_400_000), new Date(Date.now() + 86_400_000)),
-      createdBy: admin.id,
-    });
+    await compensate(operator.id, admin.id, '0.3500', '20.0000');
     await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
-    await payroll.compute(period.id, admin.id);
 
+    // Live: no payroll computation has run yet.
     const summary = await payroll.summary(operator.id, period.id);
 
-    expect(summary).toEqual({ points: '100.0000', netCop: '700.00', grossCop: '2000.00' });
-    expect(JSON.stringify(summary)).not.toContain('0.3500');
+    expect(summary).toEqual({ periodId: period.id, points: '35.0000', netCop: '700.00', compensationConfigured: true });
+    const body = JSON.stringify(summary);
+    for (const hidden of ['100.0000', '2000.00', '0.3500', '20.0000', 'grossCop']) expect(body).not.toContain(hidden);
+  });
+
+  it('reports nothing payable while the operator has no compensation in force', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
+
+    await expect(payroll.summary(operator.id, period.id)).resolves.toEqual({ periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false });
   });
 
   it('only counts the operator own points', async () => {
@@ -247,6 +281,7 @@ describe('what the operator can see of their own payroll', () => {
     const someone = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
 
     await ledger(operator.id, profile.id, '2026-08-05', '10.0000');
     await ledger(someone.id, profile.id, '2026-08-05', '5000.0000');
@@ -261,6 +296,7 @@ describe('payroll adjustments', () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
     const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
     await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
     await payroll.compute(period.id, admin.id);
     const [line] = await payroll.lines(period.id);
