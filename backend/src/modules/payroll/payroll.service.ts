@@ -1,5 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import ExcelJS from 'exceljs';
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { competitions, competitionParticipants, goals, operatorCompensation, payrollAdjustments, payrollLines, payrollPeriods, pointsLedger, users } from '../../database/schema/index.js';
 import type { AdjustmentInput, CompetitionInput, GoalInput, PeriodCreateInput, PointsAdjustmentInput } from './payroll.schemas.js';
@@ -23,7 +25,8 @@ function groupByOperator(segments: PricedSegment[]): Map<string, PricedSegment[]
  * Money is rounded per segment exactly as a single-rate line is: gross to two
  * decimals first, then net from that rounded gross. The line snapshots the
  * compensation of the latest priced day. `missing` is true when points that do not
- * net to zero fall on a day without a compensation in force.
+ * net to zero fall on a day without a compensation in force. `payable` is false when
+ * no day was priced at all (nothing to snapshot and nothing owed).
  */
 function priceSegments(segments: PricedSegment[]) {
   let points = 0;
@@ -47,7 +50,8 @@ function priceSegments(segments: PricedSegment[]) {
     if (!latest || segment.lastDate > latest.lastDate) latest = segment;
   }
   return {
-    missing: missing || !latest,
+    missing,
+    payable: Boolean(latest),
     pointsTotal: points.toFixed(4),
     commissionedPoints: commissioned.toFixed(4),
     grossCop: gross.toFixed(2),
@@ -59,7 +63,10 @@ function priceSegments(segments: PricedSegment[]) {
 
 @Injectable()
 export class PayrollService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   async createPeriod(input: PeriodCreateInput, actorId: string) {
     if (input.startsOn > input.endsOn) throw new ConflictException('Period end must be after start');
@@ -78,12 +85,17 @@ export class PayrollService {
     // assumed 100% overpays silently, so the whole computation is refused instead.
     const missing = [...byOperator].filter(([, segments]) => priceSegments(segments).missing).map(([operatorId]) => operatorId);
     if (missing.length) throw new ConflictException(`Compensation is not configured for operators: ${missing.join(', ')}`);
+    let linesComputed = 0;
     for (const [operatorId, segments] of byOperator) {
       const priced = priceSegments(segments);
+      // Fully reversed points of an operator who never had a compensation: no line.
+      if (!priced.payable) continue;
+      linesComputed += 1;
       const line = { pointsTotal: priced.pointsTotal, commissionRateSnapshot: priced.commissionRate, pointsToCopRateSnapshot: priced.pointsToCopRate, grossCop: priced.grossCop, netCop: priced.netCop };
       await this.db.db.insert(payrollLines).values({ periodId, operatorId, ...line, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { ...line, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
     }
-    return { periodId, linesComputed: byOperator.size };
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.period.computed', entityType: 'payroll_period', entityId: periodId, result: 'SUCCESS', metadata: { periodId, count: byOperator.size } });
+    return { periodId, linesComputed };
   }
 
   /**
@@ -103,7 +115,7 @@ export class PayrollService {
     const unpaid = { periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false };
     if (!segments.length) return (await this.compensationFor(operatorId, period.endsOn)) ? { ...unpaid, compensationConfigured: true } : unpaid;
     const priced = priceSegments(segments);
-    if (priced.missing) return unpaid;
+    if (priced.missing || !priced.payable) return unpaid;
     return { periodId: period.id, points: priced.commissionedPoints, netCop: priced.netCop, compensationConfigured: true };
   }
 
@@ -141,6 +153,7 @@ export class PayrollService {
     const expected = status === 'LOCKED' ? 'OPEN' : 'LOCKED';
     const [row] = await this.db.db.update(payrollPeriods).set(status === 'LOCKED' ? { status, lockedAt: new Date() } : { status, closedAt: new Date() }).where(and(eq(payrollPeriods.id, periodId), eq(payrollPeriods.status, expected))).returning({ id: payrollPeriods.id, status: payrollPeriods.status });
     if (!row) throw new ConflictException(`Period must be ${expected}`);
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.period.status_changed', entityType: 'payroll_period', entityId: periodId, result: 'SUCCESS', metadata: { periodId, fromStatus: expected, toStatus: status } });
     return row;
   }
 
@@ -148,10 +161,139 @@ export class PayrollService {
     const line = await this.db.db.query.payrollLines.findFirst({ where: eq(payrollLines.id, lineId) });
     if (!line) throw new NotFoundException('Payroll line not found');
     const [row] = await this.db.db.insert(payrollAdjustments).values({ lineId, type: input.type, amountCop: input.amountCop.toFixed(2), reason: input.reason, createdBy: actorId }).returning({ id: payrollAdjustments.id, amountCop: payrollAdjustments.amountCop, type: payrollAdjustments.type });
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.adjustment.created', entityType: 'payroll_line', entityId: lineId, result: 'SUCCESS', metadata: { periodId: line.periodId, operatorId: line.operatorId } });
     return row;
   }
 
   async lines(periodId: string) { return this.db.db.select({ id: payrollLines.id, periodId: payrollLines.periodId, operatorId: payrollLines.operatorId, pointsTotal: payrollLines.pointsTotal, commissionRateSnapshot: payrollLines.commissionRateSnapshot, pointsToCopRateSnapshot: payrollLines.pointsToCopRateSnapshot, grossCop: payrollLines.grossCop, netCop: payrollLines.netCop, status: payrollLines.status, version: payrollLines.version, computedAt: payrollLines.computedAt }).from(payrollLines).where(eq(payrollLines.periodId, periodId)).orderBy(asc(payrollLines.operatorId)); }
+
+  /** FR-31: exports a payroll period with computed lines and summed adjustments as an .xlsx workbook. */
+  async exportPeriodXlsx(periodId: string, actorId: string): Promise<{ filename: string; buffer: Buffer }> {
+    const period = await this.db.db.query.payrollPeriods.findFirst({ where: eq(payrollPeriods.id, periodId) });
+    if (!period) throw new NotFoundException('Payroll period not found');
+
+    const rows = await this.db.db
+      .select({
+        id: payrollLines.id,
+        fullName: users.fullName,
+        email: users.email,
+        pointsTotal: payrollLines.pointsTotal,
+        pointsToCopRateSnapshot: payrollLines.pointsToCopRateSnapshot,
+        commissionRateSnapshot: payrollLines.commissionRateSnapshot,
+        grossCop: payrollLines.grossCop,
+        netCop: payrollLines.netCop,
+        status: payrollLines.status,
+      })
+      .from(payrollLines)
+      .innerJoin(users, eq(users.id, payrollLines.operatorId))
+      .where(eq(payrollLines.periodId, periodId))
+      .orderBy(asc(users.fullName));
+
+    const adjustmentsByLine = new Map<string, number>();
+    if (rows.length) {
+      const adjustmentSums = await this.db.db
+        .select({
+          lineId: payrollAdjustments.lineId,
+          total: sql<string>`coalesce(sum(${payrollAdjustments.amountCop}), 0)`,
+        })
+        .from(payrollAdjustments)
+        .where(inArray(payrollAdjustments.lineId, rows.map((row) => row.id)))
+        .groupBy(payrollAdjustments.lineId);
+      for (const item of adjustmentSums) adjustmentsByLine.set(item.lineId, Number(item.total));
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Agency OS';
+    const exportedAt = new Date();
+    workbook.created = exportedAt;
+    const summarySheet = workbook.addWorksheet('Resumen');
+    summarySheet.addRow(['Campo', 'Valor']);
+    summarySheet.getRow(1).font = { bold: true };
+    summarySheet.addRow(['Periodo ID', period.id]);
+    summarySheet.addRow(['Nombre', period.name]);
+    summarySheet.addRow(['Inicio', period.startsOn]);
+    summarySheet.addRow(['Fin', period.endsOn]);
+    summarySheet.addRow(['Estado', period.status]);
+    summarySheet.addRow(['Lineas', rows.length]);
+    summarySheet.addRow(['Exportado', exportedAt.toISOString()]);
+
+    const sheet = workbook.addWorksheet('Nomina');
+    sheet.addRow([
+      'Operador',
+      'Correo',
+      'Puntos',
+      'Tasa COP',
+      'Comision',
+      'Bruto COP',
+      'Neto COP',
+      'Ajustes COP',
+      'Total a Pagar COP',
+      'Estado',
+    ]);
+    sheet.getRow(1).font = { bold: true };
+
+    let totalPoints = 0;
+    let totalGross = 0;
+    let totalNet = 0;
+    let totalAdjustments = 0;
+    let totalPayable = 0;
+
+    for (const row of rows) {
+      const points = Number(row.pointsTotal);
+      const rate = Number(row.pointsToCopRateSnapshot);
+      const commission = Number(row.commissionRateSnapshot);
+      const gross = Number(row.grossCop);
+      const net = Number(row.netCop);
+      const adjustments = Number((adjustmentsByLine.get(row.id) ?? 0).toFixed(2));
+      const payable = Number((net + adjustments).toFixed(2));
+
+      totalPoints += points;
+      totalGross += gross;
+      totalNet += net;
+      totalAdjustments += adjustments;
+      totalPayable += payable;
+
+      sheet.addRow([
+        row.fullName,
+        row.email,
+        points,
+        rate,
+        commission,
+        gross,
+        net,
+        adjustments,
+        payable,
+        row.status,
+      ]);
+    }
+
+    const summaryRow = sheet.addRow([
+      'TOTAL',
+      '',
+      Number(totalPoints.toFixed(4)),
+      '',
+      '',
+      Number(totalGross.toFixed(2)),
+      Number(totalNet.toFixed(2)),
+      Number(totalAdjustments.toFixed(2)),
+      Number(totalPayable.toFixed(2)),
+      '',
+    ]);
+    summaryRow.font = { bold: true };
+
+    const raw = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(raw as ArrayBuffer);
+    await this.audit?.record({
+      actorType: 'USER',
+      actorUserId: actorId,
+      action: 'payroll.exported',
+      entityType: 'payroll_period',
+      entityId: periodId,
+      result: 'SUCCESS',
+      metadata: { periodId, count: rows.length },
+    });
+    return { filename: `payroll-${period.startsOn}_${period.endsOn}.xlsx`, buffer };
+  }
 
   async createGoal(input: GoalInput) { const [row] = await this.db.db.insert(goals).values({ scope: input.scope, operatorId: input.operatorId, crewId: input.crewId, periodId: input.periodId, targetPoints: input.targetPoints.toFixed(4), bonusType: input.bonusType, bonusCop: input.bonusCop?.toFixed(2), tiers: input.tiers ?? [] }).returning(); return row; }
   async listGoals(periodId?: string) { return this.db.db.select().from(goals).where(periodId ? eq(goals.periodId, periodId) : undefined); }
@@ -166,6 +308,7 @@ export class PayrollService {
 
   async addPointsAdjustment(input: PointsAdjustmentInput, actorId: string) {
     const [row] = await this.db.db.insert(pointsLedger).values({ operatorId: input.operatorId, profileId: input.profileId, businessDate: input.businessDate, shiftBusinessDate: input.businessDate, points: input.points.toFixed(4), source: 'MANUAL_ADJUSTMENT', attributionMethod: 'MANUAL', attributionBasis: { reason: input.reason, actorId }, referenceId: input.referenceId }).returning({ id: pointsLedger.id, operatorId: pointsLedger.operatorId, points: pointsLedger.points, source: pointsLedger.source, businessDate: pointsLedger.businessDate });
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.points_adjusted', entityType: 'user', entityId: input.operatorId, result: 'SUCCESS', metadata: { operatorId: input.operatorId, profileId: input.profileId, businessDate: input.businessDate } });
     return row;
   }
 

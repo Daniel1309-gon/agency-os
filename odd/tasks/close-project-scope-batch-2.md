@@ -1,0 +1,32 @@
+# Close project scope — batch 2 (unblocked E2 & FR gaps: SEC-09b, OPS-04, FR-31 XLSX, audit catalog)
+
+Objective: implement the contractual E2 and FR scope gaps that do not depend on pending client answers in `tasks/preguntas-cliente-2026-11-22.md`: vault credential re-encryption to the active DEK (SEC-09b), monotonic realtime snapshots (OPS-04), payroll Excel export (FR-31), and audit action catalog completeness. Branch: `feat/scope-batch-2` (based on `feat/scope-04-zod4-and-scope-docs`). Delivery: `ask-on-risk`. Test runners: vitest (unit), `vitest.integration.config.ts` (Postgres + Redis).
+
+## Specs
+
+- **S1 (SEC-09b)** Re-encrypt existing vault credentials on older DEK versions to the active DEK (`POST /vault/keys/reencrypt`, `VaultService.reencryptToActiveKey`). Must decrypt with the stored `keyVersion`, re-encrypt with the active DEK preserving `aadContext`, update atomically without exposing plaintext in logs/audit/errors, remain idempotent when already on the active DEK, and record an audit event (`vault.credentials.reencrypted`) with `{ activeKeyVersion, reencryptedCount }`.
+- **S2 (OPS-04)** Monotonic realtime snapshot and event ordering: attach a monotonic `seq` to realtime snapshots and incremental events (`operator.status.*`, `cafeteria.order.*`), guard the web-app realtime store/consumers so out-of-order or stale snapshots/events never overwrite newer state, and log structured error telemetry on snapshot/bridge failures.
+- **S3 (FR-31)** Payroll Excel (`.xlsx`) export: `GET /payroll/periods/:id/export` restricted to non-operator payroll roles, returning a valid `.xlsx` workbook with period metadata and operator lines (points, rate, commission, gross, adjustments, net COP), proper `Content-Type` / `Content-Disposition` headers, audit-logged (`payroll.exported`), and verified by parsing the generated `.xlsx` bytes.
+- **S4 (Audit catalog)** Add missing audit action entries to `packages/shared/src/contracts/audit-actions.ts` (`vault.credentials.reencrypted`, `payroll.exported`, and any payroll/icebreaker actions emitted by backend services) and verify `AuditService` metadata allowlist covers them without silent drops.
+
+## Tasks
+
+| ID | Specs | Route | Status | Evidence |
+|---|---|---|---|---|
+| T1 | S1, S4 (vault action) | inline | done | `84c0438`; `vault.int` RED → GREEN 31/31, vault unit 30/30. Risk: items 1, 2 (rewrites stored ciphertext + vault crypto/auth) |
+| T2 | S2 | inline | done | `8a3fe03`; `realtime.service.spec` RED → GREEN 6/6, `operator-status-view.test` 5/5, realtime int 12/12. Risk: item 4 (realtime ordering) |
+| T3 | S3, S4 (payroll action) | inline | done | `10ed5d9`; `payroll.int` RED → GREEN 19/19 (parsed generated `.xlsx` back with ExcelJS), `pnpm audit --prod --audit-level high` exit 0. Risk: item 5 (adds `exceljs`) |
+| T4 | S4 | inline | done | `9ca932b`; `icebreakers.int` 6/6, `payroll.int` 19/19, backend unit 239/239 + 7/7 arch rules, web unit 81/81, all typechecks exit 0. Risk: item 3 (shared `audit-actions.ts`) |
+| T5 | S1–S4 | delegated (verifier) | done | Independent verifier (`1897558`) found Blocker 1 (missing route contracts/OpenAPI), Blocker 2 (CafeteriaKds HTTP-vs-WS `seq` race), Major 3 (missing period metadata in `.xlsx`), Advisory 6 (`StreamableFile`); all fixed in `58ae10a`. Recheck (`1897558..58ae10a`) confirmed all items RESOLVED and S1–S4 met (`test:contracts` 10/10, `cafeteria-orders-view.test` 2/2; parent live integration `payroll.int` 19/19 + `cafeteria.int` 12/12). |
+
+## Log
+
+- **L1** (2026-11-22) User: "dale" (accepting start of Batch 2 for unblocked scope gaps after Batch 1 PRs #5–#8 were opened).
+- **L2** (2026-11-22) Forecast: ~650–900 authored changed lines across 4 cohesive work-unit commits (each ≤ 400L); delivery strategy `ask-on-risk`.
+- **L3** (2026-11-22) Independent verifier (`odd-verifier`) found Blocker 1 (route contracts/OpenAPI/matrix missing `POST /vault/keys/reencrypt` and `GET /payroll/periods/{id}/export`), Blocker 2 (`CafeteriaService.orders()` missing `seq` and `CafeteriaKds.loadOrders()` bypassing monotonic merge), Major 3 (`.xlsx` missing period metadata), and Advisory 6 (`@Res()` before `TransactionInterceptor` commit). All fixed in `58ae10a` and confirmed RESOLVED in focused recheck (`test:contracts` 10/10, `cafeteria-orders-view.test` 2/2, `payroll.int` 19/19, `cafeteria.int` 12/12, backend unit 239/239 + 7/7 arch, web unit 83/83). Batch 2 (T1–T5) is closed locally on `feat/scope-batch-2`.
+- **L4** (2026-11-22) Second independent verifier (gentle-ai-verify, Opus 5.5) over `aab679f..58ae10a`: S1–S4 MET. Probes: concurrent re-encrypt serializes (`[0, 2]`), mid-batch failure rolls back all rows and writes no audit; ExcelJS writes `= + - @` strings as string cells (no formula). Findings: (F1, advisory) `nextSeq()` is per process and clock-derived — the API and the worker both emit, and a 2-instance HA setup with clock skew can drop a causally later event; production today is one `api` plus one `worker` on the same host (`compose.production.yml`). (F2, minor) `applyOrderSnapshot` never pruned orders missing from a newer snapshot — fixed with RED→GREEN in the commit after this entry (web 85/85). (F3, advisory) `exceljs@4.4.0` adds legacy transitive deps (`unzipper`→`fstream`→`rimraf@2`, deprecated `uuid@8.3.2` with moderate GHSA-w5hq-g745-h8pq); export only uses `writeBuffer`, so the unzip path is unreachable. Parent: `pnpm ci:quality` exit 0 (239 unit, 83 web), `TEST_DB_RECREATE=1 pnpm ci:database` exit 0 (310). Scratch removed by the parent.
+- **L5** (2026-11-22) User chose to split Batch 2 into 3 stacked PRs on top of PR #8 (`stacked-to-main`). Rebuilt from `backup/scope-batch-2` (`3184593`) as one commit per unit; the combined tree is byte-identical to the original branch:
+  1. `feat/scope-05-vault-reencrypt` (`49e9865`, 148L): SEC-09b re-encryption, its route contract and audit action.
+  2. `feat/scope-06-realtime-seq` (`738e3d2`, 194L): OPS-04 seq on snapshots, events and the HTTP order list, web monotonic merge, KDS snapshot pruning.
+  3. `feat/scope-07-payroll-export-audit` (`31e0c11` + this entry, 376L): FR-31 XLSX export, payroll/icebreaker audit emission and catalog, R5 fix, ODD logbooks.
+  Each slice: `pnpm ci:quality` exit 0; slice 1 vault.int 34/34, slice 2 realtime/cafeteria int 24/24, slice 3 `pnpm ci:database` exit 0 (311/311). Line counts exclude `pnpm-lock.yaml` and the generated `openapi.snapshot.json`.

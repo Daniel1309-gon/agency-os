@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, StreamableFile, UsePipes } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -40,6 +41,17 @@ export class PayrollController {
   adjustment(@Param('id') id: string, @Body() body: AdjustmentInput, @CurrentUser() user: AccessTokenClaims) { return this.payroll.adjustment(id, body, user.sub); }
 
   @Get('periods/:id/lines') @RequirePermissions('payroll.read') lines(@Param('id') id: string) { return this.payroll.lines(id); }
+
+  @Get('periods/:id/export')
+  @RequirePermissions('payroll.configure')
+  async exportPeriod(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims, @Res({ passthrough: true }) reply: FastifyReply) {
+    const { filename, buffer } = await this.payroll.exportPeriodXlsx(id, user.sub);
+    reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('content-disposition', `attachment; filename="${filename}"`)
+      .header('cache-control', 'no-store');
+    return new StreamableFile(buffer);
+  }
 
   @Get('goals') @RequirePermissions('payroll.read') goals(@Query('periodId') periodId?: string) { return this.payroll.listGoals(periodId); }
   @Post('goals') @RequirePermissions('payroll.configure') @UsePipes(new ZodValidationPipe(goalSchema)) createGoal(@Body() body: GoalInput) { return this.payroll.createGoal(body); }

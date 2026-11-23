@@ -1,5 +1,6 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { icebreakerEffectiveness, icebreakerEvaluations, icebreakerReviews, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
 import type { IcebreakerCreateInput, IcebreakerUpdateInput, ReviewInput, RuleInput, RuleUpdateInput } from './icebreakers.schemas.js';
@@ -21,7 +22,11 @@ function matchesRule(rule: { kind: string; pattern: string | null }, text: strin
 
 @Injectable()
 export class IcebreakersService {
-  constructor(private readonly db: DatabaseService, private readonly aiEngine: AiEngineClient) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly aiEngine: AiEngineClient,
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   async list(actor: IcebreakerActor) { return this.db.db.select({ id: icebreakers.id, profileId: icebreakers.profileId, text: icebreakers.text, status: icebreakers.status, version: icebreakers.version, publishedAt: icebreakers.publishedAt, createdAt: icebreakers.createdAt, updatedAt: icebreakers.updatedAt }).from(icebreakers).where(eq(icebreakers.operatorId, actor.sub)).orderBy(asc(icebreakers.createdAt)); }
 
@@ -63,16 +68,22 @@ export class IcebreakersService {
       if (broken.length) await tx.insert(icebreakerViolations).values(broken.map((rule) => ({ icebreakerId: id, ruleId: rule.id, severity: rule.severity, status: 'OPEN' })));
       await tx.update(icebreakers).set({ status, version: item.version + 1, updatedAt: new Date() }).where(eq(icebreakers.id, id));
     });
+    await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.evaluated', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { profileId: item.profileId, status, source: remote ? 'AI_ENGINE' : 'LOCAL_RULES', count: matchedRules.length } });
     return { id, status, blocking, matchedRules, ...(remote ? { score: remote.score, source: 'AI_ENGINE' as const } : { source: 'LOCAL_RULES' as const }) };
   }
 
   async publish(id: string, actor: IcebreakerActor) {
     const [row] = await this.db.db.update(icebreakers).set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date(), version: 1 }).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub), eq(icebreakers.status, 'APPROVED'))).returning({ id: icebreakers.id, status: icebreakers.status, publishedAt: icebreakers.publishedAt });
     if (!row) throw new ConflictException('Icebreaker requires an approved evaluation');
+    await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.published', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { status: 'PUBLISHED' } });
     return row;
   }
 
-  async createRule(input: RuleInput, actorId: string) { const [row] = await this.db.db.insert(icebreakerRules).values({ ...input, createdBy: actorId }).returning({ id: icebreakerRules.id, code: icebreakerRules.code, severity: icebreakerRules.severity }); return row; }
+  async createRule(input: RuleInput, actorId: string) {
+    const [row] = await this.db.db.insert(icebreakerRules).values({ ...input, createdBy: actorId }).returning({ id: icebreakerRules.id, code: icebreakerRules.code, severity: icebreakerRules.severity });
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'icebreaker.rule.created', entityType: 'icebreaker_rule', entityId: row.id, result: 'SUCCESS', metadata: { key: row.code } });
+    return row;
+  }
 
   async listRules() { return this.db.db.select({ id: icebreakerRules.id, code: icebreakerRules.code, name: icebreakerRules.name, kind: icebreakerRules.kind, pattern: icebreakerRules.pattern, severity: icebreakerRules.severity, isActive: icebreakerRules.isActive, version: icebreakerRules.version }).from(icebreakerRules).orderBy(asc(icebreakerRules.code)); }
   async updateRule(id: string, input: RuleUpdateInput) { const { version, ...changes } = input; const [row] = await this.db.db.update(icebreakerRules).set({ ...changes, version: version + 1 }).where(and(eq(icebreakerRules.id, id), eq(icebreakerRules.version, version))).returning({ id: icebreakerRules.id, version: icebreakerRules.version, isActive: icebreakerRules.isActive }); if (!row) throw new ConflictException('Rule was modified or not found'); return row; }
@@ -80,7 +91,14 @@ export class IcebreakersService {
   async violations(filters: { from?: string; to?: string; operatorId?: string }, actor: IcebreakerActor) { return this.db.db.select({ id: icebreakerViolations.id, icebreakerId: icebreakerViolations.icebreakerId, ruleId: icebreakerViolations.ruleId, severity: icebreakerViolations.severity, status: icebreakerViolations.status, reviewedBy: icebreakerViolations.reviewedBy, reviewedAt: icebreakerViolations.reviewedAt, createdAt: icebreakerViolations.createdAt }).from(icebreakerViolations).innerJoin(icebreakers, eq(icebreakers.id, icebreakerViolations.icebreakerId)).where(and(filters.operatorId ? eq(icebreakers.operatorId, filters.operatorId) : undefined, this.reviewerScope(actor), filters.from ? sql`${icebreakerViolations.createdAt} >= ${new Date(filters.from)}` : undefined, filters.to ? sql`${icebreakerViolations.createdAt} < ${new Date(filters.to)}` : undefined)).orderBy(asc(icebreakerViolations.createdAt)); }
   async effectiveness(id: string, actor: IcebreakerActor) { const item = await this.db.db.select({ id: icebreakers.id }).from(icebreakers).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub))).limit(1); if (!item.length) throw new NotFoundException('Icebreaker not found'); return this.db.db.select().from(icebreakerEffectiveness).where(eq(icebreakerEffectiveness.operatorId, actor.sub)).orderBy(asc(icebreakerEffectiveness.businessDate)); }
 
-  async review(id: string, input: ReviewInput, actor: IcebreakerActor) { const item = await this.db.db.query.icebreakers.findFirst({ where: and(eq(icebreakers.id, id), this.reviewerScope(actor)) }); if (!item) throw new NotFoundException('Icebreaker not found'); const [row] = await this.db.db.insert(icebreakerReviews).values({ icebreakerId: id, reviewerId: actor.sub, verdict: input.verdict, reason: input.reason }).returning({ id: icebreakerReviews.id, verdict: icebreakerReviews.verdict }); if (input.verdict === 'OVERRIDDEN_ALLOW') await this.db.db.update(icebreakers).set({ status: 'APPROVED', updatedAt: new Date(), version: item.version + 1 }).where(eq(icebreakers.id, id)); return row; }
+  async review(id: string, input: ReviewInput, actor: IcebreakerActor) {
+    const item = await this.db.db.query.icebreakers.findFirst({ where: and(eq(icebreakers.id, id), this.reviewerScope(actor)) });
+    if (!item) throw new NotFoundException('Icebreaker not found');
+    const [row] = await this.db.db.insert(icebreakerReviews).values({ icebreakerId: id, reviewerId: actor.sub, verdict: input.verdict, reason: input.reason }).returning({ id: icebreakerReviews.id, verdict: icebreakerReviews.verdict });
+    if (input.verdict === 'OVERRIDDEN_ALLOW') await this.db.db.update(icebreakers).set({ status: 'APPROVED', updatedAt: new Date(), version: item.version + 1 }).where(eq(icebreakers.id, id));
+    await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.reviewed', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { outcome: input.verdict } });
+    return row;
+  }
 
   private reviewerScope(actor: IcebreakerActor) {
     if (isGlobalReviewer(actor)) return sql`true`;

@@ -1,8 +1,10 @@
+import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { PayrollService } from '../../modules/payroll/payroll.service.js';
-import { operatorCompensation, payrollPeriods, pointsLedger } from '../../database/schema/index.js';
+import { auditLog, operatorCompensation, payrollPeriods, pointsLedger } from '../../database/schema/index.js';
 import {
   createProfile,
   createTestContext,
@@ -20,7 +22,7 @@ let payroll: PayrollService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  payroll = new PayrollService(ctx.database);
+  payroll = new PayrollService(ctx.database, new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -156,6 +158,24 @@ describe('PayrollService.compute against a real ledger', () => {
     await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 2 });
     const lines = await payroll.lines(period.id);
     expect(lines.find((line) => line.operatorId === leaver.id)).toMatchObject({ commissionRateSnapshot: '0.5000', grossCop: '1000.00', netCop: '500.00' });
+  });
+
+  it('does not block payroll for an operator without compensation whose points net to zero', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const reversed = await createUser(ctx);
+    const paid = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(paid.id, admin.id);
+    // Points recorded and fully reversed for someone who never had a compensation.
+    await ledger(reversed.id, profile.id, '2026-08-10', '10.0000');
+    await ledger(reversed.id, profile.id, '2026-08-12', '-10.0000');
+    await ledger(paid.id, profile.id, '2026-08-10', '5.0000');
+
+    // Nothing is payable to the reversed operator, so no line is written for them.
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 1 });
+    expect((await payroll.lines(period.id)).map((line) => line.operatorId)).toEqual([paid.id]);
+    await expect(payroll.summary(reversed.id, period.id)).resolves.toEqual({ periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false });
   });
 
   it('prices each day with the compensation in force that day when it changes mid-period', async () => {
@@ -342,5 +362,91 @@ describe('payroll adjustments', () => {
 
     const [after] = await payroll.lines(period.id);
     expect(after.netCop).toBe(line.netCop);
+  });
+});
+
+describe('payroll Excel export (FR-31)', () => {
+  it('exports computed lines with summed adjustments and totals as a valid xlsx workbook and audits the export', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx, { email: 'laura@example.com' });
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id, '0.4000', '100.0000');
+    await ledger(operator.id, profile.id, '2026-08-05', '250.0000');
+    await payroll.compute(period.id, admin.id);
+    const [line] = await payroll.lines(period.id);
+    await payroll.adjustment(line.id, { type: 'BONUS', amountCop: 5000, reason: 'meta' }, admin.id);
+    await payroll.adjustment(line.id, { type: 'PENALTY', amountCop: -1500, reason: 'tarde' }, admin.id);
+
+    const exported = await payroll.exportPeriodXlsx(period.id, admin.id);
+    expect(exported.filename).toBe('payroll-2026-08-01_2026-08-31.xlsx');
+    expect(exported.buffer.byteLength).toBeGreaterThan(0);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(exported.buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const summarySheet = workbook.getWorksheet('Resumen');
+    expect(summarySheet).toBeDefined();
+    expect(summarySheet!.getRow(2).values).toEqual([undefined, 'Periodo ID', period.id]);
+    expect(summarySheet!.getRow(3).values).toEqual([undefined, 'Nombre', PERIOD.name]);
+    expect(summarySheet!.getRow(4).values).toEqual([undefined, 'Inicio', PERIOD.startsOn]);
+    expect(summarySheet!.getRow(5).values).toEqual([undefined, 'Fin', PERIOD.endsOn]);
+    expect(summarySheet!.getRow(6).values).toEqual([undefined, 'Estado', 'OPEN']);
+    const sheet = workbook.getWorksheet('Nomina');
+    expect(sheet).toBeDefined();
+    expect(sheet!.getRow(1).values).toEqual([
+      undefined,
+      'Operador',
+      'Correo',
+      'Puntos',
+      'Tasa COP',
+      'Comision',
+      'Bruto COP',
+      'Neto COP',
+      'Ajustes COP',
+      'Total a Pagar COP',
+      'Estado',
+    ]);
+    // 250 pts * 100 = 25000 gross; * 0.40 = 10000 net; + (5000 - 1500) = 13500 payable.
+    expect(sheet!.getRow(2).values).toEqual([
+      undefined,
+      'Test laura@example.com',
+      'laura@example.com',
+      250,
+      100,
+      0.4,
+      25000,
+      10000,
+      3500,
+      13500,
+      'DRAFT',
+    ]);
+    expect(sheet!.getRow(3).values).toEqual([
+      undefined,
+      'TOTAL',
+      '',
+      250,
+      '',
+      '',
+      25000,
+      10000,
+      3500,
+      13500,
+      '',
+    ]);
+
+    const audits = await ctx.db
+      .select({ action: auditLog.action, entityId: auditLog.entityId, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'payroll.exported'));
+    expect(audits).toEqual([{ action: 'payroll.exported', entityId: period.id, metadata: { periodId: period.id, count: 1 } }]);
+
+    const allActions = (await ctx.db.select({ action: auditLog.action }).from(auditLog)).map((row) => row.action);
+    expect(allActions).toContain('payroll.period.computed');
+    expect(allActions).toContain('payroll.adjustment.created');
+  });
+
+  it('throws NotFoundException when exporting a non-existent period', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    await expect(payroll.exportPeriodXlsx('00000000-0000-4000-8000-000000000000', admin.id)).rejects.toThrow(NotFoundException);
   });
 });
