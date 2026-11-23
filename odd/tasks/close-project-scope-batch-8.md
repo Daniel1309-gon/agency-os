@@ -14,9 +14,10 @@ Objective: close the remaining unblocked A8 scope from `odd/tasks/HANDOFF-2026-1
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S2, S3 | inline | done | Enriched bounded `GET /icebreakers/violations` (Bogota dates, crew scope, `BOUNDED_FILTER`, OpenAPI + matrix refreshed), transactional `review()` marking `OPEN` violations `REVIEWED` + safe `OVERRIDDEN_ALLOW`, `isActive` toggle + `icebreaker.rule.updated` audit, shared schemas; shared build/lint/typecheck, backend lint/typecheck/243 unit/7 arch/10 contracts, live `icebreakers.int` 13/13 + `rls-service-writes.int` 7/7 pass. Risk: none |
-| T2 | S4 | inline | in_progress | Slice 19 (`feat/scope-19-web-icebreaker-moderation`) |
+| T2 | S4 | inline | done | Added `/app/icebreakers-revision` (`permission: 'icebreaker.review'`), `IcebreakerModeration.tsx` (violations review queue + admin rules CRUD/toggle), `icebreaker-moderation-view.ts` + tests, updated `workspace-navigation.ts`/`DashboardPage.tsx`; `web-app` lint, typecheck, `vite build`, vitest 18/18 (109/109 tests) pass. Risk: none |
 
 ## Log
 
 - **L1** (2026-11-23) User: "continua donde lo dejo claude". Finished Batch 7 verifier follow-ups on `feat/scope-17-icebreaker-ui` (`22e3bdf`: `publish` active-assignment guard + clean AI approval copy) and started Batch 8 to finish the remaining unblocked A8 scope (reviewer queue + rules UI).
-- **L2** (2026-11-23) Slice 18 (`feat/scope-18-icebreaker-review-rules`) verified and ready to commit. Proceeding to Slice 19 (`feat/scope-19-web-icebreaker-moderation`, T2).
+- **L2** (2026-11-23) Slice 18 (`feat/scope-18-icebreaker-review-rules`, `03f5965`) verified and committed. Proceeding to Slice 19 (`feat/scope-19-web-icebreaker-moderation`, T2).
+- **L3** (2026-11-23) Slice 19 (`feat/scope-19-web-icebreaker-moderation`) verified (`web-app` lint/typecheck/build/109 tests). All unblocked A8 scope (FR-21..FR-27) is now closed across Slices 17–19.
