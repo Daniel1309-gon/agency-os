@@ -82,7 +82,9 @@ export class CafeteriaService {
 
   async orders(status?: string, operatorId?: string) {
     const rows = await this.db.db.select({ id: cafeteriaOrders.id, orderNumber: cafeteriaOrders.orderNumber, operatorId: cafeteriaOrders.operatorId, status: cafeteriaOrders.status, placedAt: cafeteriaOrders.placedAt, acceptedAt: cafeteriaOrders.acceptedAt, readyAt: cafeteriaOrders.readyAt, pickupDeadlineAt: cafeteriaOrders.pickupDeadlineAt, deliveredAt: cafeteriaOrders.deliveredAt, totalCop: cafeteriaOrders.totalCop, notes: cafeteriaOrders.notes }).from(cafeteriaOrders).where(and(status ? eq(cafeteriaOrders.status, status) : undefined, operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined)).orderBy(desc(cafeteriaOrders.placedAt));
-    return this.attachItems(rows);
+    const seq = this.realtime?.nextSeq();
+    const withItems = await this.attachItems(rows);
+    return seq === undefined ? withItems : withItems.map((row) => ({ ...row, seq }));
   }
 
   async account(operatorId: string) {

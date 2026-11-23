@@ -93,4 +93,38 @@ describe('RealtimeService bridge', () => {
     await vi.waitFor(() => expect(api.emitted).toHaveLength(1));
     expect(api.emitted[0]).toMatchObject({ local: true, rooms: ['role:CAFETERIA', 'user:op-1'] });
   });
+
+  it('stamps strictly monotonic seq numbers on emitted events (OPS-04)', async () => {
+    const bus = redisStub();
+    const service = new RealtimeService(dbStub(), bus.redis);
+    let calls = 0;
+    vi.spyOn(service as unknown as { snapshotAll: () => Promise<unknown[]> }, 'snapshotAll').mockImplementation(async () => [
+      { operatorId: 'op-1', fullName: 'Operadora', status: 'ONLINE', reason: 'SESSION_ACTIVE', changedAt: null, seq: service.nextSeq() + (calls++ * 0) },
+    ]);
+    const api = serverStub();
+    service.attach(api.server);
+
+    await service.publishOperatorChanged('op-1');
+    await service.publishOperatorChanged('op-1');
+
+    const first = api.emitted[0]?.payload as { seq?: number };
+    const second = api.emitted[1]?.payload as { seq?: number };
+    expect(typeof first.seq).toBe('number');
+    expect(typeof second.seq).toBe('number');
+    expect(second.seq!).toBeGreaterThan(first.seq!);
+  });
+
+  it('logs structured error telemetry when bridge publish fails or receives invalid JSON (OPS-04)', async () => {
+    const bus = redisStub();
+    bus.publish.mockRejectedValueOnce(new Error('redis down'));
+    const service = new RealtimeService(dbStub(), bus.redis);
+    const errorSpy = vi.spyOn((service as unknown as { logger: { error: (msg: string) => void } }).logger, 'error').mockImplementation(() => undefined);
+
+    await service.publishOperatorChanged('op-1');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('redis down'));
+
+    service.attach(serverStub().server);
+    bus.deliver('{invalid-json');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('JSON'));
+  });
 });

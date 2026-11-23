@@ -12,6 +12,7 @@ export const operatorStatusSnapshotSchema = z.object({
   status: operatorStatusSchema,
   reason: z.string(),
   changedAt: z.string().datetime({ offset: true }).nullable(),
+  seq: z.number().int().nonnegative().optional(),
 }).strict();
 export type OperatorStatusSnapshot = z.infer<typeof operatorStatusSnapshotSchema>;
 
@@ -187,5 +188,6 @@ export const cafeteriaOrderSchema = z.object({
   totalCop: z.string(),
   notes: z.string().nullable().optional(),
   items: z.array(cafeteriaOrderItemSchema),
+  seq: z.number().int().nonnegative().optional(),
 });
 export type CafeteriaOrder = z.infer<typeof cafeteriaOrderSchema>;

@@ -12,6 +12,7 @@ export interface OperatorStatusSnapshot {
   status: string;
   reason: string;
   changedAt: Date | null;
+  seq: number;
 }
 
 export interface CafeteriaOrderSnapshot {
@@ -34,6 +35,7 @@ export interface CafeteriaOrderSnapshot {
     lineTotalCop: string;
     notes: string | null;
   }>;
+  seq: number;
 }
 
 @Injectable()
@@ -44,11 +46,19 @@ export class RealtimeService implements OnModuleDestroy {
   private bridgeRetry?: ReturnType<typeof setTimeout>;
   private bridgeAttempts = 0;
   private destroyed = false;
+  private lastSeq = 0;
 
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly redis?: RedisService,
   ) {}
+
+  /** Strictly monotonic sequence for OPS-04 snapshot/event ordering. */
+  nextSeq(): number {
+    const floor = Date.now() * 1000;
+    this.lastSeq = Math.max(this.lastSeq + 1, floor);
+    return this.lastSeq;
+  }
 
   attach(server: Server): void {
     this.server = server;
@@ -132,7 +142,10 @@ export class RealtimeService implements OnModuleDestroy {
   }
 
   private async publishBridge(event: { target: 'operator'; operatorId: string } | { target: 'cafeteria'; orderId: string; eventName: string }): Promise<void> {
-    await this.redis?.publish(RealtimeService.BRIDGE_CHANNEL, JSON.stringify(event)).catch(() => undefined);
+    await this.redis?.publish(RealtimeService.BRIDGE_CHANNEL, JSON.stringify(event)).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Falló la publicación al puente realtime (${event.target}): ${detail}`);
+    });
   }
 
   private async onBridgeMessage(message: string): Promise<void> {
@@ -141,6 +154,7 @@ export class RealtimeService implements OnModuleDestroy {
     try {
       parsed = JSON.parse(message);
     } catch {
+      this.logger.error('Mensaje del puente realtime descartado: JSON inválido');
       return;
     }
     if (typeof parsed !== 'object' || parsed === null) return;
@@ -188,6 +202,7 @@ export class RealtimeService implements OnModuleDestroy {
     const activeBreaks = await this.db.db.select({ operatorId: shifts.operatorId }).from(breaks).innerJoin(shifts, eq(shifts.id, breaks.shiftId)).where(eq(breaks.status, 'IN_PROGRESS'));
     const sessionOperators = new Set(activeSessions.map((row) => row.operatorId));
     const breakOperators = new Set(activeBreaks.map((row) => row.operatorId));
+    const seq = this.nextSeq();
     return operators.map((operator) => {
       const status = operator.declaredStatus === 'ALERT' ? 'ALERT' : breakOperators.has(operator.operatorId) ? 'BREAK' : sessionOperators.has(operator.operatorId) ? 'ONLINE' : 'OFFLINE';
       return {
@@ -196,6 +211,7 @@ export class RealtimeService implements OnModuleDestroy {
         status,
         reason: status === 'ALERT' ? (operator.declaredReason ?? 'ALERT') : status === 'BREAK' ? 'BREAK_IN_PROGRESS' : status === 'ONLINE' ? 'SESSION_ACTIVE' : 'NO_ACTIVE_SESSION',
         changedAt: operator.changedAt,
+        seq,
       };
     });
   }
@@ -207,7 +223,8 @@ export class RealtimeService implements OnModuleDestroy {
       .where(operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined)
       .orderBy(sql`${cafeteriaOrders.placedAt} desc`)
       .limit(100);
-    return this.attachCafeteriaItems(rows);
+    const seq = this.nextSeq();
+    return (await this.attachCafeteriaItems(rows)).map((row) => ({ ...row, seq }));
   }
 
   private async orderSnapshot(orderId: string): Promise<CafeteriaOrderSnapshot | undefined> {
@@ -217,7 +234,7 @@ export class RealtimeService implements OnModuleDestroy {
       .where(eq(cafeteriaOrders.id, orderId))
       .limit(1);
     const [snapshot] = await this.attachCafeteriaItems(rows);
-    return snapshot;
+    return snapshot ? { ...snapshot, seq: this.nextSeq() } : undefined;
   }
 
   private async attachCafeteriaItems<T extends { id: string }>(rows: T[]): Promise<Array<T & { items: CafeteriaOrderSnapshot['items'] }>> {
