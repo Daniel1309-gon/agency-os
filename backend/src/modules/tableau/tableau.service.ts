@@ -10,6 +10,11 @@ import { calendarDateIn, isTotalLabel, parseCsv, parsePoints, parseSourceHour, z
 /** A RUNNING run older than this lost its worker and is claimed again. */
 const STALE_RUN_MINUTES = 30;
 const ACTIVE = ['QUEUED', 'RUNNING'];
+
+/** The run was reclaimed by another worker after this one claimed it. */
+class LeaseLostError extends Error {
+  constructor() { super('ETL run was claimed by another worker'); }
+}
 const POINTS_HOURLY_COLUMNS = ['profileId', 'sourceHour', 'points'] as const;
 
 function previousCalendarDate(date: string): string {
@@ -325,10 +330,19 @@ export class TableauService {
     return inserted.length;
   }
 
+  /**
+   * A claim is fenced by its `started_at`: a worker that outlives STALE_RUN_MINUTES can
+   * have its run reclaimed, and from then on it must not write the run's outcome.
+   * Compared at millisecond precision because a JS Date carries no microseconds.
+   */
+  private leaseHeld(runId: string, lease: Date) {
+    return and(eq(etlRuns.id, runId), eq(etlRuns.status, 'RUNNING'), sql`date_trunc('milliseconds', ${etlRuns.startedAt}) = ${lease.toISOString()}::timestamptz`);
+  }
+
   /** Worker only: claims queued runs (and stale running ones) and executes them one by one. */
   async processQueued(limit = 4): Promise<number> {
     const claimed = await this.db.db.execute(sql`
-      UPDATE etl_runs SET status = 'RUNNING', started_at = now()
+      UPDATE etl_runs SET status = 'RUNNING', started_at = date_trunc('milliseconds', now())
       WHERE id IN (
         SELECT id FROM etl_runs
         WHERE status = 'QUEUED' OR (status = 'RUNNING' AND started_at < now() - make_interval(mins => ${STALE_RUN_MINUTES}))
@@ -336,29 +350,39 @@ export class TableauService {
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
       )
-      RETURNING id`);
-    for (const row of claimed.rows) await this.execute(String((row as { id: string }).id));
+      RETURNING id, started_at`);
+    for (const row of claimed.rows as { id: string; started_at: Date | string }[]) await this.execute(String(row.id), new Date(row.started_at));
     return claimed.rows.length;
   }
 
-  /** Worker only. Downloads the view, persists the raw CSV artifact, stages every row, and promotes valid hourly points. */
-  async execute(runId: string) {
+  /**
+   * Worker only. Downloads the view, persists the raw CSV artifact, stages every row, and
+   * promotes valid hourly points. `lease` is the claim's started_at; without it the
+   * current one is taken (direct calls).
+   */
+  async execute(runId: string, lease?: Date) {
     const run = await this.db.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, runId) });
     if (!run || !run.viewId) throw new NotFoundException('ETL run not found');
     const view = await this.db.db.query.tableauViews.findFirst({ where: eq(tableauViews.id, run.viewId) });
     if (!view) throw new NotFoundException('Tableau view not found');
+    const claim = lease ?? run.startedAt;
     try {
       const download = await this.client.downloadViewData(view.viewId);
       if (view.siteId !== download.siteId && view.siteId !== this.siteContentUrlHint()) {
         throw new Error(`View is registered for site ${view.siteId}, but the PAT signed in to site ${download.siteId}`);
       }
-      return await this.ingestCsv(run, view, download.body);
+      return await this.ingestCsv(run, view, download.body, claim);
     } catch (error) {
-      const message = describeFailure(error);
-      await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
-      await this.enqueueRunAlert(runId, view.name, run.businessDate, 'FAILED', message);
-      return { runId, status: 'FAILED' as const, error: message };
+      if (error instanceof LeaseLostError) return { runId, status: 'SUPERSEDED' as const };
+      return this.failRun(runId, claim, view.name, run.businessDate, describeFailure(error));
     }
+  }
+
+  private async failRun(runId: string, lease: Date, viewName: string, businessDate: string, message: string) {
+    const [failed] = await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(this.leaseHeld(runId, lease)).returning({ id: etlRuns.id });
+    if (!failed) return { runId, status: 'SUPERSEDED' as const };
+    await this.enqueueRunAlert(runId, viewName, businessDate, 'FAILED', message);
+    return { runId, status: 'FAILED' as const, error: message };
   }
 
   /** Re-runs parsing, staging, and promotion from the stored raw CSV artifact without calling Tableau. */
@@ -377,15 +401,21 @@ export class TableauService {
     if (!claimed.viewId) throw new NotFoundException('Tableau view not found');
     const view = await this.db.db.query.tableauViews.findFirst({ where: eq(tableauViews.id, claimed.viewId) });
     if (!view) throw new NotFoundException('Tableau view not found');
-    return this.ingestCsv(claimed, view, claimed.rawCsv!);
+    try {
+      return await this.ingestCsv(claimed, view, claimed.rawCsv!, claimed.startedAt);
+    } catch (error) {
+      if (error instanceof LeaseLostError) return { runId, status: 'SUPERSEDED' as const };
+      throw error;
+    }
   }
 
-  private async ingestCsv(run: typeof etlRuns.$inferSelect, view: typeof tableauViews.$inferSelect, csvBody: string) {
+  private async ingestCsv(run: typeof etlRuns.$inferSelect, view: typeof tableauViews.$inferSelect, csvBody: string, lease: Date) {
     const runId = run.id;
     const checksum = createHash('sha256').update(csvBody).digest('hex');
     const rawCsvBytes = Buffer.byteLength(csvBody, 'utf8');
     // Persist the raw CSV artifact immediately so mapping/validation fixes can reprocess offline without hitting Tableau again.
-    await this.db.db.update(etlRuns).set({ rawCsv: csvBody, rawCsvBytes, checksum }).where(eq(etlRuns.id, runId));
+    const [stored] = await this.db.db.update(etlRuns).set({ rawCsv: csvBody, rawCsvBytes, checksum }).where(this.leaseHeld(runId, lease)).returning({ id: etlRuns.id });
+    if (!stored) throw new LeaseLostError();
     try {
       const { headers, rows } = parseCsv(csvBody);
       const mapping = view.columnMapping ?? {};
@@ -423,6 +453,10 @@ export class TableauService {
       const rejected = staged.filter((row) => row.validationStatus === 'REJECTED').length;
       const status = rejected ? 'PARTIAL' : 'SUCCESS';
       await this.db.db.transaction(async (tx) => {
+        // Lock the run under this claim first: a worker that lost it promotes nothing,
+        // and a takeover waits until this transaction has committed or rolled back.
+        const [held] = await tx.select({ id: etlRuns.id }).from(etlRuns).where(this.leaseHeld(runId, lease)).for('update');
+        if (!held) throw new LeaseLostError();
         // Re-ingesting a run (offline reprocess after a mapping or timezone fix) can
         // produce other keys than last time. What this run promoted before is zeroed
         // first, so a key it no longer yields keeps no points; neither role can DELETE.
@@ -447,10 +481,8 @@ export class TableauService {
       }
       return { runId, status, rowCount: rows.length, rejectedCount: rejected, checksum, rawCsvBytes };
     } catch (error) {
-      const message = describeFailure(error);
-      await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
-      await this.enqueueRunAlert(runId, view.name, run.businessDate, 'FAILED', message);
-      return { runId, status: 'FAILED' as const, error: message };
+      if (error instanceof LeaseLostError) throw error;
+      return this.failRun(runId, lease, view.name, run.businessDate, describeFailure(error));
     }
   }
 

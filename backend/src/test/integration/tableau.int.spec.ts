@@ -11,11 +11,13 @@ let service: TableauService;
 /** What the fake Tableau answers next; a thrown error simulates an outage. */
 let download: () => ViewDownload;
 let downloads: string[];
+/** Runs while the fake download is in flight, e.g. another worker reclaiming the run. */
+let duringDownload: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
   ctx = await createTestContext();
   const client = {
-    downloadViewData: async (viewId: string) => { downloads.push(viewId); return download(); },
+    downloadViewData: async (viewId: string) => { downloads.push(viewId); await duringDownload?.(); return download(); },
     siteContentUrl: () => 'partnerdata',
   } as unknown as TableauClient;
   service = new TableauService(ctx.database, client);
@@ -29,6 +31,7 @@ beforeEach(async () => {
   await resetDatabase(ctx);
   await seedRoles(ctx);
   downloads = [];
+  duringDownload = undefined;
 });
 
 const MAPPING = { profileId: 'ID Trusted User', sourceHour: 'Hour', points: 'Points' };
@@ -260,6 +263,36 @@ describe('TableauService (FR-19, decision #9)', () => {
     // Updating per-view schedule preserves existing mapping
     const updated = await service.updateView(view.id, { scheduleTime: '08:30', freshnessSlaMinutes: 90 });
     expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
+  });
+
+  it('drops the result of a worker whose claim another worker took over', async () => {
+    const view = await hourlyView();
+    await profileWithRef('TU-1');
+    const takeOver = async () => {
+      // Another worker reclaims the run (stale RUNNING) while this one is downloading.
+      await ctx.db.update(etlRuns).set({ startedAt: new Date(Date.now() + 60_000) }).where(eq(etlRuns.viewId, view.id));
+    };
+
+    download = () => csv(['TU-1,2026-11-22 06:00,5']);
+    const succeeded = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    duringDownload = takeOver;
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, succeeded!.id) })).toMatchObject({ status: 'RUNNING', rawCsv: null, finishedAt: null });
+    expect(await ctx.db.select().from(tableauHourlyPoints)).toEqual([]);
+    expect(await ctx.db.select().from(etlStagingRows)).toEqual([]);
+
+    // A failure seen by the superseded worker is not recorded either: the new owner decides.
+    download = () => { throw new Error('Tableau 503'); };
+    const failed = await service.run({ viewId: view.id, businessDate: '2026-11-21' });
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, failed!.id) })).toMatchObject({ status: 'RUNNING', error: null, alertedAt: null });
+
+    // The worker that holds the claim still finishes normally.
+    duringDownload = undefined;
+    download = () => csv(['TU-1,2026-11-22 06:00,5']);
+    await ctx.db.update(etlRuns).set({ status: 'QUEUED' }).where(eq(etlRuns.id, succeeded!.id));
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, succeeded!.id) })).toMatchObject({ status: 'SUCCESS', rowCount: 1 });
   });
 
   it('reports the expected-date run and the latest run per view among a long history', async () => {
