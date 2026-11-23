@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
-import { cafeteriaOrderItems, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
+import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -176,6 +176,91 @@ describe('the kitchen flow and the debit', () => {
     const [order] = await cafeteria.orders('READY');
     expect(order.readyAt).toBeInstanceOf(Date);
     expect(order.pickupDeadlineAt?.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('lets only one of two concurrent transitions win, and debits a delivered order once', async () => {
+    // CAF-02: "dos entregas concurrentes producen una sola transición/débito".
+    // A third connection holds the row lock, so both transitions read READY and then
+    // queue on the UPDATE; releasing it makes the race deterministic.
+    // Pairs that are both valid from the starting status, so the SQL compare-and-swap
+    // (not the transition table) is what decides the winner.
+    const races = [
+      { from: 'READY', first: { status: 'DELIVERED' }, second: { status: 'DELIVERED' } },
+      { from: 'PREPARING', first: { status: 'READY' }, second: { status: 'CANCELLED', cancelReason: 'carrera' } },
+    ] as const;
+    for (const race of races) {
+      const { operatorId, orderId, kitchenId } = await placedOrder();
+      const path = race.from === 'READY' ? (['ACCEPTED', 'PREPARING', 'READY'] as const) : (['ACCEPTED', 'PREPARING'] as const);
+      for (const status of path) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+
+      const blocker = await ctx.pool.connect();
+      let results: PromiseSettledResult<unknown>[];
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('SELECT id FROM cafeteria_orders WHERE id = $1 FOR UPDATE', [orderId]);
+        const racing = Promise.allSettled([cafeteria.updateStatus(orderId, race.first, kitchenId), cafeteria.updateStatus(orderId, race.second, kitchenId)]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await blocker.query('COMMIT');
+        results = await racing;
+      } finally {
+        blocker.release();
+      }
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
+      expect(rejected.reason).toBeInstanceOf(ConflictException);
+      expect(String(rejected.reason.message)).toMatch(/changed concurrently/);
+      const [order] = await ctx.db.select({ status: cafeteriaOrders.status }).from(cafeteriaOrders).where(eq(cafeteriaOrders.id, orderId));
+      const debits = await ctx.db.select({ id: operatorAccountEntries.id }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
+      expect(debits).toHaveLength(order.status === 'DELIVERED' ? 1 : 0);
+    }
+  });
+
+  it('uses the shortest pickup deadline among the ordered products', async () => {
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const lunch = await cafeteria.createProduct({ ...LUNCH, sku: 'ALM-DL' });
+    const coffee = await cafeteria.createProduct({ ...COFFEE, sku: 'CAF-DL' });
+    const order = await cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }, { productId: coffee.id, quantity: 1 }] }, operator.id, 'key-deadline');
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(order.id, { status }, kitchen.id);
+
+    const [ready] = await cafeteria.orders('READY');
+    // Coffee allows 15 minutes, lunch 30: the coffee decides.
+    expect(ready.pickupDeadlineAt!.getTime() - ready.readyAt!.getTime()).toBe(15 * 60_000);
+  });
+
+  it('dates the debit in Bogota, so an order delivered at 22:00 counts on that day', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+
+    // 2026-08-04 03:00Z is 2026-08-03 22:00 in Bogota.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-08-04T03:00:00Z') });
+    try {
+      await cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const [entry] = await ctx.db.select({ businessDate: operatorAccountEntries.businessDate }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
+    expect(entry.businessDate).toBe('2026-08-03');
+  });
+
+  it('counts the month consumption by the Bogota business date of the debit', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+    // Delivered on 2026-08-31 22:00 Bogota (2026-09-01 03:00Z): an August debit.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-09-01T03:00:00Z') });
+    try {
+      await cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId);
+      // Still 2026-08-31 in Bogota: August's consumption includes it.
+      vi.setSystemTime(new Date('2026-09-01T04:30:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('25000.00');
+      // 2026-09-01 in Bogota: a new month, nothing consumed yet.
+      vi.setSystemTime(new Date('2026-09-01T06:00:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('0');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not debit a cancelled order', async () => {

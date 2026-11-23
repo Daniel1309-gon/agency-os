@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
-import { applyOrderSnapshot, mergeOrders } from './cafeteria-orders-view';
+import { applyOrderSnapshot, mergeOrders, statusUpdateFailure } from './cafeteria-orders-view';
 
 const columns: Array<{ status: CafeteriaOrderStatus; label: string }> = [
   { status: 'PLACED', label: 'Recibidos' },
@@ -120,7 +120,10 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
       });
       await loadOrders();
     } catch (nextError) {
-      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos actualizar el pedido.');
+      const failure = statusUpdateFailure(nextError instanceof ApiError ? nextError : undefined);
+      // loadOrders clears the error, so the notice is shown after the reload.
+      if (failure.reload) await loadOrders();
+      setError(failure.message);
     } finally {
       setUpdatingId(null);
     }
