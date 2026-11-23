@@ -12,6 +12,7 @@ export type WorkspacePageId =
   | 'crews'
   | 'shifts'
   | 'payroll'
+  | 'icebreakerReview'
   | 'messages'
   | 'metrics'
   | 'security'
@@ -44,6 +45,18 @@ const operatorRoutes: readonly WorkspaceRoute[] = [
   { id: 'operatorCafeteria', path: '/app/cafeteria', label: 'Cafetería', group: 'Punto', kicker: 'Pausa y consumo', title: 'Pide a cafetería', description: 'Elige tus productos y envía el pedido durante tu jornada.', showDate: true },
 ];
 
+const icebreakerReviewRoute: WorkspaceRoute = {
+  id: 'icebreakerReview',
+  path: '/app/icebreakers-revision',
+  label: 'Icebreakers',
+  group: 'Control',
+  kicker: 'Moderación y normas',
+  title: 'Revisión de icebreakers',
+  description: 'Revisa infracciones dentro de tu alcance y administra las reglas activas de TalkyTimes.',
+  permission: 'icebreaker.review',
+  longPage: true,
+};
+
 const coordinationRoutes: readonly WorkspaceRoute[] = [
   { id: 'team', path: '/app/equipo', label: 'Equipo', group: 'Operación', kicker: 'Vista de coordinación', title: 'Tu equipo, en movimiento.', description: 'Supervisa cobertura, estados y alertas de tu cuadrilla.', permission: 'operators.monitor', showDate: true },
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Consulta las personas y los roles dentro de tu alcance.', permission: 'users.read' },
@@ -51,6 +64,7 @@ const coordinationRoutes: readonly WorkspaceRoute[] = [
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read', longPage: true },
   { id: 'crews', path: '/app/cuadrillas', label: 'Cuadrillas', group: 'Operación', kicker: 'Agrupación de operadores', title: 'Cuadrillas', description: 'Agrupa operadores, define su coordinador y administra la vigencia de cada miembro.', permission: 'crews.read' },
   { id: 'shifts', path: '/app/turnos', label: 'Turnos', group: 'Operación', kicker: 'Cobertura operativa', title: 'Turnos y overrides', description: 'Programa jornadas y excepciones horarias con trazabilidad.', permission: 'shifts.read', longPage: true },
+  icebreakerReviewRoute,
   { id: 'messages', path: '/app/mensajes', label: 'Mensajes', group: 'Control', kicker: 'Comunicación interna', title: 'Mensajes programados', description: 'Programa avisos puntuales o recurrentes entregados por Rocket.Chat.', permission: 'chat.manage', longPage: true },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read', longPage: true },
 ];
@@ -69,6 +83,7 @@ const managementRoutes: readonly WorkspaceRoute[] = [
   { id: 'payroll', path: '/app/nomina', label: 'Nómina', group: 'Operación', kicker: 'Liquidación y exportación', title: 'Periodos de nómina', description: 'Consulta los periodos liquidados y descarga el archivo Excel oficial.', permission: 'payroll.read', longPage: true },
   cafeteriaSalesRoute,
   cafeteriaInventoryRoute,
+  icebreakerReviewRoute,
   { id: 'messages', path: '/app/mensajes', label: 'Mensajes', group: 'Control', kicker: 'Comunicación interna', title: 'Mensajes programados', description: 'Programa avisos puntuales o recurrentes entregados por Rocket.Chat.', permission: 'chat.manage', longPage: true },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read' },
 ];

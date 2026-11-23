@@ -13,6 +13,7 @@ import { OperatorShiftPanel } from '../../components/OperatorShift/OperatorShift
 import { OperatorIcebreakersPanel } from '../../components/OperatorIcebreakers/OperatorIcebreakersPanel';
 import { AssignmentManagement } from '../../components/OperationsManagement/AssignmentManagement';
 import { CrewManagement } from '../../components/OperationsManagement/CrewManagement';
+import { IcebreakerModeration } from '../../components/OperationsManagement/IcebreakerModeration';
 import { PayrollManagement } from '../../components/OperationsManagement/PayrollManagement';
 import { ProfileManagement } from '../../components/OperationsManagement/ProfileManagement';
 import { ScheduledMessagesPanel } from '../../components/OperationsManagement/ScheduledMessagesPanel';
@@ -83,6 +84,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'crews': return <CrewManagement accessToken={accessToken} user={user} />;
     case 'shifts': return <ShiftManagement accessToken={accessToken} user={user} />;
     case 'payroll': return <PayrollManagement accessToken={accessToken} user={user} />;
+    case 'icebreakerReview': return <IcebreakerModeration accessToken={accessToken} user={user} />;
     case 'messages': return <ScheduledMessagesPanel accessToken={accessToken} user={user} />;
     case 'metrics': return <ManagementOverview accessToken={accessToken} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;

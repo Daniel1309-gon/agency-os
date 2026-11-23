@@ -20,6 +20,7 @@ describe('workspace navigation', () => {
       '/app/nomina',
       '/app/ventas',
       '/app/inventario',
+      '/app/icebreakers-revision',
       '/app/mensajes',
       '/app/seguridad',
       '/app/acceso-ip',
@@ -69,13 +70,20 @@ describe('workspace navigation', () => {
     expect(resolveWorkspaceRoute('ADMIN', ['*'], '/app/no-existe').path).toBe('/app/metricas');
   });
 
+  it('gives reviewers access to /app/icebreakers-revision behind icebreaker.review', () => {
+    for (const role of ['COORDINADOR', 'DIRECTOR_OPERATIVO', 'ADMIN'] as const) {
+      expect(getWorkspaceRoutes(role, ['icebreaker.review']).map((route) => route.path)).toEqual(['/app/icebreakers-revision']);
+    }
+    expect(getWorkspaceRoutes('OPERADOR', ['icebreaker.review']).map((route) => route.path)).not.toContain('/app/icebreakers-revision');
+  });
+
   it('groups routes in declaration order for the navbar', () => {
     const groups = groupWorkspaceRoutes(getWorkspaceRoutes('ADMIN', ['*']));
 
     expect(groups.map(([group]) => group)).toEqual(['Operación', 'Punto', 'Control']);
     expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos', '/app/nomina']);
     expect(groups[1][1].map((route) => route.path)).toEqual(['/app/ventas', '/app/inventario']);
-    expect(groups[2][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
+    expect(groups[2][1].map((route) => route.path)).toEqual(['/app/icebreakers-revision', '/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
   });
 
   it('intercepts only plain primary clicks so new-tab gestures keep working', () => {
