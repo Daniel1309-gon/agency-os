@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { PayrollService } from '../../modules/payroll/payroll.service.js';
-import { auditLog, operatorCompensation, payrollPeriods, pointsLedger } from '../../database/schema/index.js';
+import { auditLog, operatorAccountEntries, operatorCompensation, payrollPeriods, pointsLedger } from '../../database/schema/index.js';
 import {
   createProfile,
   createTestContext,
@@ -365,6 +366,63 @@ describe('payroll adjustments', () => {
   });
 });
 
+async function account(operatorId: string, entryType: string, amountCop: string, businessDate: string): Promise<void> {
+  await ctx.db.insert(operatorAccountEntries).values({ operatorId, entryType, amountCop, referenceType: 'cafeteria_order', referenceId: randomUUID(), businessDate });
+}
+
+describe('cafeteria consumption in payroll (FR-35)', () => {
+  it('deducts the period cafeteria debits net of refunds, and only those inside the period', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
+    await ledger(operator.id, profile.id, '2026-08-05', '100.0000');
+    await account(operator.id, 'DEBIT_CAFETERIA', '-300.00', '2026-08-10');
+    await account(operator.id, 'CREDIT_REFUND', '50.00', '2026-08-11');
+    await account(operator.id, 'DEBIT_CAFETERIA', '-999.00', '2026-09-01');
+
+    await payroll.compute(period.id, admin.id);
+
+    // Earnings stay as computed (100 x 10 x 1 = 1000); the consumption is its own column.
+    expect((await payroll.lines(period.id))[0]).toMatchObject({ netCop: '1000.00', cafeteriaDebitCop: '250.00' });
+  });
+
+  it('gives an operator with consumption but no points a line, so the debit is not lost', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await account(operator.id, 'DEBIT_CAFETERIA', '-12500.00', '2026-08-10');
+
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 1 });
+    expect((await payroll.lines(period.id))[0]).toMatchObject({ operatorId: operator.id, pointsTotal: '0.0000', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop: '12500.00' });
+  });
+
+  it('writes no line for an operator without points whose consumption was fully refunded', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await account(operator.id, 'DEBIT_CAFETERIA', '-3500.00', '2026-08-10');
+    await account(operator.id, 'CREDIT_REFUND', '3500.00', '2026-08-11');
+
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 0 });
+    expect(await payroll.lines(period.id)).toHaveLength(0);
+  });
+
+  it('records a zero deduction when the operator consumed nothing', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(operator.id, admin.id);
+    await ledger(operator.id, profile.id, '2026-08-05', '10.0000');
+
+    await payroll.compute(period.id, admin.id);
+
+    expect((await payroll.lines(period.id))[0]).toMatchObject({ cafeteriaDebitCop: '0.00' });
+  });
+});
+
 describe('payroll Excel export (FR-31)', () => {
   it('exports computed lines with summed adjustments and totals as a valid xlsx workbook and audits the export', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
@@ -373,6 +431,7 @@ describe('payroll Excel export (FR-31)', () => {
     const period = await payroll.createPeriod(PERIOD, admin.id);
     await compensate(operator.id, admin.id, '0.4000', '100.0000');
     await ledger(operator.id, profile.id, '2026-08-05', '250.0000');
+    await account(operator.id, 'DEBIT_CAFETERIA', '-2000.00', '2026-08-06');
     await payroll.compute(period.id, admin.id);
     const [line] = await payroll.lines(period.id);
     await payroll.adjustment(line.id, { type: 'BONUS', amountCop: 5000, reason: 'meta' }, admin.id);
@@ -403,10 +462,11 @@ describe('payroll Excel export (FR-31)', () => {
       'Bruto COP',
       'Neto COP',
       'Ajustes COP',
+      'Cafeteria COP',
       'Total a Pagar COP',
       'Estado',
     ]);
-    // 250 pts * 100 = 25000 gross; * 0.40 = 10000 net; + (5000 - 1500) = 13500 payable.
+    // 250 pts * 100 = 25000 gross; * 0.40 = 10000 net; + (5000 - 1500) - 2000 cafeteria = 11500 payable.
     expect(sheet!.getRow(2).values).toEqual([
       undefined,
       'Test laura@example.com',
@@ -417,7 +477,8 @@ describe('payroll Excel export (FR-31)', () => {
       25000,
       10000,
       3500,
-      13500,
+      2000,
+      11500,
       'DRAFT',
     ]);
     expect(sheet!.getRow(3).values).toEqual([
@@ -430,7 +491,8 @@ describe('payroll Excel export (FR-31)', () => {
       25000,
       10000,
       3500,
-      13500,
+      2000,
+      11500,
       '',
     ]);
 

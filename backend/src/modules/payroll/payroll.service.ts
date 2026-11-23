@@ -3,7 +3,7 @@ import { ConflictException, Injectable, NotFoundException, Optional } from '@nes
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { competitions, competitionParticipants, goals, operatorCompensation, payrollAdjustments, payrollLines, payrollPeriods, pointsLedger, users } from '../../database/schema/index.js';
+import { competitions, competitionParticipants, goals, operatorAccountEntries, operatorCompensation, payrollAdjustments, payrollLines, payrollPeriods, pointsLedger, users } from '../../database/schema/index.js';
 import type { AdjustmentInput, CompetitionInput, GoalInput, PeriodCreateInput, PointsAdjustmentInput } from './payroll.schemas.js';
 
 interface PricedSegment {
@@ -85,16 +85,27 @@ export class PayrollService {
     // assumed 100% overpays silently, so the whole computation is refused instead.
     const missing = [...byOperator].filter(([, segments]) => priceSegments(segments).missing).map(([operatorId]) => operatorId);
     if (missing.length) throw new ConflictException(`Compensation is not configured for operators: ${missing.join(', ')}`);
+    const consumption = await this.cafeteriaConsumption(period);
     let linesComputed = 0;
-    for (const [operatorId, segments] of byOperator) {
-      const priced = priceSegments(segments);
-      // Fully reversed points of an operator who never had a compensation: no line.
-      if (!priced.payable) continue;
+    for (const operatorId of new Set([...byOperator.keys(), ...consumption.keys()])) {
+      const priced = priceSegments(byOperator.get(operatorId) ?? []);
+      const cafeteriaDebitCop = (consumption.get(operatorId) ?? 0).toFixed(2);
+      let line: { pointsTotal: string; commissionRateSnapshot: string; pointsToCopRateSnapshot: string; grossCop: string; netCop: string; cafeteriaDebitCop: string };
+      if (priced.payable) {
+        line = { pointsTotal: priced.pointsTotal, commissionRateSnapshot: priced.commissionRate, pointsToCopRateSnapshot: priced.pointsToCopRate, grossCop: priced.grossCop, netCop: priced.netCop, cafeteriaDebitCop };
+      } else if (consumption.has(operatorId)) {
+        // FR-35: consumption without payable points still needs a line, or the debit
+        // would never reach payroll. It carries the compensation in force at period end, if any.
+        const compensation = await this.compensationFor(operatorId, period.endsOn);
+        line = { pointsTotal: priced.pointsTotal, commissionRateSnapshot: compensation?.commissionRate ?? '0', pointsToCopRateSnapshot: compensation?.pointsToCopRate ?? '0', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop };
+      } else {
+        // Fully reversed points of an operator who never had a compensation: no line.
+        continue;
+      }
       linesComputed += 1;
-      const line = { pointsTotal: priced.pointsTotal, commissionRateSnapshot: priced.commissionRate, pointsToCopRateSnapshot: priced.pointsToCopRate, grossCop: priced.grossCop, netCop: priced.netCop };
       await this.db.db.insert(payrollLines).values({ periodId, operatorId, ...line, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { ...line, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
     }
-    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.period.computed', entityType: 'payroll_period', entityId: periodId, result: 'SUCCESS', metadata: { periodId, count: byOperator.size } });
+    await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.period.computed', entityType: 'payroll_period', entityId: periodId, result: 'SUCCESS', metadata: { periodId, count: linesComputed } });
     return { periodId, linesComputed };
   }
 
@@ -141,6 +152,20 @@ export class PayrollService {
       .groupBy(pointsLedger.operatorId, operatorCompensation.id, operatorCompensation.commissionRate, operatorCompensation.pointsToCopRate);
   }
 
+  /**
+   * FR-35: cafeteria debits net of refunds whose Bogota business date falls in the
+   * period, per operator, as a positive amount to deduct.
+   */
+  private async cafeteriaConsumption(period: { startsOn: string; endsOn: string }): Promise<Map<string, number>> {
+    const rows = await this.db.db
+      .select({ operatorId: operatorAccountEntries.operatorId, total: sql<string>`coalesce(sum(${operatorAccountEntries.amountCop}), 0)` })
+      .from(operatorAccountEntries)
+      .where(and(inArray(operatorAccountEntries.entryType, ['DEBIT_CAFETERIA', 'CREDIT_REFUND']), gte(operatorAccountEntries.businessDate, period.startsOn), lte(operatorAccountEntries.businessDate, period.endsOn)))
+      .groupBy(operatorAccountEntries.operatorId);
+    // A debit fully refunded within the period nets to zero: nothing to deduct, no line.
+    return new Map(rows.map((row) => [row.operatorId, -Number(row.total)] as const).filter(([, amount]) => amount !== 0));
+  }
+
   /** Compensation in force at the end of the period, or now if the period has not ended yet. */
   private compensationFor(operatorId: string, endsOn: string) {
     return this.db.db.query.operatorCompensation.findFirst({
@@ -165,7 +190,7 @@ export class PayrollService {
     return row;
   }
 
-  async lines(periodId: string) { return this.db.db.select({ id: payrollLines.id, periodId: payrollLines.periodId, operatorId: payrollLines.operatorId, pointsTotal: payrollLines.pointsTotal, commissionRateSnapshot: payrollLines.commissionRateSnapshot, pointsToCopRateSnapshot: payrollLines.pointsToCopRateSnapshot, grossCop: payrollLines.grossCop, netCop: payrollLines.netCop, status: payrollLines.status, version: payrollLines.version, computedAt: payrollLines.computedAt }).from(payrollLines).where(eq(payrollLines.periodId, periodId)).orderBy(asc(payrollLines.operatorId)); }
+  async lines(periodId: string) { return this.db.db.select({ id: payrollLines.id, periodId: payrollLines.periodId, operatorId: payrollLines.operatorId, pointsTotal: payrollLines.pointsTotal, commissionRateSnapshot: payrollLines.commissionRateSnapshot, pointsToCopRateSnapshot: payrollLines.pointsToCopRateSnapshot, grossCop: payrollLines.grossCop, netCop: payrollLines.netCop, cafeteriaDebitCop: payrollLines.cafeteriaDebitCop, status: payrollLines.status, version: payrollLines.version, computedAt: payrollLines.computedAt }).from(payrollLines).where(eq(payrollLines.periodId, periodId)).orderBy(asc(payrollLines.operatorId)); }
 
   /** FR-31: exports a payroll period with computed lines and summed adjustments as an .xlsx workbook. */
   async exportPeriodXlsx(periodId: string, actorId: string): Promise<{ filename: string; buffer: Buffer }> {
@@ -182,6 +207,7 @@ export class PayrollService {
         commissionRateSnapshot: payrollLines.commissionRateSnapshot,
         grossCop: payrollLines.grossCop,
         netCop: payrollLines.netCop,
+        cafeteriaDebitCop: payrollLines.cafeteriaDebitCop,
         status: payrollLines.status,
       })
       .from(payrollLines)
@@ -227,6 +253,7 @@ export class PayrollService {
       'Bruto COP',
       'Neto COP',
       'Ajustes COP',
+      'Cafeteria COP',
       'Total a Pagar COP',
       'Estado',
     ]);
@@ -236,6 +263,7 @@ export class PayrollService {
     let totalGross = 0;
     let totalNet = 0;
     let totalAdjustments = 0;
+    let totalCafeteria = 0;
     let totalPayable = 0;
 
     for (const row of rows) {
@@ -245,12 +273,15 @@ export class PayrollService {
       const gross = Number(row.grossCop);
       const net = Number(row.netCop);
       const adjustments = Number((adjustmentsByLine.get(row.id) ?? 0).toFixed(2));
-      const payable = Number((net + adjustments).toFixed(2));
+      const cafeteria = Number(row.cafeteriaDebitCop);
+      // FR-35: the period cafeteria consumption is deducted from what is paid.
+      const payable = Number((net + adjustments - cafeteria).toFixed(2));
 
       totalPoints += points;
       totalGross += gross;
       totalNet += net;
       totalAdjustments += adjustments;
+      totalCafeteria += cafeteria;
       totalPayable += payable;
 
       sheet.addRow([
@@ -262,6 +293,7 @@ export class PayrollService {
         gross,
         net,
         adjustments,
+        cafeteria,
         payable,
         row.status,
       ]);
@@ -276,6 +308,7 @@ export class PayrollService {
       Number(totalGross.toFixed(2)),
       Number(totalNet.toFixed(2)),
       Number(totalAdjustments.toFixed(2)),
+      Number(totalCafeteria.toFixed(2)),
       Number(totalPayable.toFixed(2)),
       '',
     ]);

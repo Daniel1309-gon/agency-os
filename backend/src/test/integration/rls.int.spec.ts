@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
 import type { PoolClient } from 'pg';
 import {
   encryptionKeys,
   auditLog,
+  cafeteriaOrders,
   crewMembers,
   crews,
   icebreakers,
@@ -232,6 +235,67 @@ describe('operator_account_entries row level security', () => {
     });
     await asRequest({}, async (client) => {
       expect(await countOf(client, 'operator_account_entries')).toBe(0);
+    });
+  });
+});
+
+describe('cafeteria delivery debit under row level security (FR-35)', () => {
+  async function deliveredOrder(status = 'DELIVERED') {
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const [order] = await ctx.db.insert(cafeteriaOrders).values({ operatorId: operator.id, status, totalCop: '12500.00', idempotencyKey: `rls-${operator.id}` }).returning({ id: cafeteriaOrders.id });
+    return { operatorId: operator.id, kitchenId: kitchen.id, orderId: order.id };
+  }
+  const insertDebit = `INSERT INTO operator_account_entries (operator_id, entry_type, amount_cop, reference_type, reference_id, business_date, created_by)
+    VALUES ($1, $2, $3, $4, $5, '2026-08-04', $6)`;
+
+  it('lets the kitchen write the exact debit of an order it delivered', async () => {
+    const { operatorId, kitchenId, orderId } = await deliveredOrder();
+    await asRequest({ userId: kitchenId, roleCode: 'CAFETERIA' }, async (client) => {
+      await expect(client.query(insertDebit, [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, kitchenId])).resolves.toMatchObject({ rowCount: 1 });
+    });
+  });
+
+  it('refuses any other entry the kitchen tries to write', async () => {
+    const { operatorId, kitchenId, orderId } = await deliveredOrder();
+    const other = await createUser(ctx);
+    const pending = await deliveredOrder('READY');
+    const attempts: Array<[string, unknown[]]> = [
+      ['credit instead of a debit', [operatorId, 'CREDIT_ADJUSTMENT', '12500.00', 'cafeteria_order', orderId, kitchenId]],
+      ['a different amount', [operatorId, 'DEBIT_CAFETERIA', '-1.00', 'cafeteria_order', orderId, kitchenId]],
+      ['another operator', [other.id, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, kitchenId]],
+      ['an order that is not delivered', [pending.operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', pending.orderId, kitchenId]],
+      ['another reference type', [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'payroll_line', orderId, kitchenId]],
+    ];
+    for (const [, values] of attempts) {
+      await asRequest({ userId: kitchenId, roleCode: 'CAFETERIA' }, async (client) => {
+        await expect(client.query(insertDebit, values)).rejects.toMatchObject({ code: '42501' });
+      });
+    }
+  });
+
+  it('delivers an order end to end through CafeteriaService under agency_app and the CAFETERIA context', async () => {
+    const cafeteria = new CafeteriaService(ctx.database);
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const product = await cafeteria.createProduct({ sku: 'RLS-ALM', name: 'Almuerzo', category: 'almuerzos', priceCop: 14500, pickupDeadlineMinutes: 30 });
+    const order = await cafeteria.createOrder({ items: [{ productId: product.id, quantity: 2 }] }, operator.id, `rls-svc-${operator.id}`);
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(order.id, { status }, kitchen.id);
+
+    // The production path: the request transaction runs as agency_app with RLS forced.
+    await ctx.database.withRequestContext(kitchen.id, 'CAFETERIA', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_app`);
+      await expect(cafeteria.updateStatus(order.id, { status: 'DELIVERED' }, kitchen.id)).resolves.toMatchObject({ status: 'DELIVERED', totalCop: '29000.00' });
+    });
+
+    const entries = await ctx.db.select().from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operator.id));
+    expect(entries).toMatchObject([{ entryType: 'DEBIT_CAFETERIA', amountCop: '-29000.00', referenceId: order.id }]);
+  });
+
+  it('still refuses an operator writing a debit or credit for themselves', async () => {
+    const { operatorId, orderId } = await deliveredOrder();
+    await asRequest({ userId: operatorId, roleCode: 'OPERADOR' }, async (client) => {
+      await expect(client.query(insertDebit, [operatorId, 'DEBIT_CAFETERIA', '-12500.00', 'cafeteria_order', orderId, operatorId])).rejects.toMatchObject({ code: '42501' });
     });
   });
 });

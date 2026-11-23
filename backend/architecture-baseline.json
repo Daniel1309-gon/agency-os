@@ -27,7 +27,7 @@
     "module-no-direct-schema:src/modules/operator-status/operator-status.service.ts:../../database/schema/index.js:operatorCurrentStatus,operatorStatusEvents",
     "module-no-private-cross-import:src/modules/operator-status/operator-status.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/outbox/outbox.service.ts:../../database/schema/index.js:outboxEvents",
-    "module-no-direct-schema:src/modules/payroll/payroll.service.ts:../../database/schema/index.js:competitionParticipants,competitions,goals,operatorCompensation,payrollAdjustments,payrollLines,payrollPeriods,pointsLedger,users",
+    "module-no-direct-schema:src/modules/payroll/payroll.service.ts:../../database/schema/index.js:competitionParticipants,competitions,goals,operatorAccountEntries,operatorCompensation,payrollAdjustments,payrollLines,payrollPeriods,pointsLedger,users",
     "module-no-direct-schema:src/modules/profiles/profiles.service.ts:../../database/schema/index.js:credentialAccessLog,profileAssignments,profileSessions,ttProfileCredentials,ttProfiles,users",
     "module-no-direct-schema:src/modules/realtime/realtime.gateway.ts:../../database/schema/index.js:crewMembers,crews,ipAllowlist,roles,users",
     "module-no-direct-schema:src/modules/realtime/realtime.service.ts:../../database/schema/index.js:breaks,cafeteriaOrderItems,cafeteriaOrders,crewMembers,crews,operatorCurrentStatus,profileSessions,roles,shifts,users",

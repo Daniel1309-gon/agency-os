@@ -66,6 +66,11 @@ Para repartir los puntos entre los turnos de 06:05, 14:05 y 22:05 necesitamos lo
    COP. **¿Se necesita además una tasa general por periodo para quienes no tienen una individual?**
    Si no hace falta, la retiramos para simplificar.
 
+6. **Consumo de cafetería mayor que lo ganado.** El consumo del periodo se descuenta de la
+   nómina. Si un operador consume más de lo que gana en el periodo, el total a pagar queda
+   negativo. **¿Ese saldo pasa al periodo siguiente, se cobra aparte o hay un tope de consumo?**
+   Mientras tanto, el sistema muestra el total negativo tal cual, sin arrastrarlo.
+
 ## 3. Icebreakers con IA (bloquea FR-22 a FR-27)
 
 1. **Reglas de TalkyTimes.** Necesitamos la lista documentada de las normas vigentes de TalkyTimes
