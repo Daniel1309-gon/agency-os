@@ -13,9 +13,10 @@ Objective: close the unblocked A9 scope from `odd/tasks/HANDOFF-2026-11-22.md`: 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | Migration `0030_tableau_schedule_artifacts.sql` (+ `_journal.json` idx 30), per-view 09:15 schedule + `PATCH /tableau/views/:id`, `enqueueScheduledRuns`, `GET /tableau/freshness`, deduplicated `ALERTS` outbox notifications on `FAILED`/`PARTIAL`/SLA miss, `BOUNDED_FILTER` OpenAPI + matrix refreshed; `drizzle-kit check`, backend lint/typecheck/243 unit/7 arch/10 contracts, live `tableau.int` 12/12 (incl. `agency_worker`) pass. Risk: none |
-| T2 | S3 | inline | in_progress | Slice 23 (`feat/scope-23-tableau-csv-reprocess`) |
+| T2 | S3 | inline | done | Raw CSV persisted immediately on download (`rawCsv`, `rawCsvBytes`, `checksum`) even on mapping failure; `POST /tableau/runs/:id/reprocess` claims run via CAS and reprocesses offline with zero `TableauClient` calls; `runs()` omits `rawCsv` payload; OpenAPI + matrix refreshed; backend lint/typecheck/243 unit/7 arch/10 contracts and live `tableau.int` 13/13 pass. Risk: none |
 
 ## Log
 
 - **L1** (2026-11-23) User: "si" (PRs #24 and #25 opened; continuing immediately with A9).
-- **L2** (2026-11-23) Slice 22 (`feat/scope-22-tableau-schedule-freshness`) verified (`drizzle-kit check`, 243 unit, 10 contracts, live `tableau.int` 12/12). Proceeding to Slice 23 (`feat/scope-23-tableau-csv-reprocess`, T2).
+- **L2** (2026-11-23) Slice 22 (`feat/scope-22-tableau-schedule-freshness`, `75d3dc4`) verified (`drizzle-kit check`, 243 unit, 10 contracts, live `tableau.int` 12/12). Proceeding to Slice 23 (`feat/scope-23-tableau-csv-reprocess`, T2).
+- **L3** (2026-11-23) Slice 23 (`feat/scope-23-tableau-csv-reprocess`) verified (243 unit, 10 contracts, live `tableau.int` 13/13). All unblocked A9 scope closed locally; ready for user decision on pushing/PRs #26–#27 and proceeding to A10 (last unblocked item).

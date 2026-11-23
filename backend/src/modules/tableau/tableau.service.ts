@@ -327,7 +327,7 @@ export class TableauService {
     return claimed.rows.length;
   }
 
-  /** Worker only. Downloads the view, stages every row, and promotes valid hourly points. */
+  /** Worker only. Downloads the view, persists the raw CSV artifact, stages every row, and promotes valid hourly points. */
   async execute(runId: string) {
     const run = await this.db.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, runId) });
     if (!run || !run.viewId) throw new NotFoundException('ETL run not found');
@@ -338,8 +338,42 @@ export class TableauService {
       if (view.siteId !== download.siteId && view.siteId !== this.siteContentUrlHint()) {
         throw new Error(`View is registered for site ${view.siteId}, but the PAT signed in to site ${download.siteId}`);
       }
-      const checksum = createHash('sha256').update(download.body).digest('hex');
-      const { headers, rows } = parseCsv(download.body);
+      return await this.ingestCsv(run, view, download.body);
+    } catch (error) {
+      const message = describeFailure(error);
+      await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
+      await this.enqueueRunAlert(runId, view.name, run.businessDate, 'FAILED', message);
+      return { runId, status: 'FAILED' as const, error: message };
+    }
+  }
+
+  /** Re-runs parsing, staging, and promotion from the stored raw CSV artifact without calling Tableau. */
+  async reprocess(runId: string) {
+    const [claimed] = await this.db.db
+      .update(etlRuns)
+      .set({ status: 'RUNNING', startedAt: new Date(), finishedAt: null, error: null, alertedAt: null })
+      .where(and(eq(etlRuns.id, runId), notInArray(etlRuns.status, ACTIVE), sql`${etlRuns.rawCsv} IS NOT NULL`))
+      .returning();
+    if (!claimed) {
+      const current = await this.db.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, runId) });
+      if (!current) throw new NotFoundException('ETL run not found');
+      if (ACTIVE.includes(current.status)) throw new ConflictException('ETL run is currently queued or running');
+      throw new ConflictException('No raw CSV artifact stored for this run');
+    }
+    if (!claimed.viewId) throw new NotFoundException('Tableau view not found');
+    const view = await this.db.db.query.tableauViews.findFirst({ where: eq(tableauViews.id, claimed.viewId) });
+    if (!view) throw new NotFoundException('Tableau view not found');
+    return this.ingestCsv(claimed, view, claimed.rawCsv!);
+  }
+
+  private async ingestCsv(run: typeof etlRuns.$inferSelect, view: typeof tableauViews.$inferSelect, csvBody: string) {
+    const runId = run.id;
+    const checksum = createHash('sha256').update(csvBody).digest('hex');
+    const rawCsvBytes = Buffer.byteLength(csvBody, 'utf8');
+    // Persist the raw CSV artifact immediately so mapping/validation fixes can reprocess offline without hitting Tableau again.
+    await this.db.db.update(etlRuns).set({ rawCsv: csvBody, rawCsvBytes, checksum }).where(eq(etlRuns.id, runId));
+    try {
+      const { headers, rows } = parseCsv(csvBody);
       const mapping = view.columnMapping ?? {};
       const missing = Object.entries(mapping).filter(([, column]) => !headers.includes(column)).map(([key, column]) => `${key}=${column}`);
       if (missing.length) throw new Error(`View columns changed: mapped columns not found (${missing.join(', ')})`);
@@ -387,12 +421,12 @@ export class TableauService {
             set: { points: sql`excluded.points`, rawRow: sql`excluded.raw_row`, etlRunId: sql`excluded.etl_run_id`, businessDate: sql`excluded.business_date` },
           });
         }
-        await tx.update(etlRuns).set({ status, rowCount: rows.length, rejectedCount: rejected, checksum, error: null, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
+        await tx.update(etlRuns).set({ status, rowCount: rows.length, rejectedCount: rejected, checksum, rawCsvBytes, error: null, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
       });
       if (status === 'PARTIAL') {
         await this.enqueueRunAlert(runId, view.name, run.businessDate, 'PARTIAL', `${rejected} de ${rows.length} filas rechazadas`);
       }
-      return { runId, status, rowCount: rows.length, rejectedCount: rejected, checksum };
+      return { runId, status, rowCount: rows.length, rejectedCount: rejected, checksum, rawCsvBytes };
     } catch (error) {
       const message = describeFailure(error);
       await this.db.db.update(etlRuns).set({ status: 'FAILED', error: message, finishedAt: new Date() }).where(eq(etlRuns.id, runId));
