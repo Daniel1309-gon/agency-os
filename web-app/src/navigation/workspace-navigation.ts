@@ -53,6 +53,10 @@ const coordinationRoutes: readonly WorkspaceRoute[] = [
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read', longPage: true },
 ];
 
+/** Shared by the kitchen and by management: supervising sales and the catalogue needs cafeteria.manage, not the live KDS. */
+const cafeteriaSalesRoute: WorkspaceRoute = { id: 'cafeteriaSales', path: '/app/ventas', label: 'Ventas', group: 'Punto', kicker: 'Cierre y trazabilidad', title: 'Ventas de cafetería', description: 'Consulta el historial de pedidos y el cierre diario de ventas en hora de Bogotá.', permission: 'cafeteria.manage', showDate: true, longPage: true };
+const cafeteriaInventoryRoute: WorkspaceRoute = { id: 'cafeteriaInventory', path: '/app/inventario', label: 'Inventario', group: 'Punto', kicker: 'Catálogo de productos', title: 'Inventario y disponibilidad', description: 'Administra productos, precios, tiempos de retiro y disponibilidad en el menú.', permission: 'cafeteria.manage', longPage: true };
+
 const managementRoutes: readonly WorkspaceRoute[] = [
   { id: 'metrics', path: '/app/metricas', label: 'Métricas', group: 'Operación', kicker: 'Dirección operativa', title: 'La operación de un vistazo.', description: 'Consulta las señales que orientan las decisiones del día.', permission: 'metrics.audit', showDate: true },
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Administra los accesos y roles de Agency OS.', permission: 'users.read' },
@@ -61,6 +65,8 @@ const managementRoutes: readonly WorkspaceRoute[] = [
   { id: 'crews', path: '/app/cuadrillas', label: 'Cuadrillas', group: 'Operación', kicker: 'Agrupación de operadores', title: 'Cuadrillas', description: 'Agrupa operadores, define su coordinador y administra la vigencia de cada miembro.', permission: 'crews.read' },
   { id: 'shifts', path: '/app/turnos', label: 'Turnos', group: 'Operación', kicker: 'Cobertura operativa', title: 'Turnos y overrides', description: 'Programa jornadas y excepciones horarias con trazabilidad.', permission: 'shifts.read' },
   { id: 'payroll', path: '/app/nomina', label: 'Nómina', group: 'Operación', kicker: 'Liquidación y exportación', title: 'Periodos de nómina', description: 'Consulta los periodos liquidados y descarga el archivo Excel oficial.', permission: 'payroll.read', longPage: true },
+  cafeteriaSalesRoute,
+  cafeteriaInventoryRoute,
   { id: 'messages', path: '/app/mensajes', label: 'Mensajes', group: 'Control', kicker: 'Comunicación interna', title: 'Mensajes programados', description: 'Programa avisos puntuales o recurrentes entregados por Rocket.Chat.', permission: 'chat.manage', longPage: true },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read' },
 ];
@@ -80,8 +86,8 @@ const adminRoutes: readonly WorkspaceRoute[] = [
 const cafeteriaRoutes: readonly WorkspaceRoute[] = [
   { id: 'cafeteriaOrders', path: '/app/pedidos', label: 'Pedidos', group: 'Punto', kicker: 'Operación en tiempo real', title: 'Pedidos de hoy', description: 'Mueve cada pedido por su estado hasta la entrega.', permission: 'cafeteria.manage', showDate: true },
   { id: 'cafeteriaMenu', path: '/app/menu', label: 'Menú', group: 'Punto', kicker: 'Disponibilidad · hoy', title: 'Menú de hoy', description: 'Consulta los productos publicados y sus tiempos de preparación.', permission: 'cafeteria.manage', showDate: true },
-  { id: 'cafeteriaSales', path: '/app/ventas', label: 'Ventas', group: 'Punto', kicker: 'Cierre y trazabilidad', title: 'Ventas de cafetería', description: 'Consulta el historial de pedidos y el cierre diario de ventas en hora de Bogotá.', permission: 'cafeteria.manage', showDate: true, longPage: true },
-  { id: 'cafeteriaInventory', path: '/app/inventario', label: 'Inventario', group: 'Punto', kicker: 'Catálogo de productos', title: 'Inventario y disponibilidad', description: 'Administra productos, precios, tiempos de retiro y disponibilidad en el menú.', permission: 'cafeteria.manage', longPage: true },
+  cafeteriaSalesRoute,
+  cafeteriaInventoryRoute,
 ];
 
 const routesByRole: Record<RoleCode, readonly WorkspaceRoute[]> = {

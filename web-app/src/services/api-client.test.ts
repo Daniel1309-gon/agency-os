@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient } from './api-client';
+import { ApiClient, parseContentDispositionFilename } from './api-client';
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -175,5 +175,15 @@ describe('ApiClient', () => {
     client.setAccessToken('access-1');
 
     await expect(client.requestBlob('/payroll/periods/p-1/export')).rejects.toMatchObject({ status: 403, message: 'no permission' });
+  });
+});
+
+describe('parseContentDispositionFilename', () => {
+  it('keeps only the base name, stripping unix and windows path traversal', () => {
+    expect(parseContentDispositionFilename('attachment; filename="payroll-2026-08-01_2026-08-31.xlsx"')).toBe('payroll-2026-08-01_2026-08-31.xlsx');
+    expect(parseContentDispositionFilename('attachment; filename="../../etc/passwd"')).toBe('passwd');
+    expect(parseContentDispositionFilename('attachment; filename="..\\..\\Windows\\System32\\cmd.exe"')).toBe('cmd.exe');
+    expect(parseContentDispositionFilename('attachment; filename="/"')).toBeNull();
+    expect(parseContentDispositionFilename(null)).toBeNull();
   });
 });
