@@ -26,7 +26,7 @@ export const rankingQuerySchema = z.object({
 export const timeseriesQuerySchema = z.object({
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
-  limit: z.coerce.number().int().min(1).max(366).default(90),
+  limit: z.coerce.number().int().min(1).max(732).default(180),
 }).refine((value) => !value.from || !value.to || value.from <= value.to, { message: '`from` must be on or before `to`', path: ['to'] });
 
 export const reconciliationQuerySchema = z.object({

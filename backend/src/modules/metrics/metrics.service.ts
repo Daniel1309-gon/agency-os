@@ -71,8 +71,25 @@ export class MetricsService {
     return { accepted: inserted.length, ignored: rows.length - inserted.length };
   }
 
-  private profileScope(user: MetricsActor | undefined, profileIdColumn: AnyPgColumn): SQL | undefined {
+  private bogotaDayRange(businessDateColumn: AnyPgColumn): SQL {
+    return sql`tstzrange((${businessDateColumn}::text || ' 00:00:00-05')::timestamptz, ((${businessDateColumn} + 1)::text || ' 00:00:00-05')::timestamptz, '[)')`;
+  }
+
+  private bogotaWindowRange(from?: string, to?: string): SQL {
+    const lower = from ? sql`${`${from}T00:00:00-05:00`}::timestamptz` : sql`NULL::timestamptz`;
+    const upper = to
+      ? (() => {
+          const [year, month, day] = to.split('-').map(Number);
+          const next = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+          return sql`${`${next}T00:00:00-05:00`}::timestamptz`;
+        })()
+      : sql`NULL::timestamptz`;
+    return sql`(tstzrange(${lower}, ${upper}, '[)') * tstzrange(NULL, now(), '(]'))`;
+  }
+
+  private profileScope(user: MetricsActor | undefined, profileIdColumn: AnyPgColumn, businessDateColumn: AnyPgColumn): SQL | undefined {
     if (isGlobalAudience(user)) return undefined;
+    const dayRange = this.bogotaDayRange(businessDateColumn);
     if (user!.role === 'COORDINADOR') {
       return sql`exists (
         select 1 from ${profileAssignments} assignment
@@ -80,30 +97,62 @@ export class MetricsService {
         inner join ${crews} crew on crew.id = member.crew_id
         where assignment.profile_id = ${profileIdColumn}
           and assignment.status in ('ACTIVE', 'ENDED')
-          and member.valid_range @> now()
+          and lower(assignment.valid_range) <= now()
+          and assignment.valid_range && ${dayRange}
+          and member.valid_range && (assignment.valid_range * ${dayRange})
           and crew.coordinator_id = ${user!.sub}
           and crew.is_active = true
       )`;
     }
-    return sql`exists (
-      select 1 from ${profileAssignments} assignment
-      where assignment.profile_id = ${profileIdColumn}
-        and assignment.operator_id = ${user!.sub}
-        and assignment.status = 'ACTIVE'
-        and assignment.valid_range @> now()
+    return sql`(
+      exists (
+        select 1 from ${profileAssignments} current_assignment
+        where current_assignment.profile_id = ${profileIdColumn}
+          and current_assignment.operator_id = ${user!.sub}
+          and current_assignment.status = 'ACTIVE'
+          and current_assignment.valid_range @> now()
+      )
+      and exists (
+        select 1 from ${profileAssignments} day_assignment
+        where day_assignment.profile_id = ${profileIdColumn}
+          and day_assignment.operator_id = ${user!.sub}
+          and day_assignment.status in ('ACTIVE', 'ENDED')
+          and lower(day_assignment.valid_range) <= now()
+          and day_assignment.valid_range && ${dayRange}
+      )
     )`;
   }
 
-  private async assertProfileInAudience(profileId: string, user: MetricsActor): Promise<void> {
-    const scope = this.profileScope(user, ttProfiles.id);
-    if (!scope) return;
+  private async assertProfileInAudience(profileId: string, user: MetricsActor, from?: string, to?: string): Promise<void> {
+    if (isGlobalAudience(user)) return;
+    const windowRange = this.bogotaWindowRange(from, to);
+    const scope = user.role === 'COORDINADOR'
+      ? sql`exists (
+          select 1 from ${profileAssignments} assignment
+          inner join ${crewMembers} member on member.user_id = assignment.operator_id
+          inner join ${crews} crew on crew.id = member.crew_id
+          where assignment.profile_id = ${ttProfiles.id}
+            and assignment.status in ('ACTIVE', 'ENDED')
+            and lower(assignment.valid_range) <= now()
+            and assignment.valid_range && ${windowRange}
+            and member.valid_range && (assignment.valid_range * ${windowRange})
+            and crew.coordinator_id = ${user.sub}
+            and crew.is_active = true
+        )`
+      : sql`exists (
+          select 1 from ${profileAssignments} assignment
+          where assignment.profile_id = ${ttProfiles.id}
+            and assignment.operator_id = ${user.sub}
+            and assignment.status = 'ACTIVE'
+            and assignment.valid_range @> now()
+        )`;
     const [allowed] = await this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, profileId), scope)).limit(1);
     if (!allowed) throw new ForbiddenException('Profile is outside your audience scope');
   }
 
   async profiles(from?: string, to?: string, profileId?: string, user?: MetricsActor, limit = 200) {
     const boundedLimit = Math.min(Math.max(limit, 1), 500);
-    const scope = this.profileScope(user, profileDailyMetrics.profileId);
+    const scope = this.profileScope(user, profileDailyMetrics.profileId, profileDailyMetrics.businessDate);
     const filters = [eq(profileDailyMetrics.source, 'EXTENSION')];
     if (from) filters.push(gte(profileDailyMetrics.businessDate, from));
     if (to) filters.push(lte(profileDailyMetrics.businessDate, to));
@@ -121,7 +170,7 @@ export class MetricsService {
   /** FR-28 / A7: operator-safe activity view over currently assigned profiles without raw points or commission leakage. */
   async operatorProfiles(user: MetricsActor, query: Partial<MetricQueryInput> = {}) {
     const boundedLimit = Math.min(Math.max(query.limit ?? 200, 1), 500);
-    const scope = this.profileScope({ sub: user.sub, role: 'OPERADOR' }, profileDailyMetrics.profileId)!;
+    const scope = this.profileScope({ sub: user.sub, role: 'OPERADOR' }, profileDailyMetrics.profileId, profileDailyMetrics.businessDate)!;
     const filters = [eq(profileDailyMetrics.source, 'EXTENSION'), scope];
     if (query.from) filters.push(gte(profileDailyMetrics.businessDate, query.from));
     if (query.to) filters.push(lte(profileDailyMetrics.businessDate, query.to));
@@ -146,7 +195,7 @@ export class MetricsService {
 
   async ranking(query: Partial<RankingQueryInput> = {}, user?: MetricsActor) {
     const boundedLimit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const scope = this.profileScope(user, profileDailyMetrics.profileId);
+    const scope = this.profileScope(user, profileDailyMetrics.profileId, profileDailyMetrics.businessDate);
     const filters = [eq(profileDailyMetrics.source, 'EXTENSION')];
     if (query.from) filters.push(gte(profileDailyMetrics.businessDate, query.from));
     if (query.to) filters.push(lte(profileDailyMetrics.businessDate, query.to));
@@ -173,25 +222,27 @@ export class MetricsService {
       .limit(boundedLimit);
   }
 
-  async timeseries(profileId: string, from?: string, to?: string, user?: MetricsActor, limit = 90) {
+  async timeseries(profileId: string, from?: string, to?: string, user?: MetricsActor, limit = 180) {
     if (!UUID_PATTERN.test(profileId)) throw new BadRequestException('Invalid profileId');
-    if (user) await this.assertProfileInAudience(profileId, user);
-    const boundedLimit = Math.min(Math.max(limit, 1), 366);
+    if (user) await this.assertProfileInAudience(profileId, user, from, to);
+    const boundedLimit = Math.min(Math.max(limit, 1), 732);
+    const scope = this.profileScope(user, profileDailyMetrics.profileId, profileDailyMetrics.businessDate);
     const filters = [eq(profileDailyMetrics.profileId, profileId)];
     if (from) filters.push(gte(profileDailyMetrics.businessDate, from));
     if (to) filters.push(lte(profileDailyMetrics.businessDate, to));
+    if (scope) filters.push(scope);
     return this.db.db
       .select({ businessDate: profileDailyMetrics.businessDate, source: profileDailyMetrics.source, points: profileDailyMetrics.points, messagesSent: profileDailyMetrics.messagesSent, responses: profileDailyMetrics.responses, responseRate: profileDailyMetrics.responseRate, icebreakersSent: profileDailyMetrics.icebreakersSent, icebreakersReplied: profileDailyMetrics.icebreakersReplied })
       .from(profileDailyMetrics)
       .where(and(...filters))
-      .orderBy(asc(profileDailyMetrics.businessDate))
+      .orderBy(asc(profileDailyMetrics.businessDate), asc(profileDailyMetrics.source))
       .limit(boundedLimit);
   }
 
   async reconciliation(query?: string | Partial<ReconciliationQueryInput>, user?: MetricsActor) {
     const filtersObj: Partial<ReconciliationQueryInput> = typeof query === 'string' ? { date: query } : (query ?? {});
     const boundedLimit = Math.min(Math.max(filtersObj.limit ?? 100, 1), 200);
-    const scope = this.profileScope(user, metricReconciliation.profileId);
+    const scope = this.profileScope(user, metricReconciliation.profileId, metricReconciliation.businessDate);
     const filters: SQL[] = [];
     if (filtersObj.date) filters.push(eq(metricReconciliation.businessDate, filtersObj.date));
     if (filtersObj.from) filters.push(gte(metricReconciliation.businessDate, filtersObj.from));
