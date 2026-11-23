@@ -10,6 +10,7 @@ export type WorkspacePageId =
   | 'assignments'
   | 'crews'
   | 'shifts'
+  | 'payroll'
   | 'messages'
   | 'metrics'
   | 'security'
@@ -59,6 +60,7 @@ const managementRoutes: readonly WorkspaceRoute[] = [
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read' },
   { id: 'crews', path: '/app/cuadrillas', label: 'Cuadrillas', group: 'Operación', kicker: 'Agrupación de operadores', title: 'Cuadrillas', description: 'Agrupa operadores, define su coordinador y administra la vigencia de cada miembro.', permission: 'crews.read' },
   { id: 'shifts', path: '/app/turnos', label: 'Turnos', group: 'Operación', kicker: 'Cobertura operativa', title: 'Turnos y overrides', description: 'Programa jornadas y excepciones horarias con trazabilidad.', permission: 'shifts.read' },
+  { id: 'payroll', path: '/app/nomina', label: 'Nómina', group: 'Operación', kicker: 'Liquidación y exportación', title: 'Periodos de nómina', description: 'Consulta los periodos liquidados y descarga el archivo Excel oficial.', permission: 'payroll.read', longPage: true },
   { id: 'messages', path: '/app/mensajes', label: 'Mensajes', group: 'Control', kicker: 'Comunicación interna', title: 'Mensajes programados', description: 'Programa avisos puntuales o recurrentes entregados por Rocket.Chat.', permission: 'chat.manage', longPage: true },
   { id: 'audit', path: '/app/auditoria', label: 'Auditoría', group: 'Control', kicker: 'Trazabilidad · solo lectura', title: 'Panel de auditoría', description: 'Revisa acciones operativas con filtros y contexto sanitizado.', permission: 'audit.read' },
 ];
