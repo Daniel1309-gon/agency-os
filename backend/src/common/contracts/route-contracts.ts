@@ -103,10 +103,11 @@ export const routeContracts = [
   route('POST', '/api/v1/agent/sessions/{id}/close', 'SELF'),
 
   route('POST', '/api/v1/agent/metrics/batch', 'SELF', 'NATURAL_KEY'),
-  route('GET', '/api/v1/metrics/profiles', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
-  route('GET', '/api/v1/metrics/ranking', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
-  route('GET', '/api/v1/metrics/profiles/{id}/timeseries', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
-  route('GET', '/api/v1/metrics/reconciliation', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
+  route('GET', '/api/v1/metrics/profiles', 'CREW', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
+  route('GET', '/api/v1/metrics/me/profiles', 'SELF', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
+  route('GET', '/api/v1/metrics/ranking', 'CREW', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
+  route('GET', '/api/v1/metrics/profiles/{id}/timeseries', 'RESOURCE', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
+  route('GET', '/api/v1/metrics/reconciliation', 'CREW', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('GET', '/api/v1/metrics/operations', 'CREW'),
 
   route('POST', '/api/v1/shifts', 'CREW'),

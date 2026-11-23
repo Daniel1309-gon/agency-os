@@ -3738,6 +3738,48 @@
         }
       }
     },
+    "/api/v1/metrics/me/profiles": {
+      "get": {
+        "operationId": "MetricsController.myProfiles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": [
+              "OPERADOR"
+            ]
+          },
+          "actors": [
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/metrics/me/profiles",
+          "scope": "SELF",
+          "shift": false
+        },
+        "x-agency-roles": [
+          "OPERADOR"
+        ]
+      }
+    },
     "/api/v1/metrics/operations": {
       "get": {
         "operationId": "MetricsController.operations",
@@ -3792,32 +3834,7 @@
     "/api/v1/metrics/profiles": {
       "get": {
         "operationId": "MetricsController.profiles",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "from",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "to",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "profileId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -3851,7 +3868,7 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/metrics/profiles",
           "scope": "CREW",
           "shift": false
@@ -3869,22 +3886,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "from",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "to",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -3920,7 +3921,7 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/metrics/profiles/{id}/timeseries",
           "scope": "RESOURCE",
           "shift": false
@@ -3964,9 +3965,9 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/metrics/ranking",
-          "scope": "GLOBAL",
+          "scope": "CREW",
           "shift": false
         }
       }
@@ -3974,16 +3975,7 @@
     "/api/v1/metrics/reconciliation": {
       "get": {
         "operationId": "MetricsController.reconciliation",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "date",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -4017,9 +4009,9 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/metrics/reconciliation",
-          "scope": "GLOBAL",
+          "scope": "CREW",
           "shift": false
         }
       }

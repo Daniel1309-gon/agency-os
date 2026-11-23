@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { MetricsService } from '../../modules/metrics/metrics.service.js';
-import { metricEvents, profileAssignments, profileDailyMetrics, profileSessions } from '../../database/schema/index.js';
+import { crewMembers, crews, metricEvents, metricReconciliation, profileAssignments, profileDailyMetrics, profileSessions } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -212,17 +212,160 @@ describe('metrics read models', () => {
     expect(august.map((row) => row.points)).toEqual(['10.0000', '20.0000']);
   });
 
-  it('ranks profiles by response rate without dividing by zero', async () => {
+  it('ranks profiles by response rate without dividing by zero or double-counting TABLEAU rows', async () => {
     const busy = await createProfile(ctx, { displayName: 'Ana' });
     const idle = await createProfile(ctx, { displayName: 'Bea' });
     await ctx.db.insert(profileDailyMetrics).values([
-      { profileId: busy.id, businessDate: '2026-08-04', source: 'EXTENSION', messagesSent: 100, responses: 40 },
-      { profileId: idle.id, businessDate: '2026-08-04', source: 'EXTENSION', messagesSent: 0, responses: 0 },
+      { profileId: busy.id, businessDate: '2026-08-04', source: 'EXTENSION', points: '50.0000', messagesSent: 100, responses: 40 },
+      { profileId: busy.id, businessDate: '2026-08-04', source: 'TABLEAU', points: '50.0000', messagesSent: 100, responses: 40 },
+      { profileId: idle.id, businessDate: '2026-08-04', source: 'EXTENSION', points: '0.0000', messagesSent: 0, responses: 0 },
     ]);
 
     const ranking = await metrics.ranking();
     expect(ranking).toHaveLength(2);
+    expect(ranking[0]).toMatchObject({ profileId: busy.id, points: '50.0000', messagesSent: 100, responses: 40 });
     expect(Number(ranking[0].responseRate)).toBeCloseTo(0.4, 4);
     expect(Number(ranking[1].responseRate)).toBe(0);
+  });
+});
+
+describe('metrics role audiences (A7 — FR-20 / MET-07)', () => {
+  it('scopes COORDINADOR to profiles assigned to their active crew across profiles, ranking, timeseries, and reconciliation', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coord = await createUser(ctx, { role: 'COORDINADOR' });
+    const inCrewOp = await createUser(ctx);
+    const outCrewOp = await createUser(ctx);
+    const inProfile = await createProfile(ctx, { displayName: 'Perfil Crew' });
+    const outProfile = await createProfile(ctx, { displayName: 'Perfil Externo' });
+
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Cuadrilla Norte', coordinatorId: coord.id, isActive: true }).returning({ id: crews.id });
+    const now = Date.now();
+    const todayBogota = new Date(now - 5 * 3_600_000).toISOString().slice(0, 10);
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: inCrewOp.id, validRange: halfOpen(new Date(now - 3_600_000), new Date(now + 3_600_000)) });
+    await assign(inCrewOp.id, inProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString() });
+    await assign(outCrewOp.id, outProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString() });
+
+    await ctx.db.insert(profileDailyMetrics).values([
+      { profileId: inProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '80.0000', messagesSent: 50, responses: 20 },
+      { profileId: outProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '120.0000', messagesSent: 60, responses: 30 },
+    ]);
+    await ctx.db.insert(metricReconciliation).values([
+      { profileId: inProfile.id, businessDate: todayBogota, extensionPoints: '80.0000', tableauPoints: '80.0000', differencePoints: '0.0000', tolerancePoints: '1.0000', status: 'OK' },
+      { profileId: outProfile.id, businessDate: todayBogota, extensionPoints: '120.0000', tableauPoints: '115.0000', differencePoints: '5.0000', tolerancePoints: '1.0000', status: 'DIVERGENT' },
+    ]);
+
+    const coordActor = { sub: coord.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    expect((await metrics.profiles(undefined, undefined, undefined, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    expect((await metrics.ranking({}, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    expect((await metrics.reconciliation({}, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    await expect(metrics.timeseries(inProfile.id, undefined, undefined, coordActor)).resolves.toHaveLength(1);
+    await expect(metrics.timeseries(outProfile.id, undefined, undefined, coordActor)).rejects.toThrow(ForbiddenException);
+
+    expect(await metrics.profiles(undefined, undefined, undefined, adminActor)).toHaveLength(2);
+    expect(await metrics.ranking({}, adminActor)).toHaveLength(2);
+    expect(await metrics.reconciliation({}, adminActor)).toHaveLength(2);
+  });
+
+  it('blocks COORDINADOR from future assignments, ended cross-crew profiles, transferred-operator history, inactive crews, former members, and CANCELLED assignments (S1)', async () => {
+    const coord1 = await createUser(ctx, { role: 'COORDINADOR' });
+    const coord2 = await createUser(ctx, { role: 'COORDINADOR' });
+    const activeMember = await createUser(ctx);
+    const formerMember = await createUser(ctx);
+    const inactiveCrewOp = await createUser(ctx);
+    const crew2Op = await createUser(ctx);
+
+    const futureProfile = await createProfile(ctx, { displayName: 'Futuro' });
+    const handedOverProfile = await createProfile(ctx, { displayName: 'Traspasado' });
+    const transferredHistoryProfile = await createProfile(ctx, { displayName: 'HistorialCrew2' });
+    const formerMemberProfile = await createProfile(ctx, { displayName: 'ExMiembro' });
+    const inactiveCrewProfile = await createProfile(ctx, { displayName: 'CrewInactiva' });
+    const cancelledProfile = await createProfile(ctx, { displayName: 'Cancelado' });
+
+    const [crew1] = await ctx.db.insert(crews).values({ name: 'Crew 1', coordinatorId: coord1.id, isActive: true }).returning({ id: crews.id });
+    const [inactiveCrew] = await ctx.db.insert(crews).values({ name: 'Crew Off', coordinatorId: coord1.id, isActive: false }).returning({ id: crews.id });
+    const [crew2] = await ctx.db.insert(crews).values({ name: 'Crew 2', coordinatorId: coord2.id, isActive: true }).returning({ id: crews.id });
+
+    const now = Date.now();
+    const hour = 3_600_000;
+    const day = 24 * hour;
+    const todayBogota = new Date(now - 5 * hour).toISOString().slice(0, 10);
+
+    await ctx.db.insert(crewMembers).values([
+      { crewId: crew1.id, userId: activeMember.id, validRange: halfOpen(new Date(now - day), new Date(now + 7 * day)) },
+      { crewId: crew2.id, userId: activeMember.id, validRange: halfOpen(new Date(now - 30 * day), new Date(now - 10 * day)) },
+      { crewId: crew1.id, userId: formerMember.id, validRange: halfOpen(new Date(now - 10 * day), new Date(now - 2 * day)) },
+      { crewId: inactiveCrew.id, userId: inactiveCrewOp.id, validRange: halfOpen(new Date(now - day), new Date(now + day)) },
+      { crewId: crew2.id, userId: crew2Op.id, validRange: halfOpen(new Date(now - 30 * day), new Date(now + 7 * day)) },
+    ]);
+
+    await assign(activeMember.id, futureProfile.id, { start: new Date(now + 2 * day).toISOString(), end: new Date(now + 3 * day).toISOString(), status: 'ACTIVE' });
+    await assign(activeMember.id, handedOverProfile.id, { start: new Date(now - 15 * day).toISOString(), end: new Date(now - 14 * day).toISOString(), status: 'ENDED' });
+    await assign(crew2Op.id, handedOverProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+    await assign(activeMember.id, transferredHistoryProfile.id, { start: new Date(now - 20 * day).toISOString(), end: new Date(now - 19 * day).toISOString(), status: 'ENDED' });
+    await assign(crew2Op.id, transferredHistoryProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+    await assign(formerMember.id, formerMemberProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+    await assign(inactiveCrewOp.id, inactiveCrewProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+    await assign(activeMember.id, cancelledProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'CANCELLED' });
+
+    for (const profile of [futureProfile, handedOverProfile, transferredHistoryProfile, formerMemberProfile, inactiveCrewProfile, cancelledProfile]) {
+      await ctx.db.insert(profileDailyMetrics).values({
+        profileId: profile.id, businessDate: todayBogota, source: 'EXTENSION', points: '50.0000', messagesSent: 20, responses: 10,
+      });
+      await ctx.db.insert(metricReconciliation).values({
+        profileId: profile.id, businessDate: todayBogota, extensionPoints: '50.0000', tableauPoints: '50.0000', differencePoints: '0.0000', tolerancePoints: '1.0000', status: 'OK',
+      });
+    }
+
+    const coord1Actor = { sub: coord1.id, role: 'COORDINADOR' as const };
+    expect(await metrics.profiles(todayBogota, todayBogota, undefined, coord1Actor)).toEqual([]);
+    expect(await metrics.ranking({ from: todayBogota, to: todayBogota }, coord1Actor)).toEqual([]);
+    expect(await metrics.reconciliation({ from: todayBogota, to: todayBogota }, coord1Actor)).toEqual([]);
+    for (const profile of [futureProfile, handedOverProfile, transferredHistoryProfile, formerMemberProfile, inactiveCrewProfile, cancelledProfile]) {
+      expect(await metrics.profiles(todayBogota, todayBogota, profile.id, coord1Actor)).toEqual([]);
+      await expect(metrics.timeseries(profile.id, todayBogota, todayBogota, coord1Actor)).rejects.toThrow(ForbiddenException);
+    }
+  });
+
+  it('returns only currently assigned profiles and days held by OPERADOR without exposing raw points, and executes under agency_app (S1, S2)', async () => {
+    const operator = await createUser(ctx);
+    const otherOp = await createUser(ctx);
+    const activeProfile = await createProfile(ctx, { displayName: 'Activo' });
+    const endedProfile = await createProfile(ctx, { displayName: 'Terminado' });
+    const futureProfile = await createProfile(ctx, { displayName: 'FuturoOp' });
+    const cancelledProfile = await createProfile(ctx, { displayName: 'CanceladoOp' });
+    const otherProfile = await createProfile(ctx, { displayName: 'Ajeno' });
+    const now = Date.now();
+    const hour = 3_600_000;
+    const todayBogota = new Date(now - 5 * hour).toISOString().slice(0, 10);
+
+    await assign(operator.id, activeProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+    await assign(otherOp.id, activeProfile.id, { start: '2026-10-01T10:00:00.000Z', end: '2026-10-01T18:00:00.000Z', status: 'ENDED' });
+    await assign(operator.id, endedProfile.id, { start: new Date(now - 2 * hour).toISOString(), end: new Date(now - hour).toISOString(), status: 'ENDED' });
+    await assign(operator.id, futureProfile.id, { start: new Date(now + hour).toISOString(), end: new Date(now + 2 * hour).toISOString(), status: 'ACTIVE' });
+    await assign(operator.id, cancelledProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'CANCELLED' });
+    await assign(otherOp.id, otherProfile.id, { start: new Date(now - hour).toISOString(), end: new Date(now + hour).toISOString(), status: 'ACTIVE' });
+
+    await ctx.db.insert(profileDailyMetrics).values([
+      { profileId: activeProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '99.0000', messagesSent: 40, responses: 16, icebreakersSent: 10, icebreakersReplied: 4 },
+      { profileId: activeProfile.id, businessDate: todayBogota, source: 'TABLEAU', points: '101.0000', messagesSent: 40, responses: 16 },
+      { profileId: activeProfile.id, businessDate: '2026-10-01', source: 'EXTENSION', points: '88.0000', messagesSent: 35, responses: 14 },
+      { profileId: endedProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '50.0000', messagesSent: 20, responses: 5 },
+      { profileId: futureProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '40.0000', messagesSent: 10, responses: 5 },
+      { profileId: cancelledProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '40.0000', messagesSent: 10, responses: 5 },
+      { profileId: otherProfile.id, businessDate: todayBogota, source: 'EXTENSION', points: '70.0000', messagesSent: 30, responses: 9 },
+    ]);
+
+    const rows = await ctx.database.withRequestContext(operator.id, 'OPERADOR', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_app`);
+      const foreignLookup = await metrics.operatorProfiles({ sub: operator.id, role: 'OPERADOR' }, { profileId: otherProfile.id });
+      expect(foreignLookup).toEqual([]);
+      return metrics.operatorProfiles({ sub: operator.id, role: 'OPERADOR' });
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ profileId: activeProfile.id, businessDate: todayBogota, messagesSent: 40, responses: 16, icebreakersSent: 10, icebreakersReplied: 4 });
+    expect('points' in rows[0]).toBe(false);
   });
 });
