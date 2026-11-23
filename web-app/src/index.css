@@ -3789,7 +3789,8 @@ a:focus-visible {
   }
 
   .assignment-table .management-table__row,
-  .cafeteria-inventory-table .management-table__row {
+  .cafeteria-inventory-table .management-table__row,
+  .metrics-six-col-table .management-table__row {
     grid-template-columns: minmax(0, 1fr) auto;
     min-width: 0;
   }
