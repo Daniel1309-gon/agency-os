@@ -66,7 +66,7 @@ Este documento no cierra casillas: clasifica cada una y nombra la prueba que fal
 | INT-01 5/8 perfiles, cookies aisladas, outage | `EXTERNO` | Diseño en `agents.md` §5.2; `e1-chrome-automated-2026-09-10.md` | PC y credenciales autorizadas | Prueba física (plan §3) |
 | E1-16 gate de seguridad del entorno | `PENDIENTE` | — | Requiere VPS/túnel contratados; se ensaya antes en el VPS de Daniel (ADR 0013, revisión 2026-10-17) | Fase B/E del plan vigente; Fase 1 del runbook, en el VPS de la clienta |
 | E1-17 capacidad | `PENDIENTE` | `ha-local-game-day-2026-08-26.md` (local parcial) | Sin VPS; el ensayo en el VPS de Daniel (mismo plan KVM 2) da una medición previa | Prueba de 30 logins (plan §3); Fase 2 del runbook |
-| E1-18 HA/restore/rollback | `PENDIENTE` (HA aplazada por decisión; spike de PostgreSQL gestionado aplazado, ADR 0013 revisión 2026-10-17) | — | Backups y restore siguen obligatorios: con un solo VPS, B2 es la única copia fuera del servidor | Fase E; Fase 3 del runbook |
+| E1-18 HA/restore/rollback | `PENDIENTE` (HA aplazada por decisión; spike de PostgreSQL gestionado aplazado, ADR 0013 revisión 2026-10-17) | — | Backups y restore siguen obligatorios: con un solo VPS, B2 es la única copia fuera del servidor. Backup y restore se probaron en el VPS de ensayo el 2026-10-25 (Fase 3 PASS, RTO ≈ 45 min netos; [evidencia](evidence/ensayo-vps-rentia-2026-10-21.md)); el gate se cierra en el VPS de la clienta | Fase E; Fase 3 del runbook |
 | E1-19 acta y candidato | `PENDIENTE` | — | Todo lo anterior | Cierre |
 
 ## 6. Delta del plan de despliegue 2026-09-20 (no existía en el corte anterior)

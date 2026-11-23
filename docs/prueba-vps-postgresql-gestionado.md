@@ -25,9 +25,9 @@ ESPERA** hasta que se cumpla una de las condiciones de reapertura del ADR. Las F
 ejecutan primero como **ensayo en un VPS de Hostinger de Daniel**, con datos y secretos propios del
 ensayo, y después en el VPS de la clienta.
 
-**Avance del ensayo (2026-10-21, VPS de ensayo `erp.rentia.online`):** la **Fase 1 pasó** (despliegue,
-túnel, mTLS positivo y negativo, login del admin) y la **Fase 3 está en curso** (primer ciclo de
-backup exitoso en 26 s; pruebas de Object Lock y restauración pendientes). Las Fases 2, 5 y 6 no han
+**Avance del ensayo (2026-10-25, VPS de ensayo `erp.rentia.online`):** la **Fase 1 pasó** (despliegue,
+túnel, mTLS positivo y negativo, login del admin) y la **Fase 3 pasó el 2026-10-25** (primer ciclo de
+backup exitoso en 26 s; Object Lock, limpieza y restauración verificados). Las Fases 2, 5 y 6 no han
 empezado. Detalle en
 [`tasks/evidence/ensayo-vps-rentia-2026-10-21.md`](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md).
 
@@ -476,10 +476,12 @@ bajando scrypt ni eliminando controles.
 
 ### Fase 3 — Backups B2 reales y restauración completa
 
-**Estado (VPS de ensayo, 2026-10-21): EN CURSO.** Ciclo completo en 26 s (PASS, límite 15 min);
+**Estado (VPS de ensayo, 2026-10-25): PASS, fase cerrada en el ensayo.** Ciclo completo en 26 s (PASS, límite 15 min);
 `backup-postgres.sh --check` → «backup fresco: 0 min». Object Lock verificado (`head-object` +24 h y +30 d;
-borrado con `--version-id` → AccessDenied). Pendientes: limpieza de vencidos (verificar el 2026-10-24) y restauración en servidor
-vacío. La clave de aplicación debe crearse con la CLI de B2, no en el panel, y las reglas de ciclo de
+borrado con `--version-id` → AccessDenied). Limpieza de vencidos verificada (0 versiones el 2026-10-25) y restauración en un servidor vacío
+(Mac de Daniel, solo con B2 y los secretos custodiados) validada con el vault: RTO ≈ 45 min netos
+(3 h 14 min 52 s brutos), bajo el objetivo de 4 h. La restauración detectó una `VAULT_KEK` mal copiada
+en el gestor: la verificación de custodia es obligatoria. La clave de aplicación debe crearse con la CLI de B2, no en el panel, y las reglas de ciclo de
 vida usan «Days Till Hide» (ver [backup/README.md](../deploy/production/backup/README.md)).
 
 **Objetivo.** Demostrar la cadena real: dump cifrado cada 30 min, subida con Object Lock, y una
@@ -911,7 +913,7 @@ cada fila si la corrida fue en el **VPS de ensayo** o en el **VPS de la clienta*
 | 5 | 2 | 30 logins ×3 oleadas | harness [propuesto] | umbrales plan §3 | | | |
 | 6 | 2 | 30 sockets 30 min | harness [propuesto] | sin bucles; backup OK | | | |
 | 7 | 3 | Object Lock real (VPS de ensayo) | `aws s3api head-object` | retención +24 h/+30 d | `frequent/` +24 h y `daily/` +30 d (GOVERNANCE); borrado con `--version-id` → AccessDenied | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS |
-| 8 | 3 | Restore completo + KEK (VPS de ensayo) | README backup | ≤4 h; vault abre | no ejecutado; ciclo de backup 26 s | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PENDIENTE |
+| 8 | 3 | Restore completo + KEK (VPS de ensayo) | README backup | ≤4 h; vault abre | restore en Mac, 26 migraciones, vault abre (exit 0) y falla cerrado con otra KEK (exit 1); RTO ≈ 45 min netos / 3 h 14 min 52 s brutos (pausa de 2 h 30 min restada a mano) | [ensayo 2026-10-21](../tasks/evidence/ensayo-vps-rentia-2026-10-21.md) | PASS |
 | 9 | 4 | Extensiones/roles/migraciones | §4.2 | 0000–0025 sin error | | | |
 | 10 | 4 | RLS runtime + no fuga en pool | §4.3 | veredictos locales | | | |
 | 11 | 4 | `SECURITY DEFINER`/search_path | §4.4 | dueño y proconfig | | | |

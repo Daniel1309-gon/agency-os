@@ -80,6 +80,21 @@ b2 account clear
 - Igual con `VAULT_KEK`: copia en custodia separada del VPS. Restaurar el vault sin la KEK correcta
   deja las credenciales ilegibles.
 - No guardar ninguna de las dos en el bucket ni junto a los dumps.
+- **Verificación de custodia obligatoria**, justo después de guardarlas en el gestor: comparar longitud
+  y prefijo SHA-256 del valor en el VPS contra la copia del gestor, sin imprimir nunca el valor. En el
+  ensayo la `VAULT_KEK` del gestor se había copiado mal y el vault habría sido irrecuperable tras
+  perder el VPS; solo la restauración lo detectó.
+
+  ```sh
+  # VPS (repetir con BACKUP_ENCRYPTION_PASSPHRASE):
+  grep '^VAULT_KEK=' deploy/production/.env.production | cut -d= -f2- | tr -d '\n' | wc -c
+  grep '^VAULT_KEK=' deploy/production/.env.production | cut -d= -f2- | tr -d '\n' | sha256sum | cut -c1-12
+  # Estación macOS, con el valor del gestor en $VALUE (sin eco en pantalla):
+  printf %s "$VALUE" | wc -c
+  printf %s "$VALUE" | shasum -a 256 | cut -c1-12
+  ```
+
+  Longitud y prefijo deben coincidir en ambos lados; si no, corregir la copia del gestor.
 
 **5. Heartbeat de la alerta por ausencia de backups**
 
@@ -158,6 +173,11 @@ día desde que se ocultó; la ventana protegida sigue siendo el periodo de reten
   credenciales es lo esperado.
 - **`scheme is missing`**: falta `https://` en `B2_ENDPOINT`.
 - **Cambios de `.env.production` sin efecto**: recrear con `--force-recreate` (punto 6).
+- **`vault-restore-check.mjs` falla con `new row violates row-level security policy for table
+  "tt_profile_credentials"`.** El contenedor `ops` corre como rol de runtime bajo FORCE RLS; corregido
+  en PR #3 (`seal`/`open` corren en contexto de ADMIN). Redesplegar imágenes con esa corrección.
+- **`open` falla con «Unsupported state or unable to authenticate data».** La `VAULT_KEK` usada no es la
+  del sellado: comparar longitud y prefijo SHA-256 (ver custodia, punto 4).
 - **`(version unknown)` en el log del ciclo**: el manifiesto no registra la versión desplegada;
   pendiente de corregir.
 
@@ -214,6 +234,36 @@ psql -d agency_os -tAc "select count(*) from pg_default_acl where defaclrole = '
 # 4. Aplicar migraciones pendientes, arrancar API/worker y validar.
 docker compose --env-file deploy/production/.env.production -f compose.production.yml --profile ops run --rm ops
 ```
+
+### Variante desde una estación de trabajo (macOS, usada en el ensayo del 2026-10-25)
+
+Demuestra que la recuperación solo necesita B2 y los secretos custodiados, no el VPS. Si el ciclo del
+día ya subió su copia `daily/`, usar la última copia de `frequent/`.
+
+1. Crear con la CLI de B2 una clave **de solo lectura** para la restauración
+   (`listFiles,readFiles,readFileRetentions`, nombre distinto de la del VPS) y usarla con `aws-cli`.
+2. Descargar los cuatro objetos (dump, globals y sus `.sha256`) y verificar con
+   `shasum -a 256 -c <archivo>.sha256` antes de descifrar.
+3. Descifrar con **OpenSSL 3 de Homebrew** (`openssl@3`): el LibreSSL de macOS puede no soportar
+   `-pbkdf2` ni `-iter`. Comando: `openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 ...`; el dump
+   descifrado debe empezar por `PGDMP`.
+4. Levantar un `postgres:16-alpine` vacío en un puerto no estándar, solo en loopback
+   (por ejemplo `-p 127.0.0.1:55432:5432`), y seguir el procedimiento del servidor de arriba (globals
+   omitiendo el `CREATE ROLE` del usuario del contenedor, contraseña de runtime restablecida
+   localmente, `pg_restore --exit-on-error`).
+5. Las migraciones aplicadas se verifican con el conteo de `drizzle.__drizzle_migrations` (26 filas,
+   0000–0025, nada pendiente): `db-migrate.mjs` imprime siempre «Database migrations applied».
+6. `vault-restore-check.mjs open` desde el repositorio en `main`, con un archivo de entorno
+   (`NODE_ENV=development`, `DATABASE_URL` del dueño, `DATABASE_APP_URL` del runtime,
+   `DATABASE_RUNTIME_ROLE=app`, `REDIS_URL`, un `JWT_SECRET` aleatorio y `VAULT_KEK` del gestor).
+   Debe salir 0 con «opened restore-check credential (DEK v1)». Control negativo: con una `VAULT_KEK`
+   aleatoria **exportada en el entorno** (`node --env-file` no pisa variables ya definidas) debe salir
+   1 con «Unsupported state or unable to authenticate data».
+
+Resultado del ensayo: RTO bruto 3 h 14 min 52 s (2026-10-25T18:58:51Z a 22:13:43Z) y ≈ 45 min netos
+tras descontar a mano una pausa de 2 h 30 min; el neto incluye instalar herramientas, crear la clave
+de restauración y diagnosticar la KEK. Ambos están bajo el objetivo de 4 h. La pérdida de datos de
+esa copia queda acotada por la cadencia de 30 minutos (no es un RPO de HA).
 
 Validación mínima del ensayo (el plan la exige): abrir una **credencial sintética del vault** con la
 KEK custodiada, iniciar sesión, ver el semáforo y confirmar el turno. Medir desde el inicio del

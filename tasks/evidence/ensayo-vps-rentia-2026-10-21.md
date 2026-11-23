@@ -1,6 +1,6 @@
-# Ensayo en VPS propio (rentia.online) — 2026-10-17 a 2026-10-21
+# Ensayo en VPS propio (rentia.online) — 2026-10-17 a 2026-10-25
 
-Estado: **Fase 1 PASS; Fase 3 en curso (3 de 5 pruebas cerradas); Fases 2, 5 y 6 sin iniciar.**
+Estado: **Fase 1 PASS; Fase 3 PASS (5 de 5 pruebas, cerrada el 2026-10-25); Fases 2, 5 y 6 sin iniciar.**
 Ensayo previo al despliegue de la clienta, según [ADR 0013](../../docs/decisions/0013-production-topology-and-ha-path.md)
 (revisión 2026-10-17) y [`docs/prueba-vps-postgresql-gestionado.md`](../../docs/prueba-vps-postgresql-gestionado.md).
 Datos y secretos propios del ensayo; ningún secreto, IP, huella ni URL de ping figura aquí.
@@ -32,15 +32,25 @@ Datos y secretos propios del ensayo; ningún secreto, IP, huella ni URL de ping 
 
 Ciclo completo de estación con certificado (`tools/mtls-pilot-cycle.py`): no ejecutado en el ensayo.
 
-### Fase 3 — Backups B2 (EN CURSO)
+### Fase 3 — Backups B2 (PASS)
 
 | # | Prueba | Resultado | Veredicto |
 |---|---|---|---|
 | 1 | `head-object` con retención (`daily/` y `frequent/`) | `frequent/agency-os-20261021T174120Z.dump.enc` GOVERNANCE hasta 2026-10-22T17:41:20Z (+24 h); `daily/` del mismo ciclo GOVERNANCE hasta 2026-11-20T17:41:20Z (+30 d). El listado mostró los 4 objetos (dump, dump.sha256, globals, globals.sha256) en cada prefijo y `manifest/last-backup.json` | PASS |
 | 2 | Borrado con la clave del VPS debe fallar | Sin `--version-id`: exit 0 y `"DeleteMarker": true` (solo oculta; `list-object-versions` confirmó la versión de datos de 662224 bytes). Con `--version-id` de la versión de datos: `AccessDenied ... not entitled`, exit 254. La copia de `frequent/` quedó oculta (vence el 2026-10-22); la de `daily/` intacta | PASS |
-| 3 | Limpieza de vencidos por regla de ciclo de vida | verificar el 2026-10-24 | PENDIENTE |
+| 3 | Limpieza de vencidos por regla de ciclo de vida | 2026-10-25: `list-object-versions --prefix frequent/agency-os-20261021` devolvió 0 versiones, incluida la copia oculta durante la prueba 2 | PASS |
 | 4 | Ciclo completo < 15 min | primer ciclo exitoso 2026-10-21 17:41:20 → 17:41:46 UTC: **26 s**; `backup-postgres.sh --check` → «backup fresco: 0 min» | PASS |
-| 5 | Restauración en servidor vacío con la KEK | no ejecutada | PENDIENTE |
+| 5 | Restauración en servidor vacío con la KEK | 2026-10-25, en el Mac de Daniel (no en el VPS) con una clave de B2 de solo lectura (`listFiles,readFiles,readFileRetentions`). Copia `frequent/agency-os-20261025T185258Z` (la `daily/` del día ya estaba subida). Descarga de 4 objetos y `shasum -a 256 -c` OK en ambos; descifrado con Homebrew `openssl@3`, el dump empieza por `PGDMP`; `postgres:16-alpine` vacío en 127.0.0.1:55432; globals restaurados omitiendo `CREATE ROLE agency;`, contraseña de runtime restablecida, `pg_restore --exit-on-error` OK. Comprobaciones: tablas con dueño distinto de `agency_owner` 0; `has_table_privilege('agency_app','public.users','SELECT')` `t`; entradas de DEFAULT ACL 2; `drizzle.__drizzle_migrations` 26 (0000–0025). `vault-restore-check.mjs open` → «opened restore-check credential (DEK v1)», exit 0; control negativo con `VAULT_KEK` aleatoria → «Unsupported state or unable to authenticate data», exit 1 | PASS |
+
+**RTO de la restauración:** inicio 2026-10-25T18:58:51Z, fin 22:13:43Z = 3 h 14 min 52 s brutos; Daniel
+pausó 2 h 30 min para almorzar (restada a mano), de modo que ≈ 45 min netos. El neto incluye instalar
+herramientas, crear la clave de restauración y diagnosticar la KEK. Ambos están bajo el objetivo de
+4 h. La pérdida de datos de esa copia queda acotada por la cadencia de 30 minutos; no se declara RPO de HA.
+
+**Credencial sintética.** Tras redesplegar desde `main` 0ef1085 (imágenes api `sha256:cb078277…`, web
+`sha256:e1d9e1f4…`, backup `sha256:221b6ae5…`), el perfil `restore-check` se creó desde la web,
+`seal` → v1 y `open` en el VPS → exit 0; un ciclo de backup forzado produjo la copia usada en la
+restauración.
 
 Fases 2 (capacidad), 5 (humo funcional) y 6 (interrupción): sin iniciar.
 
@@ -68,6 +78,9 @@ Todas están incorporadas a los runbooks
 | 13 | `B2_ENDPOINT` sin esquema: aws-cli «scheme is missing» | Incluir `https://` (comentado en `.env.production.example`) |
 | 14 | `up -d` tras editar `.env.production` dejó el contenedor viejo | `up -d --force-recreate backup` |
 | 15 | `Connection was closed before we received a valid response` en `put-object` | Era un secreto mal copiado (no los checksums de aws-cli 2.34; `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` no cambió nada). Diagnóstico con `list-objects-v2`: `SignatureDoesNotMatch` |
+| 18 | `vault-restore-check.mjs` falló en el VPS con `new row violates row-level security policy for table "tt_profile_credentials"`: el contenedor `ops` corre como rol de runtime bajo FORCE RLS | Corregido en PR #3 (c214a9c): `seal`/`open` corren en contexto de ADMIN y atribuyen a `BOOTSTRAP_ADMIN_EMAIL`; redespliegue de las imágenes |
+| 19 | **Hallazgo importante.** El primer `open` en el Mac falló con el error de autenticación GCM: la `VAULT_KEK` del gestor de contraseñas se había copiado mal. Se detectó comparando longitud y prefijo SHA-256 de 12 caracteres del valor en el VPS y en el Mac, y se corrigió en el gestor. Sin este ensayo el vault habría sido irrecuperable tras perder el VPS | Verificación de custodia obligatoria (longitud + prefijo SHA-256, sin imprimir el valor) añadida a `backup/README.md` §4 |
+| 20 | `openssl` de macOS (LibreSSL) puede no soportar `-pbkdf2`/`-iter` al descifrar; `db-migrate.mjs` imprime siempre «Database migrations applied» | Descifrar con Homebrew `openssl@3`; verificar migraciones con el conteo de `drizzle.__drizzle_migrations` |
 | 16 | Región de B2 del runbook pensada para un VPS en São Paulo | El VPS está en EE. UU.: bucket en región de EE. UU. cercana |
 | 17 | La prueba 2 del runbook («intentar borrar una copia») daba un falso positivo: `delete-object` sin `--version-id` devuelve exit 0 porque en un bucket versionado solo agrega un marcador de borrado (ocultar, basta `writeFiles`) | Reescrita con `list-object-versions` y `delete-object --version-id`, esperado `AccessDenied` y exit distinto de 0; añadidas nota de amenaza y nota de restauración |
 
@@ -80,6 +93,4 @@ Todas están incorporadas a los runbooks
   imágenes deben republicarse.
 - **Brave** no presentó el certificado de cliente; Safari sí. Usar Safari o Chrome y comprobar Chrome
   antes de entregar a la clienta.
-- **Ciclo de vida:** verificar el 2026-10-24 que `frequent/` se limpia con las reglas corregidas.
-- **Restauración** en servidor vacío con la KEK custodiada (prueba 5) y medición de RTO.
 - Ciclo de estación con certificado (`mtls-pilot-cycle.py`) y Fases 2, 5 y 6.
