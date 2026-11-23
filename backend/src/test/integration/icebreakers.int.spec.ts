@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { asc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { IcebreakersService } from '../../modules/icebreakers/icebreakers.service.js';
 import type { AiEngineClient, AiEvaluation } from '../../modules/icebreakers/ai-engine.client.js';
-import { auditLog, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
-import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
+import { auditLog, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments } from '../../database/schema/index.js';
+import { createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
 /** What the fake engine answers next; undefined means "no engine configured". */
@@ -88,7 +88,7 @@ describe('IcebreakersService.evaluate (FR-22, FR-25)', () => {
     const { actor, id } = await draft('Hola, ¿qué tal tu día?');
     verdict = approve(0.82);
 
-    await expect(service.evaluate(id, actor)).resolves.toEqual({ id, status: 'APPROVED', blocking: false, matchedRules: [], score: 0.82, source: 'AI_ENGINE' });
+    await expect(service.evaluate(id, actor)).resolves.toEqual({ id, status: 'APPROVED', blocking: false, matchedRules: [], violations: [], score: 0.82, source: 'AI_ENGINE' });
     await expect(service.publish(id, actor)).resolves.toMatchObject({ status: 'PUBLISHED' });
   });
 
@@ -96,7 +96,7 @@ describe('IcebreakersService.evaluate (FR-22, FR-25)', () => {
     const warning = await rule('SOFT_EMOJI', '😍', 'WARNING');
     const { actor, id } = await draft('Hola 😍');
 
-    await expect(service.evaluate(id, actor)).resolves.toEqual({ id, status: 'APPROVED', blocking: false, matchedRules: ['SOFT_EMOJI'], source: 'LOCAL_RULES' });
+    await expect(service.evaluate(id, actor)).resolves.toEqual({ id, status: 'APPROVED', blocking: false, matchedRules: ['SOFT_EMOJI'], violations: [{ code: 'SOFT_EMOJI', name: 'SOFT_EMOJI', severity: 'WARNING' }], source: 'LOCAL_RULES' });
     expect(await violationsOf(id)).toEqual([{ ruleId: warning.id, severity: 'WARNING' }]);
   });
 
@@ -118,5 +118,68 @@ describe('IcebreakersService.evaluate (FR-22, FR-25)', () => {
       { action: 'icebreaker.evaluated', metadata: { profileId: null, status: 'APPROVED', source: 'AI_ENGINE', count: 0 } },
       { action: 'icebreaker.published', metadata: { status: 'PUBLISHED' } },
     ]);
+  });
+});
+
+async function assign(operatorId: string, profileId: string, status = 'ACTIVE', from = new Date(Date.now() - 3_600_000), to = new Date(Date.now() + 3_600_000)) {
+  const admin = await createUser(ctx, { role: 'ADMIN' });
+  await ctx.db.insert(profileAssignments).values({ operatorId, profileId, status, validRange: halfOpen(from, to), assignedBy: admin.id });
+}
+
+describe('icebreaker workspace rules (FR-21, FR-22, FR-24)', () => {
+  it('ties an icebreaker only to a profile the operator is currently assigned to', async () => {
+    const operator = await createUser(ctx);
+    const actor = { sub: operator.id, role: 'OPERADOR' as const };
+    const mine = await createProfile(ctx);
+    const notMine = await createProfile(ctx);
+    const ended = await createProfile(ctx);
+    await assign(operator.id, mine.id);
+    await assign(operator.id, ended.id, 'ENDED', new Date(Date.now() - 7_200_000), new Date(Date.now() - 3_600_000));
+
+    await expect(service.create({ profileId: mine.id, text: 'Hola' }, actor)).resolves.toMatchObject({ status: 'DRAFT' });
+    await expect(service.create({ profileId: notMine.id, text: 'Hola' }, actor)).rejects.toThrow(ForbiddenException);
+    await expect(service.create({ profileId: ended.id, text: 'Hola' }, actor)).rejects.toThrow(ForbiddenException);
+
+    const draftOne = await service.create({ text: 'Sin perfil' }, actor);
+    await expect(service.update(draftOne.id, { profileId: notMine.id, version: draftOne.version }, actor)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('names each broken rule in the evaluation result', async () => {
+    await ctx.db.insert(icebreakerRules).values({ code: 'NO_CONTACT', name: 'Prohibido pedir datos de contacto', kind: 'KEYWORD', pattern: 'whatsapp', severity: 'BLOCKING' });
+    const { actor, id } = await draft('Dame tu WhatsApp');
+
+    await expect(service.evaluate(id, actor)).resolves.toMatchObject({ status: 'BLOCKED', violations: [{ code: 'NO_CONTACT', name: 'Prohibido pedir datos de contacto', severity: 'BLOCKING' }] });
+  });
+
+  it('refuses to re-evaluate a published icebreaker, which keeps its status', async () => {
+    const { actor, id } = await draft('Hola, ¿qué tal tu día?');
+    await service.evaluate(id, actor);
+    await service.publish(id, actor);
+
+    await expect(service.evaluate(id, actor)).rejects.toThrow(ConflictException);
+    expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, id) }))?.status).toBe('PUBLISHED');
+  });
+
+  it('refuses to publish an icebreaker whose profile is no longer assigned to the operator', async () => {
+    const operator = await createUser(ctx);
+    const actor = { sub: operator.id, role: 'OPERADOR' as const };
+    const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
+    const created = await service.create({ profileId: profile.id, text: 'Hola, ¿qué tal tu día?' }, actor);
+    await service.evaluate(created.id, actor);
+    await ctx.db.update(profileAssignments).set({ status: 'ENDED' }).where(eq(profileAssignments.operatorId, operator.id));
+
+    await expect(service.publish(created.id, actor)).rejects.toThrow(ForbiddenException);
+    expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, created.id) }))?.status).toBe('APPROVED');
+  });
+
+  it('increments the version on publish instead of resetting it', async () => {
+    const { actor, id } = await draft('Hola, ¿qué tal tu día?');
+    await service.evaluate(id, actor);
+    const before = (await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, id) }))!.version;
+
+    await service.publish(id, actor);
+
+    expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, id) }))!.version).toBe(before + 1);
   });
 });

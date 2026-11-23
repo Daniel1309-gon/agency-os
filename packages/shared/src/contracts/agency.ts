@@ -213,3 +213,30 @@ export const cafeteriaSalesSummarySchema = z.object({
   })),
 });
 export type CafeteriaSalesSummary = z.infer<typeof cafeteriaSalesSummarySchema>;
+
+/** FR-21 to FR-25: the operator's icebreaker workspace. */
+export const icebreakerStatusSchema = z.enum(['DRAFT', 'BLOCKED', 'APPROVED', 'PUBLISHED']);
+export type IcebreakerStatus = z.infer<typeof icebreakerStatusSchema>;
+
+export const icebreakerSummarySchema = z.object({
+  id: z.string().uuid(),
+  profileId: z.string().uuid().nullable(),
+  text: z.string(),
+  status: icebreakerStatusSchema,
+  version: z.number().int().nonnegative(),
+  publishedAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+});
+export type IcebreakerSummary = z.infer<typeof icebreakerSummarySchema>;
+
+export const icebreakerEvaluationResultSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['APPROVED', 'BLOCKED']),
+  blocking: z.boolean(),
+  matchedRules: z.array(z.string()),
+  violations: z.array(z.object({ code: z.string(), name: z.string(), severity: z.enum(['INFO', 'WARNING', 'BLOCKING']) })),
+  score: z.number().min(0).max(1).optional(),
+  source: z.enum(['AI_ENGINE', 'LOCAL_RULES']),
+});
+export type IcebreakerEvaluationResult = z.infer<typeof icebreakerEvaluationResultSchema>;
