@@ -187,30 +187,34 @@ export class TableauService {
     if (!views.length) return [];
 
     const viewIds = views.map((view) => view.id);
-    const runRows = await this.db.db
-      .select({
-        id: etlRuns.id,
-        viewId: etlRuns.viewId,
-        businessDate: etlRuns.businessDate,
-        status: etlRuns.status,
-        rowCount: etlRuns.rowCount,
-        rejectedCount: etlRuns.rejectedCount,
-        checksum: etlRuns.checksum,
-        finishedAt: etlRuns.finishedAt,
-        error: etlRuns.error,
-      })
-      .from(etlRuns)
-      .where(inArray(etlRuns.viewId, viewIds))
-      .orderBy(desc(etlRuns.businessDate), desc(etlRuns.startedAt));
+    const runColumns = {
+      id: etlRuns.id,
+      viewId: etlRuns.viewId,
+      businessDate: etlRuns.businessDate,
+      status: etlRuns.status,
+      rowCount: etlRuns.rowCount,
+      rejectedCount: etlRuns.rejectedCount,
+      checksum: etlRuns.checksum,
+      finishedAt: etlRuns.finishedAt,
+      error: etlRuns.error,
+    };
+    // Runs every worker tick: read one latest run per view and, per view, the run of
+    // its expected date (unique per view and date), never the whole history.
+    const expectedDates = [...new Set(views.map((view) => previousCalendarDate(calendarDateIn(now, view.scheduleTimezone))))];
+    const [latestRows, expectedRows] = await Promise.all([
+      this.db.db
+        .selectDistinctOn([etlRuns.viewId], runColumns)
+        .from(etlRuns)
+        .where(inArray(etlRuns.viewId, viewIds))
+        .orderBy(etlRuns.viewId, desc(etlRuns.businessDate), desc(etlRuns.startedAt)),
+      this.db.db
+        .select(runColumns)
+        .from(etlRuns)
+        .where(and(inArray(etlRuns.viewId, viewIds), inArray(etlRuns.businessDate, expectedDates))),
+    ]);
 
-    const latestByView = new Map<string, (typeof runRows)[number]>();
-    const byViewAndDate = new Map<string, (typeof runRows)[number]>();
-    for (const row of runRows) {
-      if (!row.viewId) continue;
-      if (!latestByView.has(row.viewId)) latestByView.set(row.viewId, row);
-      const key = `${row.viewId}|${row.businessDate}`;
-      if (!byViewAndDate.has(key)) byViewAndDate.set(key, row);
-    }
+    const latestByView = new Map(latestRows.filter((row) => row.viewId).map((row) => [row.viewId!, row]));
+    const byViewAndDate = new Map(expectedRows.map((row) => [`${row.viewId}|${row.businessDate}`, row]));
 
     return views.map((view) => {
       const today = calendarDateIn(now, view.scheduleTimezone);

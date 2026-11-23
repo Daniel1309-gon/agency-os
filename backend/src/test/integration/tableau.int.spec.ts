@@ -262,6 +262,23 @@ describe('TableauService (FR-19, decision #9)', () => {
     expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
   });
 
+  it('reports the expected-date run and the latest run per view among a long history', async () => {
+    const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    const other = await hourlyView({ name: 'Other', viewId: 'other-luid', scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    const history = Array.from({ length: 40 }, (_, day) => ({ viewId: view.id, businessDate: `2026-10-${String(day % 31 + 1).padStart(2, '0')}`, status: 'SUCCESS' })).filter((row, index, all) => all.findIndex((r) => r.businessDate === row.businessDate) === index);
+    await ctx.db.insert(etlRuns).values(history);
+    await ctx.db.insert(etlRuns).values([
+      { viewId: view.id, businessDate: '2026-11-22', status: 'SUCCESS' },
+      { viewId: view.id, businessDate: '2026-11-23', status: 'FAILED', error: 'Tableau 503' },
+      { viewId: other.id, businessDate: '2026-11-20', status: 'SUCCESS' },
+    ]);
+
+    const report = await service.freshness(new Date('2026-11-23T15:20:00.000Z'));
+    const byView = new Map(report.map((item) => [item.viewId, item]));
+    expect(byView.get(view.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: false, latestRun: { businessDate: '2026-11-23', status: 'FAILED' } });
+    expect(byView.get(other.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: true, staleReason: 'No run queued for expected date', latestRun: { businessDate: '2026-11-20' } });
+  });
+
   it('sends one alert per active ALERTS channel, deduplicated even when two workers check at once', async () => {
     const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
     const channels = await ctx.db.insert(rocketchatChannels).values([
