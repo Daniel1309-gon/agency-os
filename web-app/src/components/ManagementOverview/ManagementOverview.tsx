@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   metricReconciliationRowSchema,
   operationalMetricsSchema,
@@ -35,9 +35,15 @@ export function ManagementOverview({ accessToken, user }: { accessToken: string 
   const [isLoading, setIsLoading] = useState(true);
   const [loadingSeriesId, setLoadingSeriesId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const dashboardReqRef = useRef(0);
+  const seriesReqRef = useRef(0);
 
   const loadDashboard = useCallback(async () => {
+    const reqId = ++dashboardReqRef.current;
+    seriesReqRef.current += 1;
+    setLoadingSeriesId(null);
     if (from && to && from > to) {
+      setIsLoading(false);
       setError('La fecha inicial debe ser anterior o igual a la fecha final.');
       return;
     }
@@ -51,15 +57,17 @@ export function ManagementOverview({ accessToken, user }: { accessToken: string 
           ? apiClient.request<unknown>(buildMetricsRangeQuery('/metrics/reconciliation', { from, to, limit: 100 }))
           : Promise.resolve([]),
       ]);
+      if (reqId !== dashboardReqRef.current) return;
       setMetrics(operationalMetricsSchema.parse(rawOps));
       setRanking(profileRankingRowSchema.array().parse(rawRanking));
       setReconciliation(showReconciliation ? metricReconciliationRowSchema.array().parse(rawRecon) : []);
       setSelectedProfile(null);
       setTimeseries([]);
     } catch (nextError) {
+      if (reqId !== dashboardReqRef.current) return;
       setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar las métricas operativas.');
     } finally {
-      setIsLoading(false);
+      if (reqId === dashboardReqRef.current) setIsLoading(false);
     }
   }, [from, showReconciliation, to]);
 
@@ -68,16 +76,19 @@ export function ManagementOverview({ accessToken, user }: { accessToken: string 
   }, [accessToken, loadDashboard]);
 
   async function inspectProfile(row: ProfileRankingRow) {
+    const reqId = ++seriesReqRef.current;
     setLoadingSeriesId(row.profileId);
     setError(null);
     try {
-      const raw = await apiClient.request<unknown>(buildMetricsRangeQuery(`/metrics/profiles/${row.profileId}/timeseries`, { from, to, limit: 90 }));
+      const raw = await apiClient.request<unknown>(buildMetricsRangeQuery(`/metrics/profiles/${row.profileId}/timeseries`, { from, to, limit: 180 }));
+      if (reqId !== seriesReqRef.current) return;
       setTimeseries(profileTimeseriesPointSchema.array().parse(raw));
       setSelectedProfile(row);
     } catch (nextError) {
+      if (reqId !== seriesReqRef.current) return;
       setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar la serie diaria del perfil.');
     } finally {
-      setLoadingSeriesId(null);
+      if (reqId === seriesReqRef.current) setLoadingSeriesId(null);
     }
   }
 
@@ -119,7 +130,7 @@ export function ManagementOverview({ accessToken, user }: { accessToken: string 
         ) : ranking.length === 0 ? (
           <p className="empty-state">No hay métricas registradas para este rango de fechas.</p>
         ) : (
-          <div className="management-table" role="table" aria-label="Rendimiento por perfil">
+          <div className="management-table metrics-six-col-table" role="table" aria-label="Rendimiento por perfil">
             <div className="management-table__head" role="row">
               <span role="columnheader">Perfil</span>
               <span role="columnheader">Puntos</span>
@@ -185,7 +196,7 @@ export function ManagementOverview({ accessToken, user }: { accessToken: string 
           {reconciliation.length === 0 ? (
             <p className="empty-state">No hay registros de conciliación en este rango.</p>
           ) : (
-            <div className="management-table" role="table" aria-label="Conciliación de puntos">
+            <div className="management-table metrics-six-col-table" role="table" aria-label="Conciliación de puntos">
               <div className="management-table__head" role="row">
                 <span role="columnheader">Fecha</span>
                 <span role="columnheader">Perfil</span>

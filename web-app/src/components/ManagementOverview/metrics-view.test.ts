@@ -29,4 +29,16 @@ describe('metrics dashboard view helpers (A7)', () => {
     expect(reconciliationStatusLabel('OK')).toBe('En tolerancia');
     expect(reconciliationStatusLabel('DIVERGENT')).toBe('Divergente');
   });
+
+  it('handles leap-year, year boundaries, empty filters, and edge response rates safely', () => {
+    expect(defaultMetricsWindow('2024-03-02', 7)).toEqual({ from: '2024-02-25', to: '2024-03-02' });
+    expect(defaultMetricsWindow('2026-01-03', 7)).toEqual({ from: '2025-12-28', to: '2026-01-03' });
+    expect(buildMetricsRangeQuery('/metrics/ranking', { from: '', to: '', limit: 100 })).toBe('/metrics/ranking?limit=100');
+    expect(formatResponseRate(0)).toBe('0.0%');
+    expect(formatResponseRate('0.40000000000000000000')).toBe('40.0%');
+    expect(formatResponseRate('')).toBe('—');
+    expect(formatResponseRate(Number.NaN)).toBe('—');
+    expect(canViewGlobalReconciliation('OPERADOR')).toBe(false);
+    expect(canViewGlobalReconciliation('CAFETERIA')).toBe(false);
+  });
 });
