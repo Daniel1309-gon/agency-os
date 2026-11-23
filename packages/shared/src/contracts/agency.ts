@@ -162,6 +162,7 @@ export const cafeteriaProductSchema = z.object({
   pickupDeadlineMinutes: z.number().nullable().optional(),
   imageUri: z.string().nullable().optional(),
   isAvailable: z.boolean().optional(),
+  updatedAt: z.string().nullable().optional(),
 });
 export type CafeteriaProduct = z.infer<typeof cafeteriaProductSchema>;
 
@@ -179,12 +180,15 @@ export const cafeteriaOrderSchema = z.object({
   id: z.string().uuid(),
   orderNumber: z.number().int(),
   operatorId: z.string().uuid(),
+  operatorName: z.string().nullable().optional(),
   status: cafeteriaOrderStatusSchema,
   placedAt: z.string(),
   acceptedAt: z.string().nullable().optional(),
   readyAt: z.string().nullable().optional(),
   pickupDeadlineAt: z.string().nullable().optional(),
   deliveredAt: z.string().nullable().optional(),
+  cancelledAt: z.string().nullable().optional(),
+  cancelReason: z.string().nullable().optional(),
   totalCop: z.string(),
   notes: z.string().nullable().optional(),
   items: z.array(cafeteriaOrderItemSchema),

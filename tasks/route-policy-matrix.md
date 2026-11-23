@@ -31,7 +31,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/breaks/start` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/cafeteria/accounts/me` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/cafeteria/menu` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | UNBOUNDED |
-| `GET /api/v1/cafeteria/orders` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/cafeteria/orders` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
 | `POST /api/v1/cafeteria/orders` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | REQUIRED | SELF | IDEMPOTENCY_KEY | NOT_APPLICABLE |
 | `POST /api/v1/cafeteria/orders/{id}/cancel` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/cafeteria/orders/{id}/status` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |

@@ -1,15 +1,29 @@
 import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
+import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import type { OrderInput, OrderStatusInput, ProductInput, ProductUpdateInput } from './cafeteria.schemas.js';
+import type { OrderInput, OrderListQueryInput, OrderStatusInput, ProductInput, ProductUpdateInput } from './cafeteria.schemas.js';
 
 /** Calendar date in Bogota: a debit at 22:00 belongs to that day, not to the next UTC day. */
 function bogotaDate(at: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 }
+
+/** Colombia has no DST (fixed UTC-05:00): start of the given Bogota calendar day in UTC. */
+function bogotaDayStartUtc(date: string): Date {
+  return new Date(`${date}T00:00:00-05:00`);
+}
+
+function bogotaNextDayStartUtc(date: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+  return bogotaDayStartUtc(next);
+}
+
+const DEFAULT_ORDERS_LIMIT = 200;
 
 const transitions: Record<string, string[]> = { PLACED: ['ACCEPTED', 'CANCELLED'], ACCEPTED: ['PREPARING', 'CANCELLED'], PREPARING: ['READY', 'CANCELLED'], READY: ['DELIVERED', 'EXPIRED'], DELIVERED: [], CANCELLED: [], EXPIRED: [] };
 
@@ -21,19 +35,38 @@ export class CafeteriaService {
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly realtime?: RealtimeService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
-  async createProduct(input: ProductInput) {
+  async createProduct(input: ProductInput, actorId?: string) {
     const [row] = await this.db.db.insert(cafeteriaProducts).values({ ...input, priceCop: input.priceCop.toFixed(2), prepMinutes: input.prepMinutes }).returning({ id: cafeteriaProducts.id, sku: cafeteriaProducts.sku, name: cafeteriaProducts.name, priceCop: cafeteriaProducts.priceCop, isAvailable: cafeteriaProducts.isAvailable });
+    await this.audit?.record({
+      actorType: actorId ? 'USER' : 'SYSTEM',
+      actorUserId: actorId,
+      action: 'cafeteria.product.created',
+      entityType: 'cafeteria_product',
+      entityId: row.id,
+      result: 'SUCCESS',
+      metadata: { productId: row.id, sku: row.sku, priceCop: row.priceCop, isAvailable: row.isAvailable },
+    });
     return row;
   }
 
   async products() { return this.db.db.select({ id: cafeteriaProducts.id, sku: cafeteriaProducts.sku, name: cafeteriaProducts.name, description: cafeteriaProducts.description, category: cafeteriaProducts.category, priceCop: cafeteriaProducts.priceCop, isAvailable: cafeteriaProducts.isAvailable, prepMinutes: cafeteriaProducts.prepMinutes, pickupDeadlineMinutes: cafeteriaProducts.pickupDeadlineMinutes, imageUri: cafeteriaProducts.imageUri, updatedAt: cafeteriaProducts.updatedAt }).from(cafeteriaProducts).where(isNull(cafeteriaProducts.deletedAt)).orderBy(cafeteriaProducts.category, cafeteriaProducts.name); }
 
-  async updateProduct(id: string, input: ProductUpdateInput) {
+  async updateProduct(id: string, input: ProductUpdateInput, actorId?: string) {
     const values = { ...input, priceCop: input.priceCop === undefined ? undefined : input.priceCop.toFixed(2), updatedAt: new Date() };
     const [row] = await this.db.db.update(cafeteriaProducts).set(values).where(and(eq(cafeteriaProducts.id, id), isNull(cafeteriaProducts.deletedAt))).returning({ id: cafeteriaProducts.id, sku: cafeteriaProducts.sku, name: cafeteriaProducts.name, priceCop: cafeteriaProducts.priceCop, isAvailable: cafeteriaProducts.isAvailable, updatedAt: cafeteriaProducts.updatedAt });
     if (!row) throw new NotFoundException('Product not found');
+    await this.audit?.record({
+      actorType: actorId ? 'USER' : 'SYSTEM',
+      actorUserId: actorId,
+      action: 'cafeteria.product.updated',
+      entityType: 'cafeteria_product',
+      entityId: row.id,
+      result: 'SUCCESS',
+      metadata: { productId: row.id, sku: row.sku, priceCop: row.priceCop, isAvailable: row.isAvailable },
+    });
     return row;
   }
 
@@ -107,8 +140,36 @@ export class CafeteriaService {
     return Number(row?.minutes ?? DEFAULT_PICKUP_DEADLINE_MINUTES);
   }
 
-  async orders(status?: string, operatorId?: string) {
-    const rows = await this.db.db.select({ id: cafeteriaOrders.id, orderNumber: cafeteriaOrders.orderNumber, operatorId: cafeteriaOrders.operatorId, status: cafeteriaOrders.status, placedAt: cafeteriaOrders.placedAt, acceptedAt: cafeteriaOrders.acceptedAt, readyAt: cafeteriaOrders.readyAt, pickupDeadlineAt: cafeteriaOrders.pickupDeadlineAt, deliveredAt: cafeteriaOrders.deliveredAt, totalCop: cafeteriaOrders.totalCop, notes: cafeteriaOrders.notes }).from(cafeteriaOrders).where(and(status ? eq(cafeteriaOrders.status, status) : undefined, operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined)).orderBy(desc(cafeteriaOrders.placedAt));
+  async orders(query?: string | Partial<OrderListQueryInput>, operatorId?: string) {
+    const filters: { status?: string; from?: string; to?: string; limit?: number } = typeof query === 'string' ? { status: query } : (query ?? {});
+    const limit = Math.min(Math.max(filters.limit ?? DEFAULT_ORDERS_LIMIT, 1), 500);
+    const rows = await this.db.db
+      .select({
+        id: cafeteriaOrders.id,
+        orderNumber: cafeteriaOrders.orderNumber,
+        operatorId: cafeteriaOrders.operatorId,
+        operatorName: users.fullName,
+        status: cafeteriaOrders.status,
+        placedAt: cafeteriaOrders.placedAt,
+        acceptedAt: cafeteriaOrders.acceptedAt,
+        readyAt: cafeteriaOrders.readyAt,
+        pickupDeadlineAt: cafeteriaOrders.pickupDeadlineAt,
+        deliveredAt: cafeteriaOrders.deliveredAt,
+        cancelledAt: cafeteriaOrders.cancelledAt,
+        cancelReason: cafeteriaOrders.cancelReason,
+        totalCop: cafeteriaOrders.totalCop,
+        notes: cafeteriaOrders.notes,
+      })
+      .from(cafeteriaOrders)
+      .leftJoin(users, eq(users.id, cafeteriaOrders.operatorId))
+      .where(and(
+        filters.status ? eq(cafeteriaOrders.status, filters.status) : undefined,
+        operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined,
+        filters.from ? gte(cafeteriaOrders.placedAt, bogotaDayStartUtc(filters.from)) : undefined,
+        filters.to ? lt(cafeteriaOrders.placedAt, bogotaNextDayStartUtc(filters.to)) : undefined,
+      ))
+      .orderBy(desc(cafeteriaOrders.placedAt))
+      .limit(limit);
     const seq = this.realtime?.nextSeq();
     const withItems = await this.attachItems(rows);
     return seq === undefined ? withItems : withItems.map((row) => ({ ...row, seq }));

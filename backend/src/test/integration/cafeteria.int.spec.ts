@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
-import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
+import { auditLog, cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -10,7 +11,7 @@ let cafeteria: CafeteriaService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  cafeteria = new CafeteriaService(ctx.database);
+  cafeteria = new CafeteriaService(ctx.database, undefined, new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -327,5 +328,53 @@ describe('the kitchen flow and the debit', () => {
     expect(await cafeteria.orders('PLACED')).toHaveLength(1);
     expect(await cafeteria.orders('ACCEPTED')).toHaveLength(1);
     expect(await cafeteria.orders()).toHaveLength(2);
+  });
+
+  it('filters sales history by Bogota calendar date across UTC midnight, bounds limit, and includes operatorName', async () => {
+    const first = await placedOrder();
+    const second = await placedOrder();
+    // 2026-11-22 22:30 Bogota = 2026-11-23 03:30 UTC (must land in 2026-11-22, not 2026-11-23)
+    await ctx.db
+      .update(cafeteriaOrders)
+      .set({ placedAt: new Date('2026-11-23T03:30:00.000Z') })
+      .where(eq(cafeteriaOrders.id, first.orderId));
+    // 2026-11-23 08:00 Bogota = 2026-11-23 13:00 UTC
+    await ctx.db
+      .update(cafeteriaOrders)
+      .set({ placedAt: new Date('2026-11-23T13:00:00.000Z') })
+      .where(eq(cafeteriaOrders.id, second.orderId));
+    await cafeteria.updateStatus(second.orderId, { status: 'CANCELLED', cancelReason: 'Sin stock' }, second.kitchenId);
+
+    const day22 = await cafeteria.orders({ from: '2026-11-22', to: '2026-11-22' });
+    expect(day22.map((order) => order.id)).toEqual([first.orderId]);
+    expect(day22[0].operatorName).toBeTruthy();
+
+    const day23 = await cafeteria.orders({ from: '2026-11-23', to: '2026-11-23', status: 'CANCELLED' });
+    expect(day23.map((order) => order.id)).toEqual([second.orderId]);
+    expect(day23[0].cancelReason).toBe('Sin stock');
+    expect(day23[0].cancelledAt).toBeTruthy();
+
+    const limited = await cafeteria.orders({ from: '2026-11-22', to: '2026-11-23', limit: 1 });
+    expect(limited).toHaveLength(1);
+    expect(limited[0].id).toBe(second.orderId);
+  });
+
+  it('records audit_log entries when creating and updating cafeteria products', async () => {
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const created = await cafeteria.createProduct(LUNCH, kitchen.id);
+    await cafeteria.updateProduct(created.id, { priceCop: 14000, isAvailable: false }, kitchen.id);
+
+    const entries = await ctx.db
+      .select({ action: auditLog.action, actorUserId: auditLog.actorUserId, entityId: auditLog.entityId, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, created.id));
+
+    expect(entries.map((entry) => entry.action).sort()).toEqual([
+      'cafeteria.product.created',
+      'cafeteria.product.updated',
+    ]);
+    expect(entries.every((entry) => entry.actorUserId === kitchen.id)).toBe(true);
+    const updatedAudit = entries.find((entry) => entry.action === 'cafeteria.product.updated');
+    expect(updatedAudit?.metadata).toMatchObject({ sku: 'ALM-01', priceCop: '14000.00', isAvailable: false });
   });
 });

@@ -9,6 +9,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   'outcome', 'source', 'businessDate', 'periodId', 'errorCode', 'reused', 'role', 'permission',
   'operatorId', 'shiftId', 'userId', 'crewId', 'key', 'article', 'latencyMs', 'eventId',
   'eventType', 'aggregateType', 'recurrence', 'deviceKind', 'permitUntil',
+  'productId', 'sku', 'priceCop', 'isAvailable',
 ]);
 
 const FORBIDDEN_METADATA_KEYS = new Set([
