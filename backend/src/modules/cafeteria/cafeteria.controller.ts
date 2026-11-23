@@ -3,7 +3,7 @@ import { Authenticated, CurrentUser, RequirePermissions, RequireShift } from '..
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CafeteriaService } from './cafeteria.service.js';
-import { orderSchema, orderStatusSchema, productSchema, productUpdateSchema, type OrderInput, type OrderStatusInput, type ProductInput, type ProductUpdateInput } from './cafeteria.schemas.js';
+import { orderListQuerySchema, orderSchema, orderStatusSchema, productSchema, productUpdateSchema, type OrderInput, type OrderListQueryInput, type OrderStatusInput, type ProductInput, type ProductUpdateInput } from './cafeteria.schemas.js';
 
 @Controller('cafeteria')
 @Authenticated()
@@ -15,10 +15,10 @@ export class CafeteriaController {
   @Post('products')
   @RequirePermissions('cafeteria.manage')
   @UsePipes(new ZodValidationPipe(productSchema))
-  product(@Body() body: ProductInput) { return this.cafeteria.createProduct(body); }
+  product(@Body() body: ProductInput, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.createProduct(body, user.sub); }
 
   @Get('products') @RequirePermissions('cafeteria.manage') products() { return this.cafeteria.products(); }
-  @Patch('products/:id') @RequirePermissions('cafeteria.manage') @UsePipes(new ZodValidationPipe(productUpdateSchema)) updateProduct(@Param('id') id: string, @Body() body: ProductUpdateInput) { return this.cafeteria.updateProduct(id, body); }
+  @Patch('products/:id') @RequirePermissions('cafeteria.manage') @UsePipes(new ZodValidationPipe(productUpdateSchema)) updateProduct(@Param('id') id: string, @Body() body: ProductUpdateInput, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateProduct(id, body, user.sub); }
 
   @Post('orders')
   @RequireShift()
@@ -30,7 +30,7 @@ export class CafeteriaController {
   @UsePipes(new ZodValidationPipe(orderStatusSchema))
   status(@Param('id') id: string, @Body() body: OrderStatusInput, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, body, user.sub); }
 
-  @Get('orders') @RequirePermissions('cafeteria.manage') orders(@Query('status') status?: string) { return this.cafeteria.orders(status); }
+  @Get('orders') @RequirePermissions('cafeteria.manage') orders(@Query(new ZodValidationPipe(orderListQuerySchema)) query: OrderListQueryInput) { return this.cafeteria.orders(query); }
   @Post('orders/:id/cancel') cancel(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, { status: 'CANCELLED', cancelReason: body.reason }, user.sub); }
   @Get('accounts/me') account(@CurrentUser() user: AccessTokenClaims) { return this.cafeteria.account(user.sub); }
 }

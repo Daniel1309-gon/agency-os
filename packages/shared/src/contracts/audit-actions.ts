@@ -79,6 +79,9 @@ export const AUDIT_ACTIONS = {
   'icebreaker.published': { entity: 'icebreaker', label: 'Icebreaker publicado' },
   'icebreaker.rule.created': { entity: 'icebreaker_rule', label: 'Regla de icebreaker creada' },
   'icebreaker.reviewed': { entity: 'icebreaker', label: 'Icebreaker revisado' },
+
+  'cafeteria.product.created': { entity: 'cafeteria_product', label: 'Producto de cafetería creado' },
+  'cafeteria.product.updated': { entity: 'cafeteria_product', label: 'Producto de cafetería actualizado' },
 } as const satisfies Record<string, { entity: string | null; label: string }>;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

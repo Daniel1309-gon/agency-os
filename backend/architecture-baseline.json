@@ -8,7 +8,7 @@
     "module-no-direct-schema:src/modules/auth/auth.service.ts:../../database/schema/index.js:loginAttempts,permissions,refreshTokens,rolePermissions,roles,users",
     "module-no-direct-schema:src/modules/breaks/breaks.service.ts:../../database/schema/index.js:breaks,shifts",
     "module-no-private-cross-import:src/modules/breaks/breaks.service.ts:../realtime/realtime.service.js",
-    "module-no-direct-schema:src/modules/cafeteria/cafeteria.service.ts:../../database/schema/index.js:cafeteriaOrderItems,cafeteriaOrders,cafeteriaProducts,operatorAccountEntries",
+    "module-no-direct-schema:src/modules/cafeteria/cafeteria.service.ts:../../database/schema/index.js:cafeteriaOrderItems,cafeteriaOrders,cafeteriaProducts,operatorAccountEntries,users",
     "module-no-private-cross-import:src/modules/cafeteria/cafeteria.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/communication/bot.service.ts:../../database/schema/index.js:appSettings,crewMembers,crews,outboxEvents,rocketchatChannels,users",
     "module-no-private-cross-import:src/modules/communication/communication.service.ts:../outbox/outbox.service.js",

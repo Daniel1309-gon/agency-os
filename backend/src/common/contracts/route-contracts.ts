@@ -140,7 +140,7 @@ export const routeContracts = [
   route('GET', '/api/v1/cafeteria/products', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/cafeteria/products', 'GLOBAL'),
   route('PATCH', '/api/v1/cafeteria/products/{id}', 'RESOURCE'),
-  route('GET', '/api/v1/cafeteria/orders', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
+  route('GET', '/api/v1/cafeteria/orders', 'GLOBAL', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('POST', '/api/v1/cafeteria/orders', 'SELF', 'IDEMPOTENCY_KEY'),
   route('PATCH', '/api/v1/cafeteria/orders/{id}/status', 'RESOURCE'),
   route('POST', '/api/v1/cafeteria/orders/{id}/cancel', 'SELF'),

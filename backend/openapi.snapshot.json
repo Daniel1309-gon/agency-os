@@ -108,6 +108,14 @@
             "nullable": true,
             "type": "string"
           },
+          "cancelledAt": {
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelReason": {
+            "nullable": true,
+            "type": "string"
+          },
           "deliveredAt": {
             "nullable": true,
             "type": "string"
@@ -159,6 +167,10 @@
           },
           "operatorId": {
             "format": "uuid",
+            "type": "string"
+          },
+          "operatorName": {
+            "nullable": true,
             "type": "string"
           },
           "orderNumber": {
@@ -247,6 +259,10 @@
             "type": "string"
           },
           "sku": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "nullable": true,
             "type": "string"
           }
         },
@@ -1917,16 +1933,7 @@
     "/api/v1/cafeteria/orders": {
       "get": {
         "operationId": "CafeteriaController.orders",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -1968,7 +1975,7 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/cafeteria/orders",
           "scope": "GLOBAL",
           "shift": false
