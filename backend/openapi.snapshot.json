@@ -6761,19 +6761,10 @@
         "x-agency-station": true
       }
     },
-    "/api/v1/tableau/runs": {
+    "/api/v1/tableau/freshness": {
       "get": {
-        "operationId": "TableauController.runs",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "viewId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "operationId": "TableauController.freshness",
+        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -6805,7 +6796,49 @@
           "device": false,
           "idempotency": "NOT_APPLICABLE",
           "method": "GET",
-          "pagination": "UNBOUNDED",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/tableau/freshness",
+          "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/tableau/runs": {
+      "get": {
+        "operationId": "TableauController.runs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
           "path": "/api/v1/tableau/runs",
           "scope": "GLOBAL",
           "shift": false
@@ -6981,6 +7014,57 @@
           "pagination": "NOT_APPLICABLE",
           "path": "/api/v1/tableau/views",
           "scope": "GLOBAL",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/tableau/views/{id}": {
+      "patch": {
+        "operationId": "TableauController.updateView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Tableau"
+        ],
+        "x-agency-permissions": [
+          "etl.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "etl.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/tableau/views/{id}",
+          "scope": "RESOURCE",
           "shift": false
         }
       }

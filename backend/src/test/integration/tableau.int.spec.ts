@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { TableauService } from '../../modules/tableau/tableau.service.js';
 import type { TableauClient, ViewDownload } from '../../modules/tableau/tableau.client.js';
-import { etlRuns, etlStagingRows, tableauHourlyPoints, tableauViews, ttProfiles } from '../../database/schema/index.js';
+import { etlRuns, etlStagingRows, outboxEvents, rocketchatChannels, tableauHourlyPoints, tableauViews, ttProfiles } from '../../database/schema/index.js';
 import { createProfile, createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -192,5 +192,71 @@ describe('TableauService (FR-19, decision #9)', () => {
         has_table_privilege('agency_worker', 'public.etl_staging_rows', 'DELETE') AS staging_delete,
         has_table_privilege('agency_worker', 'public.tableau_views', 'UPDATE') AS views_update`);
     expect(rows[0]).toEqual({ views_read: true, profiles_read: true, runs_update: true, staging_insert: true, points_update: true, staging_delete: false, views_update: false });
+  });
+
+  it('queues yesterday only at/after each view schedule (default 09:15 Bogota) idempotently under agency_worker (A9)', async () => {
+    const view = await hourlyView();
+    expect(view).toMatchObject({ scheduleTime: '09:15', scheduleTimezone: 'America/Bogota', freshnessSlaMinutes: 120 });
+
+    // 09:14 Bogota = 14:14 UTC -> too early
+    const before = new Date('2026-11-23T14:14:00.000Z');
+    // 09:15 Bogota = 14:15 UTC -> due for yesterday (2026-11-22)
+    const atSchedule = new Date('2026-11-23T14:15:00.000Z');
+
+    await ctx.database.withRequestContext('', 'JOB', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_worker`);
+      expect(await service.enqueueScheduledRuns(before)).toBe(0);
+      expect(await service.enqueueScheduledRuns(atSchedule)).toBe(1);
+      // Idempotent on second tick
+      expect(await service.enqueueScheduledRuns(atSchedule)).toBe(0);
+    });
+
+    const runs = await service.runs({ viewId: view.id });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ viewId: view.id, businessDate: '2026-11-22', status: 'QUEUED' });
+  });
+
+  it('reports freshness SLA status and emits deduplicated ALERTS outbox events on failure and staleness (A9)', async () => {
+    const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    await ctx.db.insert(rocketchatChannels).values({
+      purpose: 'ALERTS',
+      type: 'GROUP',
+      rcRoomId: 'room-alerts-1',
+      name: 'alertas-etl',
+      isActive: true,
+    });
+
+    // 09:45 Bogota = 14:45 UTC (before 10:15 SLA deadline) -> not stale yet
+    const beforeSla = await service.freshness(new Date('2026-11-23T14:45:00.000Z'));
+    expect(beforeSla).toHaveLength(1);
+    expect(beforeSla[0]).toMatchObject({ viewId: view.id, expectedBusinessDate: '2026-11-22', isStale: false, staleReason: null });
+
+    // 10:20 Bogota = 15:20 UTC (past 10:15 SLA deadline) -> stale, emits 1 alert only
+    const afterSla = new Date('2026-11-23T15:20:00.000Z');
+    const staleReport = await service.freshness(afterSla);
+    expect(staleReport[0]).toMatchObject({ isStale: true, staleReason: 'No run queued for expected date' });
+
+    await ctx.database.withRequestContext('', 'JOB', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_worker`);
+      expect(await service.checkStaleAlerts(afterSla)).toBe(1);
+      expect(await service.checkStaleAlerts(afterSla)).toBe(0);
+    });
+
+    // FAILED run emits exactly 1 alert stamped via etl_runs.alerted_at
+    download = () => { throw new Error('Tableau 503'); };
+    const failedRun = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    await service.processQueued();
+    const afterFail = await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, failedRun!.id) });
+    expect(afterFail?.alertedAt).toBeTruthy();
+
+    const alerts = await ctx.db.select({ aggregateType: outboxEvents.aggregateType, eventType: outboxEvents.eventType }).from(outboxEvents);
+    expect(alerts).toEqual([
+      { aggregateType: 'tableau_freshness', eventType: 'rocketchat.message.send' },
+      { aggregateType: 'tableau_etl_run', eventType: 'rocketchat.message.send' },
+    ]);
+
+    // Updating per-view schedule preserves existing mapping
+    const updated = await service.updateView(view.id, { scheduleTime: '08:30', freshnessSlaMinutes: 90 });
+    expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
   });
 });

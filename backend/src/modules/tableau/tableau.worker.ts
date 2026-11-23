@@ -30,7 +30,9 @@ export class TableauWorker implements OnModuleInit, OnModuleDestroy {
   private startTick(): void {
     if (this.tickPromise) return;
     this.tickPromise = this.tableau
-      .processQueued()
+      .enqueueScheduledRuns()
+      .then(() => this.tableau.processQueued())
+      .then(() => this.tableau.checkStaleAlerts())
       .then(() => undefined)
       .catch((error) => this.logger.error('Tableau ETL tick failed', { error: error instanceof Error ? error.message : String(error) }))
       .finally(() => { this.tickPromise = undefined; });

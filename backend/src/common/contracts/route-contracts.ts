@@ -163,7 +163,9 @@ export const routeContracts = [
 
   route('GET', '/api/v1/tableau/views', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/tableau/views', 'GLOBAL'),
-  route('GET', '/api/v1/tableau/runs', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
+  route('PATCH', '/api/v1/tableau/views/{id}', 'RESOURCE'),
+  route('GET', '/api/v1/tableau/freshness', 'GLOBAL', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
+  route('GET', '/api/v1/tableau/runs', 'GLOBAL', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('POST', '/api/v1/tableau/runs', 'GLOBAL'),
   route('POST', '/api/v1/tableau/runs/{id}/execute', 'RESOURCE'),
 

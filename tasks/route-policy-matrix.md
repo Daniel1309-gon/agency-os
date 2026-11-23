@@ -130,11 +130,13 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `PATCH /api/v1/station/sessions/{id}` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/station/sessions/{id}/close` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/station/sessions/{id}/heartbeat` | STATION | station | REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
-| `GET /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/tableau/freshness` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
+| `GET /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
 | `POST /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/tableau/runs/{id}/execute` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/tableau/views` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/tableau/views` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
+| `PATCH /api/v1/tableau/views/{id}` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/users` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: users.read | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/users` | ADMIN | authenticated; permissions: users.create | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/users/{id}` | ADMIN | authenticated; permissions: users.update | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
