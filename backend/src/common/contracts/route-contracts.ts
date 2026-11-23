@@ -155,7 +155,7 @@ export const routeContracts = [
   route('POST', '/api/v1/icebreakers/{id}/reviews', 'RESOURCE'),
   route('GET', '/api/v1/icebreakers/{id}/evaluations', 'RESOURCE', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('GET', '/api/v1/icebreakers/{id}/effectiveness', 'RESOURCE'),
-  route('GET', '/api/v1/icebreakers/violations', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
+  route('GET', '/api/v1/icebreakers/violations', 'CREW', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('GET', '/api/v1/icebreaker-rules', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/icebreaker-rules', 'GLOBAL'),
   route('PATCH', '/api/v1/icebreaker-rules/{id}', 'RESOURCE'),
