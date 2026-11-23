@@ -32,6 +32,6 @@ export class CafeteriaController {
 
   @Get('orders') @RequirePermissions('cafeteria.manage') orders(@Query(new ZodValidationPipe(orderListQuerySchema)) query: OrderListQueryInput) { return this.cafeteria.orders(query); }
   @Get('sales/summary') @RequirePermissions('cafeteria.manage') salesSummary(@Query(new ZodValidationPipe(salesSummaryQuerySchema)) query: SalesSummaryQueryInput) { return this.cafeteria.salesSummary(query); }
-  @Post('orders/:id/cancel') cancel(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, { status: 'CANCELLED', cancelReason: body.reason }, user.sub); }
+  @Post('orders/:id/cancel') cancel(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.cancelOrder(id, body?.reason, user); }
   @Get('accounts/me') account(@CurrentUser() user: AccessTokenClaims) { return this.cafeteria.account(user.sub); }
 }
