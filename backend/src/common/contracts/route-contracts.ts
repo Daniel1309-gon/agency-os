@@ -204,6 +204,8 @@ export const routeContracts = [
 
   route('GET', '/api/v1/rocketchat/channels', 'CREW', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/rocketchat/channels', 'CREW'),
+  route('PATCH', '/api/v1/rocketchat/channels/{id}', 'RESOURCE'),
+  route('GET', '/api/v1/rocketchat/channels/{id}/drift', 'RESOURCE'),
   route('POST', '/api/v1/rocketchat/messages', 'CREW'),
   route('POST', '/api/v1/rocketchat/bot/events', 'PUBLIC', 'NATURAL_KEY'),
   route('GET', '/api/v1/rocketchat/bot/knowledge', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),

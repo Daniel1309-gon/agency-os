@@ -12,7 +12,7 @@
     "module-no-private-cross-import:src/modules/cafeteria/cafeteria.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/communication/bot.service.ts:../../database/schema/index.js:appSettings,crewMembers,crews,outboxEvents,rocketchatChannels,users",
     "module-no-private-cross-import:src/modules/communication/communication.service.ts:../outbox/outbox.service.js",
-    "module-no-direct-schema:src/modules/communication/communication.service.ts:../../database/schema/index.js:crewMembers,crews,notifications,rocketchatChannels,scheduledMessages",
+    "module-no-direct-schema:src/modules/communication/communication.service.ts:../../database/schema/index.js:crewMembers,crews,notifications,rocketchatChannels,scheduledMessages,users",
     "module-no-direct-schema:src/modules/communication/communication.worker.ts:../../database/schema/index.js:outboxEvents,rocketchatChannels,scheduledMessages,users",
     "module-no-private-cross-import:src/modules/communication/communication.worker.ts:../jobs/shift-schedule.js",
     "module-no-private-cross-import:src/modules/communication/communication.worker.ts:../outbox/outbox.service.js",

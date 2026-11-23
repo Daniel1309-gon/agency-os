@@ -108,6 +108,8 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `PUT /api/v1/rocketchat/bot/knowledge/{slug}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NATURAL_KEY | NOT_APPLICABLE |
 | `GET /api/v1/rocketchat/channels` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/rocketchat/channels` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |
+| `PATCH /api/v1/rocketchat/channels/{id}` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/rocketchat/channels/{id}/drift` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/rocketchat/messages` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/roles` | ADMIN | authenticated; permissions: rbac.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `GET /api/v1/scheduled-messages` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, CAFETERIA | authenticated; permissions: chat.manage | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |

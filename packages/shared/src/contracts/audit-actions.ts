@@ -63,6 +63,8 @@ export const AUDIT_ACTIONS = {
   'break.ended': { entity: 'break', label: 'Break terminado' },
 
   'rocketchat.channel.created': { entity: 'rocketchat_channel', label: 'Canal de Rocket.Chat registrado' },
+  'rocketchat.channel.updated': { entity: 'rocketchat_channel', label: 'Canal de Rocket.Chat actualizado' },
+  'rocketchat.channel.drift_scanned': { entity: 'rocketchat_channel', label: 'Deriva de membresía escaneada' },
   'rocketchat.message.scheduled': { entity: 'scheduled_message', label: 'Mensaje programado' },
   'rocketchat.message.cancelled': { entity: 'scheduled_message', label: 'Mensaje programado cancelado' },
   'rocketchat.bot.knowledge.updated': { entity: 'bot_knowledge', label: 'Conocimiento del bot actualizado' },

@@ -5730,6 +5730,114 @@
         }
       }
     },
+    "/api/v1/rocketchat/channels/{id}": {
+      "patch": {
+        "operationId": "RocketChatController.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChat"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "PATCH",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/channels/{id}",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/rocketchat/channels/{id}/drift": {
+      "get": {
+        "operationId": "RocketChatController.drift",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "RocketChat"
+        ],
+        "x-agency-permissions": [
+          "chat.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "chat.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "NOT_APPLICABLE",
+          "path": "/api/v1/rocketchat/channels/{id}/drift",
+          "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/rocketchat/messages": {
       "post": {
         "operationId": "RocketChatController.message",

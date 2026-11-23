@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import { Authenticated, CurrentUser, Public, RequirePermissions } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { botKnowledgeSchema, channelSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type ChannelInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
+import { botKnowledgeSchema, channelSchema, channelUpdateSchema, messageSchema, scheduledMessageSchema, type BotKnowledgeInput, type ChannelInput, type ChannelUpdateInput, type MessageInput, type ScheduledMessageInput } from './communication.schemas.js';
 import { CommunicationService } from './communication.service.js';
 import { BotService } from './bot.service.js';
 
@@ -11,6 +11,8 @@ export class RocketChatController {
   constructor(private readonly communication: CommunicationService) {}
   @Get('channels') @RequirePermissions('chat.manage') channels(@CurrentUser() user: AccessTokenClaims) { return this.communication.channels(user); }
   @Post('channels') @RequirePermissions('chat.manage') @UsePipes(new ZodValidationPipe(channelSchema)) create(@Body() body: ChannelInput, @CurrentUser() user: AccessTokenClaims) { return this.communication.createChannel(body, user); }
+  @Patch('channels/:id') @RequirePermissions('chat.manage') @UsePipes(new ZodValidationPipe(channelUpdateSchema)) update(@Param('id') id: string, @Body() body: ChannelUpdateInput, @CurrentUser() user: AccessTokenClaims) { return this.communication.updateChannel(id, body, user); }
+  @Get('channels/:id/drift') @RequirePermissions('chat.manage') drift(@Param('id') id: string, @CurrentUser() user: AccessTokenClaims) { return this.communication.channelDrift(id, user); }
   @Post('messages') @RequirePermissions('chat.manage') @UsePipes(new ZodValidationPipe(messageSchema)) message(@Body() body: MessageInput, @CurrentUser() user: AccessTokenClaims) { return this.communication.message(body, user); }
 }
 

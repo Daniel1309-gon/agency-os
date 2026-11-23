@@ -1,18 +1,24 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { OutboxService } from '../outbox/outbox.service.js';
-import { crewMembers, crews, notifications, rocketchatChannels, scheduledMessages } from '../../database/schema/index.js';
-import type { ChannelInput, MessageInput, ScheduledMessageInput } from './communication.schemas.js';
+import { crewMembers, crews, notifications, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
+import type { ChannelInput, ChannelUpdateInput, MessageInput, ScheduledMessageInput } from './communication.schemas.js';
 import { parseStoredRecurrence } from './communication.schemas.js';
 import { AuditService } from '../../common/audit/audit.service.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
+import { RocketChatClient } from './rocketchat.client.js';
 
 type ChatActor = Pick<AccessTokenClaims, 'sub' | 'role'>;
 
 @Injectable()
 export class CommunicationService {
-  constructor(private readonly db: DatabaseService, private readonly outbox: OutboxService, private readonly audit: AuditService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly outbox: OutboxService,
+    private readonly audit: AuditService,
+    @Optional() private readonly rocketchat?: RocketChatClient,
+  ) {}
 
   async channels(actor: ChatActor) {
     if (this.isGlobal(actor)) return this.db.db.select().from(rocketchatChannels).where(eq(rocketchatChannels.isActive, true));
@@ -39,6 +45,144 @@ export class CommunicationService {
     const [row] = await this.db.db.insert(rocketchatChannels).values(input).returning();
     await this.audit.record({ actorType: 'USER', actorUserId: actor.sub, action: 'rocketchat.channel.created', entityType: 'rocketchat_channel', entityId: row.id, result: 'SUCCESS', metadata: { crewId: input.crewId } });
     return row;
+  }
+
+  async updateChannel(id: string, input: ChannelUpdateInput, actor: ChatActor) {
+    const updates: Partial<typeof rocketchatChannels.$inferInsert> = {};
+    if (input.crewId !== undefined) updates.crewId = input.crewId;
+    if (input.name !== undefined) updates.name = input.name;
+    if (input.purpose !== undefined) updates.purpose = input.purpose;
+    if (input.isActive !== undefined) updates.isActive = input.isActive;
+    if (Object.keys(updates).length === 0) throw new BadRequestException('At least one channel field is required');
+
+    const [existing] = await this.db.db.select().from(rocketchatChannels).where(eq(rocketchatChannels.id, id)).limit(1);
+    if (!existing) throw new NotFoundException('Rocket.Chat channel mapping not found');
+
+    if (!this.isGlobal(actor)) {
+      if (actor.role !== 'COORDINADOR') {
+        throw new ForbiddenException('Role cannot manage crew channels');
+      }
+      if (!existing.crewId || !(await this.managesCrew(actor.sub, existing.crewId))) {
+        throw new ForbiddenException('Coordinator cannot manage this crew channel');
+      }
+      if (input.crewId !== undefined && input.crewId !== existing.crewId) {
+        if (!input.crewId || !(await this.managesCrew(actor.sub, input.crewId))) {
+          throw new ForbiddenException('Coordinator cannot reassign channel outside managed crews');
+        }
+      }
+    }
+
+    if (input.crewId) {
+      const [crew] = await this.db.db.select({ id: crews.id }).from(crews).where(eq(crews.id, input.crewId)).limit(1);
+      if (!crew) throw new NotFoundException('Crew not found');
+    }
+
+    const [row] = await this.db.db.update(rocketchatChannels).set(updates).where(eq(rocketchatChannels.id, id)).returning();
+    await this.audit.record({
+      actorType: 'USER',
+      actorUserId: actor.sub,
+      action: 'rocketchat.channel.updated',
+      entityType: 'rocketchat_channel',
+      entityId: row.id,
+      result: 'SUCCESS',
+      metadata: { crewId: row.crewId, status: row.isActive ? 'ACTIVE' : 'INACTIVE' },
+    });
+    return row;
+  }
+
+  /**
+   * ADR 0010 (#1–#3): detect-only membership drift scan.
+   * Compares active crew members in Agency OS against Rocket.Chat room members
+   * without invoking any invite/kick/admin API.
+   */
+  async channelDrift(id: string, actor: ChatActor) {
+    const [channel] = await this.db.db.select().from(rocketchatChannels).where(eq(rocketchatChannels.id, id)).limit(1);
+    if (!channel) throw new NotFoundException('Rocket.Chat channel mapping not found');
+
+    if (!this.isGlobal(actor)) {
+      if (actor.role !== 'COORDINADOR' || !channel.crewId || !(await this.managesCrew(actor.sub, channel.crewId))) {
+        throw new ForbiddenException('Coordinator cannot inspect drift for this channel');
+      }
+    }
+
+    if (!channel.crewId) throw new BadRequestException('Channel is not linked to a crew');
+    if (channel.type === 'DM') throw new BadRequestException('Drift scan applies only to GROUP or CHANNEL rooms');
+    if (!this.rocketchat) throw new ConflictException('Rocket.Chat client is unavailable');
+
+    const [crew] = await this.db.db
+      .select({ id: crews.id, coordinatorRcUserId: users.rocketchatUserId })
+      .from(crews)
+      .leftJoin(users, eq(users.id, crews.coordinatorId))
+      .where(eq(crews.id, channel.crewId))
+      .limit(1);
+    if (!crew) throw new NotFoundException('Crew not found');
+
+    const activeMembers = await this.db.db
+      .select({ userId: users.id, fullName: users.fullName, rocketchatUserId: users.rocketchatUserId })
+      .from(crewMembers)
+      .innerJoin(users, eq(users.id, crewMembers.userId))
+      .where(and(eq(crewMembers.crewId, channel.crewId), eq(users.status, 'ACTIVE'), sql`${crewMembers.validRange} @> now()`));
+
+    const rcMembers = await this.rocketchat.listRoomMembers(channel.rcRoomId, channel.type as 'GROUP' | 'CHANNEL');
+    const rcById = new Map(rcMembers.map((member) => [member.id, member]));
+    const expectedRcIds = new Set<string>();
+    const missingInRocketChat: Array<{ userId: string; fullName: string; rocketchatUserId: string }> = [];
+    const unlinkedCrewMembers: Array<{ userId: string; fullName: string }> = [];
+    let inSyncCount = 0;
+
+    for (const member of activeMembers) {
+      if (!member.rocketchatUserId) {
+        unlinkedCrewMembers.push({ userId: member.userId, fullName: member.fullName });
+        continue;
+      }
+      expectedRcIds.add(member.rocketchatUserId);
+      if (rcById.has(member.rocketchatUserId)) {
+        inSyncCount += 1;
+      } else {
+        missingInRocketChat.push({
+          userId: member.userId,
+          fullName: member.fullName,
+          rocketchatUserId: member.rocketchatUserId,
+        });
+      }
+    }
+
+    const ignoredRcIds = new Set<string>();
+    const botUserId = this.rocketchat.botUserId();
+    if (botUserId) ignoredRcIds.add(botUserId);
+    if (crew.coordinatorRcUserId) ignoredRcIds.add(crew.coordinatorRcUserId);
+
+    const unexpectedInRocketChat = rcMembers
+      .filter((member) => !expectedRcIds.has(member.id) && !ignoredRcIds.has(member.id))
+      .map((member) => ({ rocketchatUserId: member.id, username: member.username, name: member.name }))
+      .sort((left, right) => left.rocketchatUserId.localeCompare(right.rocketchatUserId));
+
+    missingInRocketChat.sort((left, right) => left.fullName.localeCompare(right.fullName));
+    unlinkedCrewMembers.sort((left, right) => left.fullName.localeCompare(right.fullName));
+
+    const driftCount = missingInRocketChat.length + unlinkedCrewMembers.length + unexpectedInRocketChat.length;
+    await this.audit.record({
+      actorType: 'USER',
+      actorUserId: actor.sub,
+      action: 'rocketchat.channel.drift_scanned',
+      entityType: 'rocketchat_channel',
+      entityId: channel.id,
+      result: 'SUCCESS',
+      metadata: { crewId: channel.crewId, count: driftCount },
+    });
+
+    return {
+      channelId: channel.id,
+      crewId: channel.crewId,
+      rcRoomId: channel.rcRoomId,
+      roomType: channel.type,
+      checkedAt: new Date().toISOString(),
+      inSyncCount,
+      driftCount,
+      missingInRocketChat,
+      unlinkedCrewMembers,
+      unexpectedInRocketChat,
+    };
   }
 
   async message(input: MessageInput, actor: ChatActor) {
