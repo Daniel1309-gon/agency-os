@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { createServer, type Server as HttpServer } from 'node:http';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { ConfigService } from '../../config/config.service.js';
@@ -492,6 +492,31 @@ describe('Rocket.Chat channel lifecycle and drift scan (E1-13)', () => {
       { actorUserId: coordinator.id, metadata: expect.objectContaining({ crewId: ownedCrew.id, status: 'ACTIVE' }) },
       { actorUserId: admin.id, metadata: expect.objectContaining({ crewId: null, status: 'INACTIVE' }) },
     ]));
+  });
+
+  it('keeps coordinators on CREW-purpose channels so they cannot capture ALERTS or BOT routing', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const [ownedCrew] = await ctx.db.insert(crews).values({ name: 'Crew A', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    const [crewChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-crew-a', name: 'Crew A', type: 'GROUP', purpose: 'CREW' }).returning();
+    const [alertsChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-alerts', name: 'Alerts', type: 'GROUP', purpose: 'ALERTS' }).returning();
+    const { communication } = services();
+    const coordActor = { sub: coordinator.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'BOT' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { name: 'Mine now' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.createChannel({ crewId: ownedCrew.id, rcRoomId: 'grp-new-alerts', name: 'New alerts', type: 'GROUP', purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
+    const stored = await ctx.db.select({ id: rocketchatChannels.id, name: rocketchatChannels.name, purpose: rocketchatChannels.purpose }).from(rocketchatChannels).orderBy(asc(rocketchatChannels.rcRoomId));
+    expect(stored).toEqual([
+      { id: alertsChannel.id, name: 'Alerts', purpose: 'ALERTS' },
+      { id: crewChannel.id, name: 'Crew A', purpose: 'CREW' },
+    ]);
+
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'CREW', name: 'Crew A Ops' }, coordActor)).resolves.toMatchObject({ purpose: 'CREW', name: 'Crew A Ops' });
+    await expect(communication.createChannel({ crewId: ownedCrew.id, rcRoomId: 'grp-crew-a2', name: 'Crew A 2', type: 'GROUP', purpose: 'CREW' }, coordActor)).resolves.toMatchObject({ purpose: 'CREW' });
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'ALERTS' }, adminActor)).resolves.toMatchObject({ purpose: 'ALERTS' });
   });
 
   it('detects membership drift read-only via groups.members without mutating Rocket.Chat', async () => {
