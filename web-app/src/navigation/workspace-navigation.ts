@@ -59,6 +59,7 @@ const icebreakerReviewRoute: WorkspaceRoute = {
 
 const coordinationRoutes: readonly WorkspaceRoute[] = [
   { id: 'team', path: '/app/equipo', label: 'Equipo', group: 'Operación', kicker: 'Vista de coordinación', title: 'Tu equipo, en movimiento.', description: 'Supervisa cobertura, estados y alertas de tu cuadrilla.', permission: 'operators.monitor', showDate: true },
+  { id: 'metrics', path: '/app/metricas', label: 'Métricas', group: 'Operación', kicker: 'Rendimiento de cuadrilla', title: 'Métricas por perfil', description: 'Consulta la actividad y el ranking de los perfiles asignados a tu cuadrilla.', permission: 'metrics.audit', showDate: true, longPage: true },
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Consulta las personas y los roles dentro de tu alcance.', permission: 'users.read' },
   { id: 'profiles', path: '/app/perfiles', label: 'Perfiles', group: 'Operación', kicker: 'Catálogo TalkyTimes', title: 'Perfiles TalkyTimes', description: 'Administra metadatos y vínculos nativos de Chrome.', permission: 'profiles.read', longPage: true },
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read', longPage: true },
@@ -74,7 +75,7 @@ const cafeteriaSalesRoute: WorkspaceRoute = { id: 'cafeteriaSales', path: '/app/
 const cafeteriaInventoryRoute: WorkspaceRoute = { id: 'cafeteriaInventory', path: '/app/inventario', label: 'Inventario', group: 'Punto', kicker: 'Catálogo de productos', title: 'Inventario y disponibilidad', description: 'Administra productos, precios, tiempos de retiro y disponibilidad en el menú.', permission: 'cafeteria.manage', longPage: true };
 
 const managementRoutes: readonly WorkspaceRoute[] = [
-  { id: 'metrics', path: '/app/metricas', label: 'Métricas', group: 'Operación', kicker: 'Dirección operativa', title: 'La operación de un vistazo.', description: 'Consulta las señales que orientan las decisiones del día.', permission: 'metrics.audit', showDate: true },
+  { id: 'metrics', path: '/app/metricas', label: 'Métricas', group: 'Operación', kicker: 'Dirección operativa', title: 'La operación de un vistazo.', description: 'Consulta las señales que orientan las decisiones del día.', permission: 'metrics.audit', showDate: true, longPage: true },
   { id: 'users', path: '/app/usuarios', label: 'Usuarios', group: 'Operación', kicker: 'Acceso y equipo', title: 'Usuarios y roles', description: 'Administra los accesos y roles de Agency OS.', permission: 'users.read' },
   { id: 'profiles', path: '/app/perfiles', label: 'Perfiles', group: 'Operación', kicker: 'Catálogo TalkyTimes', title: 'Perfiles TalkyTimes', description: 'Administra metadatos y vínculos nativos de Chrome.', permission: 'profiles.read' },
   { id: 'assignments', path: '/app/asignaciones', label: 'Asignaciones', group: 'Operación', kicker: 'Operación por ventanas', title: 'Asignaciones y relevos', description: 'Programa el tramo real de cada operador y prepara relevos.', permission: 'profiles.read' },

@@ -77,6 +77,11 @@ describe('workspace navigation', () => {
     expect(getWorkspaceRoutes('OPERADOR', ['icebreaker.review']).map((route) => route.path)).not.toContain('/app/icebreakers-revision');
   });
 
+  it('gives coordinators crew-scoped /app/metricas behind metrics.audit while keeping operators out', () => {
+    expect(getWorkspaceRoutes('COORDINADOR', ['operators.monitor', 'metrics.audit']).map((route) => route.path)).toEqual(['/app/equipo', '/app/metricas']);
+    expect(getWorkspaceRoutes('OPERADOR', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/metricas');
+  });
+
   it('groups routes in declaration order for the navbar', () => {
     const groups = groupWorkspaceRoutes(getWorkspaceRoutes('ADMIN', ['*']));
 
