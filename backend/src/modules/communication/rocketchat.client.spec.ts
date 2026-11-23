@@ -43,3 +43,29 @@ describe('RocketChatClient threads the reply when it answers a message', () => {
     expect('tmid' in message).toBe(false);
   });
 });
+
+describe('RocketChatClient.listRoomMembers (ADR 0010 / E1-13)', () => {
+  it('paginates groups.members read-only for private crew rooms and channels.members for public rooms', async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ _id: `u-${i}`, username: `op${i}`, name: `Op ${i}` }));
+    const page2 = [{ _id: 'u-100', username: 'op100', name: 'Op 100' }];
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('offset=0')) {
+        return new Response(JSON.stringify({ success: true, members: page1, total: 101 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true, members: page2, total: 101 }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const members = await new RocketChatClient(config).listRoomMembers('grp-1', 'GROUP');
+    expect(members).toHaveLength(101);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/groups.members?roomId=grp-1&count=100&offset=0');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/api/v1/groups.members?roomId=grp-1&count=100&offset=100');
+
+    const channelFetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ success: true, members: [{ _id: 'c-1', username: 'ana' }], total: 1 }), { status: 200 }));
+    vi.stubGlobal('fetch', channelFetch);
+    const channelMembers = await new RocketChatClient(config).listRoomMembers('ch-1', 'CHANNEL');
+    expect(channelMembers).toEqual([{ id: 'c-1', username: 'ana', name: null }]);
+    expect(String(channelFetch.mock.calls[0][0])).toContain('/api/v1/channels.members?roomId=ch-1');
+  });
+});
