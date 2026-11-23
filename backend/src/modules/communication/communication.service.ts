@@ -40,8 +40,9 @@ export class CommunicationService {
         if (!input.crewId || !(await this.managesCrew(actor.sub, input.crewId))) throw new ForbiddenException('Coordinator cannot manage this crew channel');
         // ALERTS and BOT channels receive system-wide routing (ETL alerts, bot replies).
         if (input.purpose !== 'CREW') throw new ForbiddenException('Coordinator can only manage CREW-purpose channels');
-      } else if (input.crewId) {
-        throw new ForbiddenException('Role cannot manage crew channels');
+      } else {
+        // Global channels (no crew) carry agency-wide routing: only global roles map them.
+        throw new ForbiddenException(input.crewId ? 'Role cannot manage crew channels' : 'Role cannot create global channels');
       }
     }
     const [row] = await this.db.db.insert(rocketchatChannels).values(input).returning();

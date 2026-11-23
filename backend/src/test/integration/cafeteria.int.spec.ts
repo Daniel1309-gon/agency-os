@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
@@ -179,6 +179,33 @@ describe('the kitchen flow and the debit', () => {
     const order = await cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 2 }] }, operator.id, `key-${sequence}`);
     return { operatorId: operator.id, orderId: order.id, kitchenId: kitchen.id };
   }
+
+  it('lets an operator cancel only their own order and only while it is PLACED', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    const other = await placedOrder();
+    const operator = { sub: operatorId, permissions: [] as string[] };
+
+    await expect(cafeteria.cancelOrder(other.orderId, 'no es mío', operator)).rejects.toThrow(ForbiddenException);
+    await cafeteria.updateStatus(other.orderId, { status: 'ACCEPTED' }, other.kitchenId);
+    await expect(cafeteria.cancelOrder(other.orderId, 'ya aceptado', { sub: other.operatorId, permissions: [] })).rejects.toThrow(ConflictException);
+    await expect(cafeteria.cancelOrder(orderId, 'me equivoqué', operator)).resolves.toMatchObject({ status: 'CANCELLED' });
+
+    // The kitchen keeps cancelling accepted orders, as before.
+    await expect(cafeteria.cancelOrder(other.orderId, 'sin stock', { sub: kitchenId, permissions: ['cafeteria.manage'] })).resolves.toMatchObject({ status: 'CANCELLED' });
+    const rows = await ctx.db.select({ id: cafeteriaOrders.id, status: cafeteriaOrders.status, cancelReason: cafeteriaOrders.cancelReason }).from(cafeteriaOrders).where(eq(cafeteriaOrders.status, 'CANCELLED'));
+    expect(rows.sort((a, b) => (a.id < b.id ? -1 : 1))).toEqual([
+      { id: orderId, status: 'CANCELLED', cancelReason: 'me equivoqué' },
+      { id: other.orderId, status: 'CANCELLED', cancelReason: 'sin stock' },
+    ].sort((a, b) => (a.id < b.id ? -1 : 1)));
+  });
+
+  it('lets a wildcard role cancel an accepted order without a reason', async () => {
+    const { orderId, kitchenId } = await placedOrder();
+    await cafeteria.updateStatus(orderId, { status: 'ACCEPTED' }, kitchenId);
+
+    await expect(cafeteria.cancelOrder(orderId, undefined, { sub: kitchenId, permissions: ['*'] })).resolves.toMatchObject({ id: orderId, status: 'CANCELLED' });
+    expect(await ctx.db.query.cafeteriaOrders.findFirst({ where: eq(cafeteriaOrders.id, orderId) })).toMatchObject({ status: 'CANCELLED', cancelReason: 'Cancelled' });
+  });
 
   it('walks PLACED to DELIVERED and debits the operator once', async () => {
     const { operatorId, orderId, kitchenId } = await placedOrder();

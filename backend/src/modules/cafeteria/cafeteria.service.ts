@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
@@ -113,10 +113,23 @@ export class CafeteriaService {
     return { id: row.id, orderNumber: row.orderNumber, status: row.status, totalCop: row.totalCop };
   }
 
-  async updateStatus(orderId: string, input: OrderStatusInput, actorId: string) {
+  /**
+   * Kitchen roles (`cafeteria.manage`) cancel through the normal transitions. Anyone
+   * else may only withdraw their own order before the kitchen accepts it.
+   */
+  async cancelOrder(orderId: string, reason: string | undefined, actor: { sub: string; permissions: string[] }) {
+    const manages = actor.permissions.includes('*') || actor.permissions.includes('cafeteria.manage');
+    const input: OrderStatusInput = { status: 'CANCELLED', cancelReason: reason };
+    if (manages) return this.updateStatus(orderId, input, actor.sub);
+    return this.updateStatus(orderId, input, actor.sub, { ownerId: actor.sub, from: 'PLACED' });
+  }
+
+  async updateStatus(orderId: string, input: OrderStatusInput, actorId: string, guard?: { ownerId: string; from: string }) {
     const updated = await this.db.db.transaction(async (tx) => {
       const order = await tx.query.cafeteriaOrders.findFirst({ where: eq(cafeteriaOrders.id, orderId) });
       if (!order) throw new NotFoundException('Order not found');
+      if (guard && order.operatorId !== guard.ownerId) throw new ForbiddenException('Order belongs to another operator');
+      if (guard && order.status !== guard.from) throw new ConflictException(`Order can no longer be cancelled (${order.status})`);
       if (!transitions[order.status]?.includes(input.status)) throw new ConflictException(`Cannot move order from ${order.status} to ${input.status}`);
       const now = new Date();
       const values: Record<string, unknown> = { status: input.status };

@@ -70,7 +70,9 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     const renewSession = () => apiClient.request('/auth/me').then(() => undefined);
     const onSnapshot = (payload: unknown) => {
       const parsed = cafeteriaOrderSchema.array().safeParse(payload);
-      if (parsed.success) setOrders((current) => mergeOrders(current, parsed.data));
+      // A socket snapshot is as authoritative as the HTTP one: orders it no longer
+      // lists (delivered, expired, cancelled while reconnecting) leave the display.
+      if (parsed.success) setOrders((current) => applyOrderSnapshot(current, parsed.data));
     };
     const onChanged = (payload: unknown) => {
       const parsed = cafeteriaOrderSchema.safeParse(payload);

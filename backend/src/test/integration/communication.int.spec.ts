@@ -494,6 +494,17 @@ describe('Rocket.Chat channel lifecycle and drift scan (E1-13)', () => {
     ]));
   });
 
+  it('lets only global roles create global channels', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const { communication } = services();
+
+    await expect(communication.createChannel({ rcRoomId: 'room-kitchen-alerts', name: 'Kitchen alerts', type: 'CHANNEL', purpose: 'ALERTS' }, { sub: kitchen.id, role: 'CAFETERIA' })).rejects.toThrow(ForbiddenException);
+    await expect(communication.createChannel({ rcRoomId: 'room-kitchen-general', name: 'Kitchen', type: 'CHANNEL', purpose: 'GENERAL' }, { sub: kitchen.id, role: 'CAFETERIA' })).rejects.toThrow(ForbiddenException);
+    await expect(communication.createChannel({ rcRoomId: 'room-alerts', name: 'Alerts', type: 'GROUP', purpose: 'ALERTS' }, { sub: admin.id, role: 'ADMIN' })).resolves.toMatchObject({ purpose: 'ALERTS', crewId: null });
+    expect((await ctx.db.select({ rcRoomId: rocketchatChannels.rcRoomId }).from(rocketchatChannels)).map((row) => row.rcRoomId)).toEqual(['room-alerts']);
+  });
+
   it('keeps coordinators on CREW-purpose channels so they cannot capture ALERTS or BOT routing', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const coordinator = await createUser(ctx, { role: 'COORDINADOR' });

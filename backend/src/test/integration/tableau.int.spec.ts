@@ -11,11 +11,13 @@ let service: TableauService;
 /** What the fake Tableau answers next; a thrown error simulates an outage. */
 let download: () => ViewDownload;
 let downloads: string[];
+/** Runs while the fake download is in flight, e.g. another worker reclaiming the run. */
+let duringDownload: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
   ctx = await createTestContext();
   const client = {
-    downloadViewData: async (viewId: string) => { downloads.push(viewId); return download(); },
+    downloadViewData: async (viewId: string) => { downloads.push(viewId); await duringDownload?.(); return download(); },
     siteContentUrl: () => 'partnerdata',
   } as unknown as TableauClient;
   service = new TableauService(ctx.database, client);
@@ -29,6 +31,7 @@ beforeEach(async () => {
   await resetDatabase(ctx);
   await seedRoles(ctx);
   downloads = [];
+  duringDownload = undefined;
 });
 
 const MAPPING = { profileId: 'ID Trusted User', sourceHour: 'Hour', points: 'Points' };
@@ -260,6 +263,78 @@ describe('TableauService (FR-19, decision #9)', () => {
     // Updating per-view schedule preserves existing mapping
     const updated = await service.updateView(view.id, { scheduleTime: '08:30', freshnessSlaMinutes: 90 });
     expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
+  });
+
+  it('drops the result of a worker whose claim another worker took over', async () => {
+    const view = await hourlyView();
+    await profileWithRef('TU-1');
+    const takeOver = async () => {
+      // Another worker reclaims the run (stale RUNNING) while this one is downloading.
+      await ctx.db.update(etlRuns).set({ startedAt: new Date(Date.now() + 60_000) }).where(eq(etlRuns.viewId, view.id));
+    };
+
+    download = () => csv(['TU-1,2026-11-22 06:00,5']);
+    const succeeded = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    duringDownload = takeOver;
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, succeeded!.id) })).toMatchObject({ status: 'RUNNING', rawCsv: null, finishedAt: null });
+    expect(await ctx.db.select().from(tableauHourlyPoints)).toEqual([]);
+    expect(await ctx.db.select().from(etlStagingRows)).toEqual([]);
+
+    // A failure seen by the superseded worker is not recorded either: the new owner decides.
+    download = () => { throw new Error('Tableau 503'); };
+    const failed = await service.run({ viewId: view.id, businessDate: '2026-11-21' });
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, failed!.id) })).toMatchObject({ status: 'RUNNING', error: null, alertedAt: null });
+
+    // The worker that holds the claim still finishes normally.
+    duringDownload = undefined;
+    download = () => csv(['TU-1,2026-11-22 06:00,5']);
+    await ctx.db.update(etlRuns).set({ status: 'QUEUED' }).where(eq(etlRuns.id, succeeded!.id));
+    await service.processQueued();
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, succeeded!.id) })).toMatchObject({ status: 'SUCCESS', rowCount: 1 });
+  });
+
+  it('writes nothing for an execute call whose lease is not the current claim', async () => {
+    const view = await hourlyView();
+    await profileWithRef('TU-1');
+    const [run] = await ctx.db.insert(etlRuns).values({ viewId: view.id, businessDate: '2026-11-20', status: 'RUNNING', startedAt: new Date('2026-11-23T10:00:00.000Z') }).returning();
+    download = () => csv(['TU-1,2026-11-20 06:00,9']);
+
+    await expect(service.execute(run.id, new Date('2026-11-23T09:00:00.000Z'))).resolves.toEqual({ runId: run.id, status: 'SUPERSEDED' });
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, run.id) })).toMatchObject({ status: 'RUNNING', rawCsv: null, finishedAt: null });
+    expect(await ctx.db.select().from(tableauHourlyPoints)).toEqual([]);
+  });
+
+  it('takes each view expected date from its own schedule timezone', async () => {
+    // 2026-11-23T02:00Z is 2026-11-22 21:00 in Bogota (expects 11-21) and 2026-11-23 in UTC (expects 11-22).
+    const bogota = await hourlyView({ name: 'Bogota', viewId: 'v-bog', scheduleTimezone: 'America/Bogota', scheduleTime: '00:30', freshnessSlaMinutes: 30 });
+    const utc = await hourlyView({ name: 'UTC', viewId: 'v-utc', scheduleTimezone: 'UTC', scheduleTime: '00:30', freshnessSlaMinutes: 30 });
+    await ctx.db.insert(etlRuns).values([
+      { viewId: bogota.id, businessDate: '2026-11-21', status: 'SUCCESS' },
+      { viewId: utc.id, businessDate: '2026-11-21', status: 'SUCCESS' },
+    ]);
+
+    const byId = new Map((await service.freshness(new Date('2026-11-23T02:00:00.000Z'))).map((item) => [item.viewId, item]));
+    expect(byId.get(bogota.id)).toMatchObject({ expectedBusinessDate: '2026-11-21', isStale: false });
+    expect(byId.get(utc.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: true, staleReason: 'No run queued for expected date' });
+  });
+
+  it('reports the expected-date run and the latest run per view among a long history', async () => {
+    const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    const other = await hourlyView({ name: 'Other', viewId: 'other-luid', scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    const history = Array.from({ length: 40 }, (_, day) => ({ viewId: view.id, businessDate: `2026-10-${String(day % 31 + 1).padStart(2, '0')}`, status: 'SUCCESS' })).filter((row, index, all) => all.findIndex((r) => r.businessDate === row.businessDate) === index);
+    await ctx.db.insert(etlRuns).values(history);
+    await ctx.db.insert(etlRuns).values([
+      { viewId: view.id, businessDate: '2026-11-22', status: 'SUCCESS' },
+      { viewId: view.id, businessDate: '2026-11-23', status: 'FAILED', error: 'Tableau 503' },
+      { viewId: other.id, businessDate: '2026-11-20', status: 'SUCCESS' },
+    ]);
+
+    const report = await service.freshness(new Date('2026-11-23T15:20:00.000Z'));
+    const byView = new Map(report.map((item) => [item.viewId, item]));
+    expect(byView.get(view.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: false, latestRun: { businessDate: '2026-11-23', status: 'FAILED' } });
+    expect(byView.get(other.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: true, staleReason: 'No run queued for expected date', latestRun: { businessDate: '2026-11-20' } });
   });
 
   it('sends one alert per active ALERTS channel, deduplicated even when two workers check at once', async () => {
