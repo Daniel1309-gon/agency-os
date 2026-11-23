@@ -134,6 +134,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
 | `POST /api/v1/tableau/runs` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/tableau/runs/{id}/execute` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `POST /api/v1/tableau/runs/{id}/reprocess` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/tableau/views` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/tableau/views` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/tableau/views/{id}` | ADMIN | authenticated; permissions: etl.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |

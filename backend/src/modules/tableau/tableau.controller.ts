@@ -17,4 +17,6 @@ export class TableauController {
   @Post('runs') @UsePipes(new ZodValidationPipe(tableauRunSchema)) run(@Body() body: TableauRunInput) { return this.tableau.run(body); }
   // Queues the run again; the worker executes it (the API never holds the Tableau PAT).
   @Post('runs/:id/execute') execute(@Param('id') id: string) { return this.tableau.requeue(id); }
+  // Reprocesses a run offline from its stored raw CSV artifact without calling Tableau.
+  @Post('runs/:id/reprocess') reprocess(@Param('id') id: string) { return this.tableau.reprocess(id); }
 }

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { asc, eq, sql } from 'drizzle-orm';
 import { TableauService } from '../../modules/tableau/tableau.service.js';
 import type { TableauClient, ViewDownload } from '../../modules/tableau/tableau.client.js';
@@ -258,5 +259,42 @@ describe('TableauService (FR-19, decision #9)', () => {
     // Updating per-view schedule preserves existing mapping
     const updated = await service.updateView(view.id, { scheduleTime: '08:30', freshnessSlaMinutes: 90 });
     expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
+  });
+
+  it('persists raw CSV artifacts on failure and reprocesses offline without hitting Tableau again (A9)', async () => {
+    const view = await hourlyView();
+    const profile = await profileWithRef('TU-99');
+    const rawBody = 'ProfileRef,Hour,Points\nTU-99,2026-11-22 10:00,18.25';
+    download = () => ({ body: rawBody, contentType: 'text/csv', siteId: 'site-luid' });
+
+    const queued = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    await service.processQueued();
+    expect(downloads).toHaveLength(1);
+
+    const failed = await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, queued!.id) });
+    expect(failed).toMatchObject({
+      status: 'FAILED',
+      rawCsv: rawBody,
+      rawCsvBytes: Buffer.byteLength(rawBody, 'utf8'),
+    });
+    expect(failed?.checksum).toBeTruthy();
+
+    // runs() metadata listing omits rawCsv payload while exposing rawCsvBytes
+    const listed = await service.runs({ viewId: view.id });
+    expect('rawCsv' in listed[0]).toBe(false);
+    expect(listed[0].rawCsvBytes).toBe(Buffer.byteLength(rawBody, 'utf8'));
+
+    // Fix column mapping and reprocess offline: zero extra Tableau downloads
+    await service.updateView(view.id, { columnMapping: { profileId: 'ProfileRef', sourceHour: 'Hour', points: 'Points' } });
+    const reprocessed = await service.reprocess(queued!.id);
+    expect(reprocessed).toMatchObject({ status: 'SUCCESS', rowCount: 1, rejectedCount: 0 });
+    expect(downloads).toHaveLength(1);
+
+    const points = await ctx.db.select({ profileId: tableauHourlyPoints.profileId, points: tableauHourlyPoints.points }).from(tableauHourlyPoints);
+    expect(points).toEqual([{ profileId: profile.id, points: '18.2500' }]);
+
+    // Run without stored raw CSV refuses offline reprocess with 409
+    const [emptyRun] = await ctx.db.insert(etlRuns).values({ viewId: view.id, businessDate: '2026-11-21', status: 'FAILED' }).returning();
+    await expect(service.reprocess(emptyRun.id)).rejects.toThrow(ConflictException);
   });
 });
