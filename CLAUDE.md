@@ -142,8 +142,8 @@ Per agents.md §2 and §5, and PLAN.md:
   the product.
 - **`web-app/`** — the React/Vite admin, coordination and "cafetería" dashboard, included in every workspace quality gate.
 - An **isolated AI service** (FastAPI) that validates and scores operator-written icebreakers —
-  kept separate from the NestJS backend. The backend talks to it through `AiEngineClient` and falls
-  back to local rule evaluation when `AI_ENGINE_URL` is unset.
+  kept separate from the NestJS backend. The backend talks to it through `AiEngineClient`; local
+  rules always run and the engine can only add a block (it is skipped when `AI_ENGINE_URL` is unset).
 - **RocketChat**, deployed as an independent component on the client's own VPS (not built from
   scratch).
 

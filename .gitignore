@@ -26,3 +26,6 @@ tools/agent-build/dist-installer/
 local-helper/build/
 
 .codegraph/
+
+# macOS Finder metadata
+.DS_Store

@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { PG_EXCLUSION_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { breaks, crewMembers, crews, roles, shiftOverrides, shiftTemplates, shifts, users } from '../../database/schema/index.js';
@@ -50,7 +50,9 @@ export class ShiftsService {
         effectiveMinutes: true,
         notes: true,
       },
-      where: and(eq(shifts.operatorId, operatorId), sql`${shifts.scheduledRange} @> now()`, eq(shifts.status, 'IN_PROGRESS')),
+      // SCHEDULED too, so the operator sees the shift and starts it; the exclusion
+      // constraint allows at most one shift per operator covering now().
+      where: and(eq(shifts.operatorId, operatorId), sql`${shifts.scheduledRange} @> now()`, inArray(shifts.status, ['SCHEDULED', 'IN_PROGRESS'])),
     });
   }
 
