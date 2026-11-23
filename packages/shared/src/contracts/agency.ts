@@ -240,3 +240,44 @@ export const icebreakerEvaluationResultSchema = z.object({
   source: z.enum(['AI_ENGINE', 'LOCAL_RULES']),
 });
 export type IcebreakerEvaluationResult = z.infer<typeof icebreakerEvaluationResultSchema>;
+
+export const icebreakerRuleKindSchema = z.enum(['REGEX', 'KEYWORD', 'MANUAL']);
+export type IcebreakerRuleKind = z.infer<typeof icebreakerRuleKindSchema>;
+
+export const icebreakerRuleSeveritySchema = z.enum(['INFO', 'WARNING', 'BLOCKING']);
+export type IcebreakerRuleSeverity = z.infer<typeof icebreakerRuleSeveritySchema>;
+
+export const icebreakerRuleRecordSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  kind: icebreakerRuleKindSchema,
+  pattern: z.string().nullable(),
+  severity: icebreakerRuleSeveritySchema,
+  isActive: z.boolean(),
+  version: z.number().int().positive(),
+});
+export type IcebreakerRuleRecord = z.infer<typeof icebreakerRuleRecordSchema>;
+
+export const icebreakerReviewVerdictSchema = z.enum(['TRUE_POSITIVE', 'FALSE_POSITIVE', 'OVERRIDDEN_ALLOW']);
+export type IcebreakerReviewVerdict = z.infer<typeof icebreakerReviewVerdictSchema>;
+
+export const icebreakerViolationRecordSchema = z.object({
+  id: z.string().uuid(),
+  icebreakerId: z.string().uuid(),
+  icebreakerText: z.string(),
+  icebreakerStatus: icebreakerStatusSchema,
+  operatorId: z.string().uuid(),
+  operatorName: z.string().nullable(),
+  profileId: z.string().uuid().nullable(),
+  profileName: z.string().nullable(),
+  ruleId: z.string().uuid(),
+  ruleCode: z.string(),
+  ruleName: z.string(),
+  severity: icebreakerRuleSeveritySchema,
+  status: z.enum(['OPEN', 'REVIEWED']),
+  reviewedBy: z.string().uuid().nullable(),
+  reviewedAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+});
+export type IcebreakerViolationRecord = z.infer<typeof icebreakerViolationRecordSchema>;

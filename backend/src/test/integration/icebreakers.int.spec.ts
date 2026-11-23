@@ -4,7 +4,7 @@ import { asc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { IcebreakersService } from '../../modules/icebreakers/icebreakers.service.js';
 import type { AiEngineClient, AiEvaluation } from '../../modules/icebreakers/ai-engine.client.js';
-import { auditLog, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments } from '../../database/schema/index.js';
+import { auditLog, crewMembers, crews, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments } from '../../database/schema/index.js';
 import { createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -181,5 +181,71 @@ describe('icebreaker workspace rules (FR-21, FR-22, FR-24)', () => {
     await service.publish(id, actor);
 
     expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, id) }))!.version).toBe(before + 1);
+  });
+});
+
+describe('icebreaker moderation queue and rule lifecycle (FR-25 to FR-27)', () => {
+  it('enriches violations with operator/profile/rule metadata, scopes COORDINADOR to their crew, and marks violations REVIEWED on review', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coord = await createUser(ctx, { role: 'COORDINADOR' });
+    const inCrewOp = await createUser(ctx);
+    const outCrewOp = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    await assign(inCrewOp.id, profile.id);
+
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Crew Alpha', coordinatorId: coord.id, isActive: true }).returning({ id: crews.id });
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: inCrewOp.id, validRange: halfOpen(new Date(Date.now() - 3_600_000), new Date(Date.now() + 3_600_000)) });
+
+    await ctx.db.insert(icebreakerRules).values({ code: 'NO_WA', name: 'Sin WhatsApp', kind: 'KEYWORD', pattern: 'whatsapp', severity: 'BLOCKING' });
+    const inCrewDraft = await service.create({ profileId: profile.id, text: 'Escríbeme por WhatsApp' }, { sub: inCrewOp.id, role: 'OPERADOR' });
+    const outCrewDraft = await service.create({ text: 'También por WhatsApp' }, { sub: outCrewOp.id, role: 'OPERADOR' });
+    await service.evaluate(inCrewDraft.id, { sub: inCrewOp.id, role: 'OPERADOR' });
+    await service.evaluate(outCrewDraft.id, { sub: outCrewOp.id, role: 'OPERADOR' });
+
+    const coordQueue = await service.violations({ status: 'OPEN' }, { sub: coord.id, role: 'COORDINADOR' });
+    expect(coordQueue).toHaveLength(1);
+    expect(coordQueue[0]).toMatchObject({
+      icebreakerId: inCrewDraft.id,
+      icebreakerText: 'Escríbeme por WhatsApp',
+      icebreakerStatus: 'BLOCKED',
+      operatorId: inCrewOp.id,
+      profileId: profile.id,
+      ruleCode: 'NO_WA',
+      ruleName: 'Sin WhatsApp',
+      severity: 'BLOCKING',
+      status: 'OPEN',
+    });
+    expect(coordQueue[0].operatorName).toBeTruthy();
+    expect(coordQueue[0].profileName).toBeTruthy();
+
+    const adminQueue = await service.violations({ status: 'OPEN' }, { sub: admin.id, role: 'ADMIN' });
+    expect(adminQueue).toHaveLength(2);
+
+    await service.review(inCrewDraft.id, { verdict: 'OVERRIDDEN_ALLOW', reason: 'Falso positivo verificado' }, { sub: coord.id, role: 'COORDINADOR' });
+
+    expect(await service.violations({ status: 'OPEN' }, { sub: coord.id, role: 'COORDINADOR' })).toHaveLength(0);
+    const reviewed = await service.violations({ status: 'REVIEWED' }, { sub: coord.id, role: 'COORDINADOR' });
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toMatchObject({ status: 'REVIEWED', reviewedBy: coord.id, icebreakerStatus: 'APPROVED' });
+    expect(reviewed[0].reviewedAt).toBeTruthy();
+  });
+
+  it('filters violations by Bogota calendar date across UTC midnight and toggles rules with audit trail', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const createdRule = await service.createRule({ code: 'NO_IG', name: 'Sin Instagram', kind: 'KEYWORD', pattern: 'instagram', severity: 'WARNING' }, admin.id);
+    const { actor, id } = await draft('Sígueme en Instagram');
+    await service.evaluate(id, actor);
+
+    // 2026-11-22 22:30 Bogota = 2026-11-23 03:30 UTC
+    await ctx.db.update(icebreakerViolations).set({ createdAt: new Date('2026-11-23T03:30:00.000Z') }).where(eq(icebreakerViolations.icebreakerId, id));
+
+    expect(await service.violations({ from: '2026-11-22', to: '2026-11-22' }, { sub: admin.id, role: 'ADMIN' })).toHaveLength(1);
+    expect(await service.violations({ from: '2026-11-23', to: '2026-11-23' }, { sub: admin.id, role: 'ADMIN' })).toHaveLength(0);
+
+    const toggled = await service.updateRule(createdRule.id, { isActive: false, version: 1 }, admin.id);
+    expect(toggled).toMatchObject({ id: createdRule.id, isActive: false, version: 2 });
+
+    const auditActions = (await ctx.db.select({ action: auditLog.action }).from(auditLog)).map((row) => row.action);
+    expect(auditActions).toContain('icebreaker.rule.updated');
   });
 });

@@ -20,7 +20,7 @@
     "module-no-direct-schema:src/modules/devices/devices.service.ts:../../database/schema/index.js:devices",
     "module-no-private-cross-import:src/modules/devices/devices.service.ts:../auth/auth.service.js",
     "module-no-private-cross-import:src/modules/devices/devices.service.ts:../realtime/realtime.service.js",
-    "module-no-direct-schema:src/modules/icebreakers/icebreakers.service.ts:../../database/schema/index.js:icebreakerEffectiveness,icebreakerEvaluations,icebreakerReviews,icebreakerRules,icebreakerViolations,icebreakers,profileAssignments",
+    "module-no-direct-schema:src/modules/icebreakers/icebreakers.service.ts:../../database/schema/index.js:icebreakerEffectiveness,icebreakerEvaluations,icebreakerReviews,icebreakerRules,icebreakerViolations,icebreakers,profileAssignments,ttProfiles,users",
     "module-no-direct-schema:src/modules/jobs/jobs.service.ts:../../database/schema/index.js:breaks,cafeteriaOrders,crewMembers,outboxEvents,profileAssignments,profileSessions,roles,shiftTemplates,shifts,users",
     "module-no-private-cross-import:src/modules/jobs/jobs.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/metrics/metrics.service.ts:../../database/schema/index.js:cafeteriaOrders,crewMembers,crews,metricEvents,metricReconciliation,profileAssignments,profileDailyMetrics,profileSessions,shifts,ttProfiles",

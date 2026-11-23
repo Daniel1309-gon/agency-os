@@ -78,6 +78,7 @@ export const AUDIT_ACTIONS = {
   'icebreaker.evaluated': { entity: 'icebreaker', label: 'Icebreaker evaluado' },
   'icebreaker.published': { entity: 'icebreaker', label: 'Icebreaker publicado' },
   'icebreaker.rule.created': { entity: 'icebreaker_rule', label: 'Regla de icebreaker creada' },
+  'icebreaker.rule.updated': { entity: 'icebreaker_rule', label: 'Regla de icebreaker actualizada' },
   'icebreaker.reviewed': { entity: 'icebreaker', label: 'Icebreaker revisado' },
 
   'cafeteria.product.created': { entity: 'cafeteria_product', label: 'Producto de cafetería creado' },
