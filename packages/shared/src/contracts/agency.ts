@@ -195,3 +195,21 @@ export const cafeteriaOrderSchema = z.object({
   seq: z.number().int().nonnegative().optional(),
 });
 export type CafeteriaOrder = z.infer<typeof cafeteriaOrderSchema>;
+
+export const cafeteriaSalesSummarySchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  totalOrders: z.number().int().nonnegative(),
+  deliveredCount: z.number().int().nonnegative(),
+  deliveredTotalCop: z.string(),
+  averageTicketCop: z.string(),
+  cancelledCount: z.number().int().nonnegative(),
+  expiredCount: z.number().int().nonnegative(),
+  inProgressCount: z.number().int().nonnegative(),
+  topItems: z.array(z.object({
+    name: z.string(),
+    quantity: z.number().int().nonnegative(),
+    revenueCop: z.string(),
+  })),
+});
+export type CafeteriaSalesSummary = z.infer<typeof cafeteriaSalesSummarySchema>;

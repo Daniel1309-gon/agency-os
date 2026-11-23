@@ -3,7 +3,7 @@ import { Authenticated, CurrentUser, RequirePermissions, RequireShift } from '..
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CafeteriaService } from './cafeteria.service.js';
-import { orderListQuerySchema, orderSchema, orderStatusSchema, productSchema, productUpdateSchema, type OrderInput, type OrderListQueryInput, type OrderStatusInput, type ProductInput, type ProductUpdateInput } from './cafeteria.schemas.js';
+import { orderListQuerySchema, orderSchema, salesSummaryQuerySchema, orderStatusSchema, productSchema, productUpdateSchema, type OrderInput, type OrderListQueryInput, type OrderStatusInput, type ProductInput, type ProductUpdateInput, type SalesSummaryQueryInput } from './cafeteria.schemas.js';
 
 @Controller('cafeteria')
 @Authenticated()
@@ -31,6 +31,7 @@ export class CafeteriaController {
   status(@Param('id') id: string, @Body() body: OrderStatusInput, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, body, user.sub); }
 
   @Get('orders') @RequirePermissions('cafeteria.manage') orders(@Query(new ZodValidationPipe(orderListQuerySchema)) query: OrderListQueryInput) { return this.cafeteria.orders(query); }
+  @Get('sales/summary') @RequirePermissions('cafeteria.manage') salesSummary(@Query(new ZodValidationPipe(salesSummaryQuerySchema)) query: SalesSummaryQueryInput) { return this.cafeteria.salesSummary(query); }
   @Post('orders/:id/cancel') cancel(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, { status: 'CANCELLED', cancelReason: body.reason }, user.sub); }
   @Get('accounts/me') account(@CurrentUser() user: AccessTokenClaims) { return this.cafeteria.account(user.sub); }
 }

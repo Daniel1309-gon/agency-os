@@ -144,6 +144,7 @@ export const routeContracts = [
   route('POST', '/api/v1/cafeteria/orders', 'SELF', 'IDEMPOTENCY_KEY'),
   route('PATCH', '/api/v1/cafeteria/orders/{id}/status', 'RESOURCE'),
   route('POST', '/api/v1/cafeteria/orders/{id}/cancel', 'SELF'),
+  route('GET', '/api/v1/cafeteria/sales/summary', 'GLOBAL', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('GET', '/api/v1/cafeteria/accounts/me', 'SELF'),
 
   route('GET', '/api/v1/icebreakers', 'SELF', 'NOT_APPLICABLE', 'UNBOUNDED'),

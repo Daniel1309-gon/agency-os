@@ -7,6 +7,7 @@ import {
   assignedProfileSchema,
   cafeteriaOrderSchema,
   cafeteriaProductSchema,
+  cafeteriaSalesSummarySchema,
   errorEnvelopeSchema,
   launchProfileMessageSchema,
   metricBatchSchema,
@@ -90,6 +91,7 @@ function attachSharedSchemas(document: OpenAPIObject): void {
   register('AssignedProfileList', z.array(assignedProfile));
   register('CafeteriaOrderList', z.array(cafeteriaOrder));
   register('CafeteriaProductList', z.array(cafeteriaProduct));
+  register('CafeteriaSalesSummary', cafeteriaSalesSummarySchema);
   register('ErrorEnvelope', errorEnvelopeSchema);
   register('LaunchProfileMessage', launchProfileMessageSchema);
   register('MetricBatchInput', metricBatchSchema);
@@ -125,6 +127,7 @@ function attachSharedSchemas(document: OpenAPIObject): void {
   setResponseSchema(document, '/api/v1/cafeteria/menu', 'get', 'CafeteriaProductList');
   setResponseSchema(document, '/api/v1/cafeteria/products', 'get', 'CafeteriaProductList');
   setResponseSchema(document, '/api/v1/cafeteria/orders', 'get', 'CafeteriaOrderList');
+  setResponseSchema(document, '/api/v1/cafeteria/sales/summary', 'get', 'CafeteriaSalesSummary');
   setResponseSchema(document, '/api/v1/auth/me', 'get', 'UserSummary');
 }
 

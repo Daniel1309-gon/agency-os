@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
+import { cafeteriaOrderSchema, cafeteriaSalesSummarySchema, type CafeteriaOrder, type CafeteriaOrderStatus, type CafeteriaSalesSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { MetricCard } from '../MetricCard/MetricCard';
 import { errorMessage, localDateString } from '../OperationsManagement/management-view';
 import {
+  SALES_HISTORY_LIMIT,
   buildSalesOrdersQuery,
+  buildSalesSummaryQuery,
   cafeteriaOrderStatusLabel,
   formatCafeteriaCop,
-  summarizeCafeteriaSales,
+  isSalesHistoryTruncated,
 } from './cafeteria-management-view';
 
 const STATUS_OPTIONS: Array<{ value: '' | CafeteriaOrderStatus; label: string }> = [
@@ -16,6 +18,7 @@ const STATUS_OPTIONS: Array<{ value: '' | CafeteriaOrderStatus; label: string }>
   { value: 'CANCELLED', label: 'Cancelados' },
   { value: 'EXPIRED', label: 'Expirados' },
   { value: 'PLACED', label: 'Recibidos' },
+  { value: 'ACCEPTED', label: 'Aceptados' },
   { value: 'PREPARING', label: 'En preparación' },
   { value: 'READY', label: 'Listos' },
 ];
@@ -37,20 +40,30 @@ export function CafeteriaSales({ accessToken }: { accessToken: string | null }) 
   const [to, setTo] = useState(today);
   const [status, setStatus] = useState<'' | CafeteriaOrderStatus>('');
   const [orders, setOrders] = useState<CafeteriaOrder[]>([]);
+  const [summary, setSummary] = useState<CafeteriaSalesSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadSales = useCallback(async () => {
-    if (from && to && from > to) {
+    if (!from || !to) {
+      setError('Selecciona la fecha inicial y la fecha final.');
+      return;
+    }
+    if (from > to) {
       setError('La fecha inicial debe ser anterior o igual a la fecha final.');
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      const path = buildSalesOrdersQuery({ from, to, status: status || undefined });
-      const raw = await apiClient.request<unknown>(path);
-      setOrders(cafeteriaOrderSchema.array().parse(raw));
+      // The KPIs come from the server aggregate, so they cover the whole range even
+      // when the history table is cut at SALES_HISTORY_LIMIT rows.
+      const [rawOrders, rawSummary] = await Promise.all([
+        apiClient.request<unknown>(buildSalesOrdersQuery({ from, to, status: status || undefined })),
+        apiClient.request<unknown>(buildSalesSummaryQuery({ from, to })),
+      ]);
+      setOrders(cafeteriaOrderSchema.array().parse(rawOrders));
+      setSummary(cafeteriaSalesSummarySchema.parse(rawSummary));
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : errorMessage(nextError, 'No pudimos cargar el historial de ventas.'));
     } finally {
@@ -62,15 +75,18 @@ export function CafeteriaSales({ accessToken }: { accessToken: string | null }) 
     if (accessToken) void loadSales();
   }, [accessToken, loadSales]);
 
-  const summary = useMemo(() => summarizeCafeteriaSales(orders), [orders]);
+  const showKpis = !isLoading && summary !== null;
+  const deliveredTotal = Number(summary?.deliveredTotalCop ?? 0);
+  const cancelledOrExpired = (summary?.cancelledCount ?? 0) + (summary?.expiredCount ?? 0);
+  const truncated = isSalesHistoryTruncated(orders.length);
 
   return (
     <div className="coordinator-layout">
       <div className="metric-grid metric-grid--four">
-        <MetricCard label="Ventas entregadas" value={isLoading ? '—' : formatCafeteriaCop(summary.deliveredTotalCop)} detail={`${summary.deliveredCount} pedidos cobrados`} accent="blue" direction={summary.deliveredTotalCop > 0 ? 'up' : 'steady'} />
-        <MetricCard label="Ticket promedio" value={isLoading ? '—' : formatCafeteriaCop(summary.averageTicketCop)} detail="Solo pedidos entregados" accent="navy" direction="steady" />
-        <MetricCard label="Cancelados / expirados" value={isLoading ? '—' : `${summary.cancelledCount} / ${summary.expiredCount}`} detail="Sin débito en nómina" accent="orange" direction={summary.cancelledCount + summary.expiredCount > 0 ? 'down' : 'steady'} />
-        <MetricCard label="Pedidos en rango" value={isLoading ? '—' : String(summary.totalOrders)} detail={`${summary.inProgressCount} en curso`} accent="navy" direction="steady" />
+        <MetricCard label="Ventas entregadas" value={showKpis ? formatCafeteriaCop(deliveredTotal) : '—'} detail={`${summary?.deliveredCount ?? 0} pedidos cobrados`} accent="blue" direction={deliveredTotal > 0 ? 'up' : 'steady'} />
+        <MetricCard label="Ticket promedio" value={showKpis ? formatCafeteriaCop(summary.averageTicketCop) : '—'} detail="Solo pedidos entregados" accent="navy" direction="steady" />
+        <MetricCard label="Cancelados / expirados" value={showKpis ? `${summary.cancelledCount} / ${summary.expiredCount}` : '—'} detail="Sin débito en nómina" accent="orange" direction={cancelledOrExpired > 0 ? 'down' : 'steady'} />
+        <MetricCard label="Pedidos en rango" value={showKpis ? String(summary.totalOrders) : '—'} detail={`${summary?.inProgressCount ?? 0} en curso · todos los estados`} accent="navy" direction="steady" />
       </div>
 
       <section className="panel management-panel" id="cafeteria-sales" aria-labelledby="cafeteria-sales-title">
@@ -97,7 +113,13 @@ export function CafeteriaSales({ accessToken }: { accessToken: string | null }) 
 
         {error && <p className="form-notice form-notice--error" role="alert">{error}</p>}
 
-        {summary.topItems.length > 0 && (
+        {truncated && (
+          <p className="form-notice" role="status">
+            La tabla muestra los {SALES_HISTORY_LIMIT} pedidos más recientes del rango. Los totales de arriba incluyen todos los pedidos.
+          </p>
+        )}
+
+        {summary && summary.topItems.length > 0 && (
           <p className="management-panel__note">
             <strong>Más vendidos:</strong>{' '}
             {summary.topItems.map((item) => `${item.name} ×${item.quantity} (${formatCafeteriaCop(item.revenueCop)})`).join(' · ')}

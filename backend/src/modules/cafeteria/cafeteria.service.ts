@@ -5,7 +5,7 @@ import { PG_UNIQUE_VIOLATION, isPgError } from '../../database/pg-error.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries, users } from '../../database/schema/index.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
-import type { OrderInput, OrderListQueryInput, OrderStatusInput, ProductInput, ProductUpdateInput } from './cafeteria.schemas.js';
+import type { OrderInput, OrderListQueryInput, OrderStatusInput, ProductInput, ProductUpdateInput, SalesSummaryQueryInput } from './cafeteria.schemas.js';
 
 /** Calendar date in Bogota: a debit at 22:00 belongs to that day, not to the next UTC day. */
 function bogotaDate(at: Date): string {
@@ -24,6 +24,8 @@ function bogotaNextDayStartUtc(date: string): Date {
 }
 
 const DEFAULT_ORDERS_LIMIT = 200;
+const ACTIVE_ORDER_STATUSES = ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'];
+const TOP_ITEMS_LIMIT = 5;
 
 const transitions: Record<string, string[]> = { PLACED: ['ACCEPTED', 'CANCELLED'], ACCEPTED: ['PREPARING', 'CANCELLED'], PREPARING: ['READY', 'CANCELLED'], READY: ['DELIVERED', 'EXPIRED'], DELIVERED: [], CANCELLED: [], EXPIRED: [] };
 
@@ -141,7 +143,7 @@ export class CafeteriaService {
   }
 
   async orders(query?: string | Partial<OrderListQueryInput>, operatorId?: string) {
-    const filters: { status?: string; from?: string; to?: string; limit?: number } = typeof query === 'string' ? { status: query } : (query ?? {});
+    const filters: { status?: string; from?: string; to?: string; limit?: number; active?: boolean } = typeof query === 'string' ? { status: query } : (query ?? {});
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_ORDERS_LIMIT, 1), 500);
     const rows = await this.db.db
       .select({
@@ -164,6 +166,7 @@ export class CafeteriaService {
       .leftJoin(users, eq(users.id, cafeteriaOrders.operatorId))
       .where(and(
         filters.status ? eq(cafeteriaOrders.status, filters.status) : undefined,
+        filters.active ? inArray(cafeteriaOrders.status, ACTIVE_ORDER_STATUSES) : undefined,
         operatorId ? eq(cafeteriaOrders.operatorId, operatorId) : undefined,
         filters.from ? gte(cafeteriaOrders.placedAt, bogotaDayStartUtc(filters.from)) : undefined,
         filters.to ? lt(cafeteriaOrders.placedAt, bogotaNextDayStartUtc(filters.to)) : undefined,
@@ -173,6 +176,55 @@ export class CafeteriaService {
     const seq = this.realtime?.nextSeq();
     const withItems = await this.attachItems(rows);
     return seq === undefined ? withItems : withItems.map((row) => ({ ...row, seq }));
+  }
+
+  /**
+   * Sales closure for a Bogota date range, aggregated in Postgres so the totals cover
+   * every order in the range, not only the rows a bounded history page returns.
+   */
+  async salesSummary(query: SalesSummaryQueryInput) {
+    const inRange = and(
+      gte(cafeteriaOrders.placedAt, bogotaDayStartUtc(query.from)),
+      lt(cafeteriaOrders.placedAt, bogotaNextDayStartUtc(query.to)),
+    );
+    const delivered = sql`${cafeteriaOrders.status} = 'DELIVERED'`;
+    const [totals] = await this.db.db
+      .select({
+        totalOrders: sql<number>`count(*)::int`,
+        deliveredCount: sql<number>`(count(*) filter (where ${delivered}))::int`,
+        deliveredTotalCop: sql<string>`coalesce(sum(${cafeteriaOrders.totalCop}) filter (where ${delivered}), 0)::numeric(14,2)::text`,
+        averageTicketCop: sql<string>`coalesce(avg(${cafeteriaOrders.totalCop}) filter (where ${delivered}), 0)::numeric(14,2)::text`,
+        cancelledCount: sql<number>`(count(*) filter (where ${cafeteriaOrders.status} = 'CANCELLED'))::int`,
+        expiredCount: sql<number>`(count(*) filter (where ${cafeteriaOrders.status} = 'EXPIRED'))::int`,
+      })
+      .from(cafeteriaOrders)
+      .where(inRange);
+    const quantity = sql<number>`sum(${cafeteriaOrderItems.quantity})::int`;
+    const revenue = sql<string>`sum(${cafeteriaOrderItems.lineTotalCop})::numeric(14,2)::text`;
+    const topItems = await this.db.db
+      .select({ name: cafeteriaOrderItems.productNameSnapshot, quantity, revenueCop: revenue })
+      .from(cafeteriaOrderItems)
+      .innerJoin(cafeteriaOrders, eq(cafeteriaOrders.id, cafeteriaOrderItems.orderId))
+      .where(and(inRange, eq(cafeteriaOrders.status, 'DELIVERED')))
+      .groupBy(cafeteriaOrderItems.productNameSnapshot)
+      .orderBy(desc(sql`sum(${cafeteriaOrderItems.quantity})`), desc(sql`sum(${cafeteriaOrderItems.lineTotalCop})`), cafeteriaOrderItems.productNameSnapshot)
+      .limit(TOP_ITEMS_LIMIT);
+    const totalOrders = Number(totals?.totalOrders ?? 0);
+    const deliveredCount = Number(totals?.deliveredCount ?? 0);
+    const cancelledCount = Number(totals?.cancelledCount ?? 0);
+    const expiredCount = Number(totals?.expiredCount ?? 0);
+    return {
+      from: query.from,
+      to: query.to,
+      totalOrders,
+      deliveredCount,
+      deliveredTotalCop: totals?.deliveredTotalCop ?? '0.00',
+      averageTicketCop: totals?.averageTicketCop ?? '0.00',
+      cancelledCount,
+      expiredCount,
+      inProgressCount: totalOrders - deliveredCount - cancelledCount - expiredCount,
+      topItems: topItems.map((item) => ({ name: item.name, quantity: Number(item.quantity), revenueCop: item.revenueCop })),
+    };
   }
 
   async account(operatorId: string) {
