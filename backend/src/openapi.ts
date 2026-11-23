@@ -79,24 +79,28 @@ function setResponseSchema(document: OpenAPIObject, path: string, method: 'get',
 }
 
 function attachSharedSchemas(document: OpenAPIObject): void {
+  // zod 4 only adds .openapi() to schemas created after extendZodWithOpenApi runs, and
+  // the @agency-os/shared schemas are created when that package is imported. A clone
+  // is a new schema, created now, so it carries .openapi() and the same definition.
   const registry = new OpenAPIRegistry();
-  const assignedProfile = registry.register('AssignedProfile', assignedProfileSchema);
-  const cafeteriaOrder = registry.register('CafeteriaOrder', cafeteriaOrderSchema);
-  const cafeteriaProduct = registry.register('CafeteriaProduct', cafeteriaProductSchema);
-  registry.register('AssignedProfileList', z.array(assignedProfile));
-  registry.register('CafeteriaOrderList', z.array(cafeteriaOrder));
-  registry.register('CafeteriaProductList', z.array(cafeteriaProduct));
-  registry.register('ErrorEnvelope', errorEnvelopeSchema);
-  registry.register('LaunchProfileMessage', launchProfileMessageSchema);
-  registry.register('MetricBatchInput', metricBatchSchema);
-  registry.register('OperationalMetrics', operationalMetricsSchema);
-  registry.register('Pagination', paginationSchema);
-  registry.register('PrepareSessionMessage', prepareSessionMessageSchema);
-  registry.register('SessionCreateInput', sessionCreateSchema);
-  registry.register('SessionCloseInput', sessionCloseSchema);
-  registry.register('SessionHeartbeatInput', sessionHeartbeatSchema);
-  registry.register('SessionPatchInput', sessionPatchSchema);
-  registry.register('UserSummary', userSummarySchema);
+  const register = <T extends z.ZodType>(id: string, schema: T): T => registry.register(id, schema.clone() as T);
+  const assignedProfile = register('AssignedProfile', assignedProfileSchema);
+  const cafeteriaOrder = register('CafeteriaOrder', cafeteriaOrderSchema);
+  const cafeteriaProduct = register('CafeteriaProduct', cafeteriaProductSchema);
+  register('AssignedProfileList', z.array(assignedProfile));
+  register('CafeteriaOrderList', z.array(cafeteriaOrder));
+  register('CafeteriaProductList', z.array(cafeteriaProduct));
+  register('ErrorEnvelope', errorEnvelopeSchema);
+  register('LaunchProfileMessage', launchProfileMessageSchema);
+  register('MetricBatchInput', metricBatchSchema);
+  register('OperationalMetrics', operationalMetricsSchema);
+  register('Pagination', paginationSchema);
+  register('PrepareSessionMessage', prepareSessionMessageSchema);
+  register('SessionCreateInput', sessionCreateSchema);
+  register('SessionCloseInput', sessionCloseSchema);
+  register('SessionHeartbeatInput', sessionHeartbeatSchema);
+  register('SessionPatchInput', sessionPatchSchema);
+  register('UserSummary', userSummarySchema);
 
   const generated = new OpenApiGeneratorV3(registry.definitions).generateComponents();
   type NestSchemas = NonNullable<NonNullable<OpenAPIObject['components']>['schemas']>;

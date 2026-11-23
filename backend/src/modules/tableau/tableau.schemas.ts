@@ -12,7 +12,7 @@ export const tableauViewSchema = z
     viewId: z.string().trim().min(1).max(320),
     sourceTimezone: z.string().trim().min(1).max(80).refine(isValidTimeZone, 'sourceTimezone must be an IANA timezone, e.g. America/Bogota'),
     kind: z.enum(['POINTS_HOURLY', 'METRICS', 'PAYROLL', 'ICEBREAKERS']),
-    columnMapping: z.record(z.string().trim().min(1).max(160)).default({}),
+    columnMapping: z.record(z.string(), z.string().trim().min(1).max(160)).default({}),
   })
   .refine((value) => value.kind !== 'POINTS_HOURLY' || POINTS_HOURLY_COLUMNS.every((key) => value.columnMapping[key]), {
     message: `a POINTS_HOURLY view must map ${POINTS_HOURLY_COLUMNS.join(', ')}`,

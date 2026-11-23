@@ -22,7 +22,7 @@ export const configSchema = z.object({
   // Explicit development escape hatch: resolves every request to this device
   // fingerprint when no mTLS header is present. Rejected in production.
   DEV_CLIENT_CERT_FINGERPRINT: z.string().regex(/^[0-9a-f]{64}$/).optional().or(z.literal('')).default(''),
-  REQUIRE_SHIFT_FOR_AUTH: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
+  REQUIRE_SHIFT_FOR_AUTH: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
   EXTENSION_ID: z.string().regex(/^[a-p]{32}$/).optional().or(z.literal('')).default(''),
   // Tableau Cloud pod origin, e.g. https://prod-uk-a.online.tableau.com (no /api path).
   TABLEAU_API_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),

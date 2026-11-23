@@ -84,7 +84,7 @@ function stableBotAuditMetadata(rows: Array<{ metadata: unknown }>): Array<Recor
 describe('Rocket.Chat durable delivery', () => {
   it('accepts a structured recurrence rule and rejects a free-form one', () => {
     // Miercoles 23 sep 2026, 09:05 en Bogota.
-    const base = { targetUserId: '00000000-0000-0000-0000-000000000001', body: 'Recurring', scheduledFor: '2026-09-23T14:05:00.000Z' };
+    const base = { targetUserId: '7d0f4f4e-2b1c-4c3a-9f6e-1a2b3c4d5e6f', body: 'Recurring', scheduledFor: '2026-09-23T14:05:00.000Z' };
 
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY' } }).success).toBe(true);
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY', weekdays: [1, 3] } }).success).toBe(true);

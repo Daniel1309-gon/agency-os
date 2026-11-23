@@ -8,7 +8,7 @@ const evaluationSchema = z
     score: z.number().min(0).max(1),
     /** Codes of the rules the engine found broken; FR-22 requires naming them on a block. */
     violatedRules: z.array(z.string().min(1).max(64)).max(50).default([]),
-    result: z.record(z.unknown()).default({}),
+    result: z.record(z.string(), z.unknown()).default({}),
     model: z.string().max(160).optional(),
     tokenCostUsd: z.number().nonnegative().optional(),
   })

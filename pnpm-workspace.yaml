@@ -8,11 +8,9 @@ overrides:
   '@fastify/ajv-compiler>fast-uri': 4.1.5
   fast-json-stringify>fast-uri: 4.1.5
   '@nestjs/platform-fastify>fastify': 5.12.5
-# Temporary audit exceptions. Each one is registered with its reason and expiry in
-# docs/security/audit-exceptions.json; tools/audit-exceptions.test.mjs fails once it expires.
-auditConfig:
-  ignoreGhsas:
-    - GHSA-mrhx-c7xc-m3w5
+# Temporary audit exceptions go under auditConfig (GHSA ids as a block list), each one
+# registered with its reason and expiry in docs/security/audit-exceptions.json;
+# tools/audit-exceptions.test.mjs fails once one expires. None are active.
 allowBuilds:
   '@scarf/scarf': false
   esbuild: true

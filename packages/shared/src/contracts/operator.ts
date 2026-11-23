@@ -29,7 +29,7 @@ export const metricEventSchema = z.object({
   eventType: z.string().trim().min(1).max(80),
   points: z.number().finite().optional(),
   occurredAt: z.string().datetime({ offset: true }),
-  payload: z.record(z.unknown()).default({}),
+  payload: z.record(z.string(), z.unknown()).default({}),
 }).strict();
 
 export const metricBatchSchema = z.object({
