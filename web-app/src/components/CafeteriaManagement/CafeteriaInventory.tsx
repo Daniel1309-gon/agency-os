@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { cafeteriaProductSchema, type CafeteriaProduct } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { errorMessage } from '../OperationsManagement/management-view';
-import { buildCreateProductPayload, formatCafeteriaCop, type CafeteriaProductFormValues } from './cafeteria-management-view';
+import { buildCreateProductPayload, buildUpdateProductPayload, formatCafeteriaCop, type CafeteriaProductEditValues, type CafeteriaProductFormValues } from './cafeteria-management-view';
 
 const EMPTY_FORM: CafeteriaProductFormValues = {
   sku: '',
@@ -19,8 +19,7 @@ export function CafeteriaInventory({ accessToken }: { accessToken: string | null
   const [products, setProducts] = useState<CafeteriaProduct[]>([]);
   const [form, setForm] = useState<CafeteriaProductFormValues>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editPrice, setEditPrice] = useState('');
-  const [editDeadline, setEditDeadline] = useState('30');
+  const [edit, setEdit] = useState<CafeteriaProductEditValues>({ category: '', priceCop: '', prepMinutes: '', pickupDeadlineMinutes: '30' });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -81,27 +80,21 @@ export function CafeteriaInventory({ accessToken }: { accessToken: string | null
     }
   }
 
-  async function savePriceEdit(product: CafeteriaProduct) {
-    const priceCop = Number(editPrice);
-    const pickupDeadlineMinutes = Number(editDeadline);
-    if (!Number.isFinite(priceCop) || priceCop <= 0) {
-      setError('El precio debe ser un número positivo en COP.');
-      return;
-    }
-    if (!Number.isInteger(pickupDeadlineMinutes) || pickupDeadlineMinutes < 1 || pickupDeadlineMinutes > 1440) {
-      setError('El límite de retiro debe ser un entero entre 1 y 1440 minutos.');
+  async function saveEdit(product: CafeteriaProduct) {
+    let payload;
+    try {
+      payload = buildUpdateProductPayload(edit);
+    } catch (validationError) {
+      setError(errorMessage(validationError, 'Revisa los datos del producto.'));
       return;
     }
     setBusyId(product.id);
     setError(null);
     setNotice(null);
     try {
-      await apiClient.request(`/cafeteria/products/${product.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ priceCop, pickupDeadlineMinutes }),
-      });
+      await apiClient.request(`/cafeteria/products/${product.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
       setEditingId(null);
-      setNotice(`Precio y retiro de ${product.name} actualizados.`);
+      setNotice(`${product.name} actualizado.`);
       await loadProducts();
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : errorMessage(nextError, 'No pudimos actualizar el producto.'));
@@ -147,11 +140,12 @@ export function CafeteriaInventory({ accessToken }: { accessToken: string | null
       ) : products.length === 0 ? (
         <p className="empty-state">No hay productos registrados todavía.</p>
       ) : (
-        <div className="management-table" role="table" aria-label="Productos de cafetería">
+        <div className="management-table cafeteria-inventory-table" role="table" aria-label="Productos de cafetería">
           <div className="management-table__head" role="row">
             <span role="columnheader">Producto</span>
             <span role="columnheader">Categoría</span>
             <span role="columnheader">Precio</span>
+            <span role="columnheader">Preparación</span>
             <span role="columnheader">Retiro</span>
             <span role="columnheader">Estado</span>
             <span role="columnheader">Acciones</span>
@@ -162,27 +156,36 @@ export function CafeteriaInventory({ accessToken }: { accessToken: string | null
             return (
               <div className="management-table__row" role="row" key={product.id}>
                 <span role="cell"><strong>{product.name}</strong> <small><code>{product.sku}</code></small></span>
-                <span role="cell">{product.category}</span>
                 <span role="cell">
                   {isEditing ? (
-                    <input aria-label={`Precio de ${product.name}`} type="number" min="1" step="100" value={editPrice} onChange={(event) => setEditPrice(event.target.value)} />
+                    <input aria-label={`Categoría de ${product.name}`} value={edit.category} onChange={(event) => setEdit((c) => ({ ...c, category: event.target.value }))} />
+                  ) : product.category}
+                </span>
+                <span role="cell">
+                  {isEditing ? (
+                    <input aria-label={`Precio de ${product.name}`} type="number" min="1" step="100" value={edit.priceCop} onChange={(event) => setEdit((c) => ({ ...c, priceCop: event.target.value }))} />
                   ) : formatCafeteriaCop(product.priceCop)}
                 </span>
                 <span role="cell">
                   {isEditing ? (
-                    <input aria-label={`Retiro de ${product.name}`} type="number" min="1" max="1440" value={editDeadline} onChange={(event) => setEditDeadline(event.target.value)} />
+                    <input aria-label={`Preparación de ${product.name}`} type="number" min="0" max="1440" value={edit.prepMinutes} onChange={(event) => setEdit((c) => ({ ...c, prepMinutes: event.target.value }))} />
+                  ) : product.prepMinutes == null ? '—' : `${product.prepMinutes} min`}
+                </span>
+                <span role="cell">
+                  {isEditing ? (
+                    <input aria-label={`Retiro de ${product.name}`} type="number" min="1" max="1440" value={edit.pickupDeadlineMinutes} onChange={(event) => setEdit((c) => ({ ...c, pickupDeadlineMinutes: event.target.value }))} />
                   ) : `${product.pickupDeadlineMinutes ?? 30} min`}
                 </span>
                 <span role="cell"><span className={`status-pill${available ? '' : ' status-pill--quiet'}`}>{available ? 'Disponible' : 'Pausado'}</span></span>
                 <span role="cell" className="management-table__actions">
                   {isEditing ? (
                     <>
-                      <button className="primary-button primary-button--compact" type="button" onClick={() => void savePriceEdit(product)} disabled={busyId === product.id}>Guardar</button>
+                      <button className="primary-button primary-button--compact" type="button" onClick={() => void saveEdit(product)} disabled={busyId === product.id}>Guardar</button>
                       <button className="quiet-button" type="button" onClick={() => setEditingId(null)}>Cancelar</button>
                     </>
                   ) : (
                     <>
-                      <button className="quiet-button" type="button" onClick={() => { setEditingId(product.id); setEditPrice(String(Number(product.priceCop))); setEditDeadline(String(product.pickupDeadlineMinutes ?? 30)); }}>Editar</button>
+                      <button className="quiet-button" type="button" onClick={() => { setEditingId(product.id); setEdit({ category: product.category, priceCop: String(Number(product.priceCop)), prepMinutes: product.prepMinutes == null ? '' : String(product.prepMinutes), pickupDeadlineMinutes: String(product.pickupDeadlineMinutes ?? 30) }); }}>Editar</button>
                       <button className="quiet-button" type="button" onClick={() => void toggleAvailability(product)} disabled={busyId === product.id}>
                         {available ? 'Pausar' : 'Activar'}
                       </button>

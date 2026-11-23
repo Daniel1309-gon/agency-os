@@ -29,6 +29,30 @@ export interface UpdateCafeteriaProductPayload {
   isAvailable?: boolean;
 }
 
+export interface CafeteriaProductEditValues {
+  category: string;
+  priceCop: string;
+  prepMinutes: string;
+  pickupDeadlineMinutes: string;
+}
+
+/** Inline row edit: category, price, preparation and pickup deadline (S3, FR-32). An empty preparation keeps the stored value. */
+export function buildUpdateProductPayload(values: CafeteriaProductEditValues): UpdateCafeteriaProductPayload {
+  const category = values.category.trim();
+  if (!category) throw new Error('La categoría es obligatoria.');
+  const priceCop = Number(values.priceCop);
+  if (!values.priceCop.trim() || !Number.isFinite(priceCop) || priceCop <= 0) throw new Error('El precio debe ser un número positivo en COP.');
+  const pickupDeadlineMinutes = Number(values.pickupDeadlineMinutes);
+  if (!Number.isInteger(pickupDeadlineMinutes) || pickupDeadlineMinutes < 1 || pickupDeadlineMinutes > 1440) throw new Error('El límite de retiro debe ser un entero entre 1 y 1440 minutos.');
+  const payload: UpdateCafeteriaProductPayload = { category, priceCop, pickupDeadlineMinutes };
+  if (values.prepMinutes.trim()) {
+    const prepMinutes = Number(values.prepMinutes);
+    if (!Number.isInteger(prepMinutes) || prepMinutes < 0 || prepMinutes > 1440) throw new Error('La preparación debe ser un entero entre 0 y 1440 minutos.');
+    payload.prepMinutes = prepMinutes;
+  }
+  return payload;
+}
+
 /** Rows requested for the history table; the closure KPIs come from the server summary. */
 export const SALES_HISTORY_LIMIT = 500;
 

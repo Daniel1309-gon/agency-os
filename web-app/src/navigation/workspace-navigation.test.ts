@@ -18,6 +18,8 @@ describe('workspace navigation', () => {
       '/app/cuadrillas',
       '/app/turnos',
       '/app/nomina',
+      '/app/ventas',
+      '/app/inventario',
       '/app/mensajes',
       '/app/seguridad',
       '/app/acceso-ip',
@@ -46,6 +48,16 @@ describe('workspace navigation', () => {
     expect(getWorkspaceRoutes('CAFETERIA', [])).toEqual([]);
   });
 
+  it('lets the director and the admin supervise cafeteria sales and inventory, but not run the kitchen', () => {
+    for (const role of ['DIRECTOR_OPERATIVO', 'ADMIN'] as const) {
+      const paths = getWorkspaceRoutes(role, ['cafeteria.manage']).map((route) => route.path);
+      expect(paths).toEqual(['/app/ventas', '/app/inventario']);
+      expect(resolveWorkspaceRoute(role, ['cafeteria.manage'], '/app/ventas').path).toBe('/app/ventas');
+      expect(resolveWorkspaceRoute(role, ['cafeteria.manage', 'metrics.audit'], '/app/pedidos').path).toBe('/app/metricas');
+    }
+    expect(getWorkspaceRoutes('DIRECTOR_OPERATIVO', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/ventas');
+  });
+
   it('resolves unknown and forbidden paths to the role default', () => {
     expect(resolveWorkspaceRoute('OPERADOR', ['profiles.read'], '/app/metricas').path).toBe('/app/perfiles');
     expect(resolveWorkspaceRoute('ADMIN', ['*'], '/app/no-existe').path).toBe('/app/metricas');
@@ -54,9 +66,10 @@ describe('workspace navigation', () => {
   it('groups routes in declaration order for the navbar', () => {
     const groups = groupWorkspaceRoutes(getWorkspaceRoutes('ADMIN', ['*']));
 
-    expect(groups.map(([group]) => group)).toEqual(['Operación', 'Control']);
+    expect(groups.map(([group]) => group)).toEqual(['Operación', 'Punto', 'Control']);
     expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos', '/app/nomina']);
-    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
+    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/ventas', '/app/inventario']);
+    expect(groups[2][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
   });
 
   it('intercepts only plain primary clicks so new-tab gestures keep working', () => {
