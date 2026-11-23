@@ -409,6 +409,31 @@ describe('cafeteria consumption in payroll (FR-35)', () => {
     expect(await payroll.lines(period.id)).toHaveLength(0);
   });
 
+  it('zeroes a draft line on recompute when its operator no longer has anything to pay or deduct', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const refunded = await createUser(ctx);
+    const paid = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const period = await payroll.createPeriod(PERIOD, admin.id);
+    await compensate(paid.id, admin.id);
+    await ledger(paid.id, profile.id, '2026-08-05', '100.0000');
+    await account(refunded.id, 'DEBIT_CAFETERIA', '-12500.00', '2026-08-10');
+    await payroll.compute(period.id, admin.id);
+    expect((await payroll.lines(period.id)).find((line) => line.operatorId === refunded.id)).toMatchObject({ cafeteriaDebitCop: '12500.00' });
+
+    // The order is refunded after the first compute: the stale debit must not reach the export.
+    await account(refunded.id, 'CREDIT_REFUND', '12500.00', '2026-08-11');
+    await expect(payroll.compute(period.id, admin.id)).resolves.toMatchObject({ linesComputed: 1 });
+
+    const lines = await payroll.lines(period.id);
+    expect(lines.find((line) => line.operatorId === refunded.id)).toMatchObject({ pointsTotal: '0.0000', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop: '0.00', version: 1 });
+    expect(lines.find((line) => line.operatorId === paid.id)).toMatchObject({ netCop: '1000.00', cafeteriaDebitCop: '0.00' });
+
+    // Recomputing again changes nothing: an already zeroed line keeps its version.
+    await payroll.compute(period.id, admin.id);
+    expect((await payroll.lines(period.id)).find((line) => line.operatorId === refunded.id)).toMatchObject({ cafeteriaDebitCop: '0.00', version: 1 });
+  });
+
   it('records a zero deduction when the operator consumed nothing', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);

@@ -19,7 +19,8 @@ export interface CreateRulePayload {
 export interface UpdateRulePayload {
   name: string;
   kind: IcebreakerRuleKind;
-  pattern?: string;
+  /** null clears the stored pattern (MANUAL rules have none). */
+  pattern?: string | null;
   severity: IcebreakerRuleSeverity;
   version: number;
 }
@@ -58,11 +59,10 @@ export function buildViolationsQuery(filters: { from?: string; to?: string; stat
 }
 
 function validatePattern(kind: IcebreakerRuleKind, rawPattern: string): string | undefined {
+  // MANUAL rules match nothing automatically: the API refuses a pattern on them.
+  if (kind === 'MANUAL') return undefined;
   const pattern = rawPattern.trim();
-  if (!pattern) {
-    if (kind !== 'MANUAL') throw new Error('Las reglas de palabra clave o expresión regular requieren un patrón.');
-    return undefined;
-  }
+  if (!pattern) throw new Error('Las reglas de palabra clave o expresión regular requieren un patrón.');
   if (pattern.length > 500) throw new Error('El patrón no puede superar 500 caracteres.');
   if (kind === 'REGEX') {
     try {
@@ -87,7 +87,7 @@ export function buildUpdateRulePayload(values: Omit<RuleFormValues, 'code'>, ver
   const name = values.name.trim();
   if (!name || name.length > 160) throw new Error('El nombre de la regla es obligatorio (máximo 160 caracteres).');
   const pattern = validatePattern(values.kind, values.pattern);
-  return { name, kind: values.kind, ...(pattern ? { pattern } : {}), severity: values.severity, version };
+  return { name, kind: values.kind, pattern: pattern ?? null, severity: values.severity, version };
 }
 
 export function buildReviewPayload(verdict: IcebreakerReviewVerdict, rawReason: string): { verdict: IcebreakerReviewVerdict; reason: string } {

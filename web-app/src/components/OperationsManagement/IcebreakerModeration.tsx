@@ -244,7 +244,7 @@ export function IcebreakerModeration({ accessToken, user }: { accessToken: strin
                   <option value="MANUAL">Revisión manual</option>
                 </select>
               </label>
-              <label><span>Patrón</span><input value={ruleForm.pattern} onChange={(event) => setRuleForm((c) => ({ ...c, pattern: event.target.value }))} placeholder="whatsapp" /></label>
+              <label><span>Patrón</span><input value={ruleForm.kind === 'MANUAL' ? '' : ruleForm.pattern} disabled={ruleForm.kind === 'MANUAL'} onChange={(event) => setRuleForm((c) => ({ ...c, pattern: event.target.value }))} placeholder="whatsapp" /></label>
               <label>
                 <span>Severidad</span>
                 <select value={ruleForm.severity} onChange={(event) => setRuleForm((c) => ({ ...c, severity: event.target.value as IcebreakerRuleSeverity }))}>
@@ -283,7 +283,14 @@ export function IcebreakerModeration({ accessToken, user }: { accessToken: strin
                     </span>
                     <span role="cell">
                       {isEditing ? (
-                        <input aria-label={`Patrón de ${rule.code}`} value={editRule.pattern} onChange={(event) => setEditRule((c) => ({ ...c, pattern: event.target.value }))} />
+                        <>
+                          <select aria-label={`Tipo de ${rule.code}`} value={editRule.kind} onChange={(event) => setEditRule((c) => ({ ...c, kind: event.target.value as IcebreakerRuleKind }))}>
+                            <option value="KEYWORD">Palabra clave</option>
+                            <option value="REGEX">Expresión regular</option>
+                            <option value="MANUAL">Revisión manual</option>
+                          </select>
+                          <input aria-label={`Patrón de ${rule.code}`} value={editRule.kind === 'MANUAL' ? '' : editRule.pattern} disabled={editRule.kind === 'MANUAL'} onChange={(event) => setEditRule((c) => ({ ...c, pattern: event.target.value }))} />
+                        </>
                       ) : (
                         <>{rule.kind}{rule.pattern ? <> · <code>{rule.pattern}</code></> : ''}</>
                       )}

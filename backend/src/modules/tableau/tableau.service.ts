@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service.js';
 import { etlRuns, etlStagingRows, outboxEvents, rocketchatChannels, tableauHourlyPoints, tableauViews, ttProfiles } from '../../database/schema/index.js';
 import type { TableauRunInput, TableauRunsQueryInput, TableauViewInput, TableauViewUpdateInput } from './tableau.schemas.js';
@@ -266,7 +266,7 @@ export class TableauService {
       const existing = await this.db.db
         .select({ id: outboxEvents.id })
         .from(outboxEvents)
-        .where(and(eq(outboxEvents.aggregateType, 'tableau_freshness'), eq(outboxEvents.aggregateId, item.viewId), sql`${outboxEvents.payload}->>'sourceMessageId' = ${dedupeKey}`))
+        .where(and(eq(outboxEvents.aggregateType, 'tableau_freshness'), eq(outboxEvents.aggregateId, item.viewId), sql`${outboxEvents.payload}->>'alertKey' = ${dedupeKey}`))
         .limit(1);
       if (existing.length) continue;
       sent += await this.enqueueAlertsChannel(
@@ -294,21 +294,31 @@ export class TableauService {
     );
   }
 
-  private async enqueueAlertsChannel(aggregateType: string, aggregateId: string, body: string, sourceMessageId: string): Promise<number> {
+  /**
+   * One outbox row per active ALERTS channel, deduplicated by `alertKey` + channel
+   * (index `outbox_alert_key_unique`): a concurrent worker that already enqueued the
+   * same alert makes the insert a no-op. `sourceMessageId` must stay unset: the
+   * dispatcher sends it to Rocket.Chat as the thread id of a real message.
+   */
+  private async enqueueAlertsChannel(aggregateType: string, aggregateId: string, body: string, alertKey: string): Promise<number> {
     const channels = await this.db.db
       .select({ id: rocketchatChannels.id })
       .from(rocketchatChannels)
       .where(and(eq(rocketchatChannels.purpose, 'ALERTS'), eq(rocketchatChannels.isActive, true)));
     if (!channels.length) return 0;
-    await this.db.db.insert(outboxEvents).values(
-      channels.map((channel) => ({
-        eventType: 'rocketchat.message.send',
-        aggregateType,
-        aggregateId,
-        payload: { channelId: channel.id, body, sourceMessageId },
-      })),
-    );
-    return channels.length;
+    const inserted = await this.db.db
+      .insert(outboxEvents)
+      .values(
+        channels.map((channel) => ({
+          eventType: 'rocketchat.message.send',
+          aggregateType,
+          aggregateId,
+          payload: { channelId: channel.id, body, alertKey },
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: outboxEvents.id });
+    return inserted.length;
   }
 
   /** Worker only: claims queued runs (and stale running ones) and executes them one by one. */
@@ -409,6 +419,11 @@ export class TableauService {
       const rejected = staged.filter((row) => row.validationStatus === 'REJECTED').length;
       const status = rejected ? 'PARTIAL' : 'SUCCESS';
       await this.db.db.transaction(async (tx) => {
+        // Re-ingesting a run (offline reprocess after a mapping or timezone fix) can
+        // produce other keys than last time. What this run promoted before is zeroed
+        // first, so a key it no longer yields keeps no points; neither role can DELETE.
+        await tx.update(tableauHourlyPoints).set({ points: '0.0000' }).where(eq(tableauHourlyPoints.etlRunId, runId));
+        await tx.update(etlStagingRows).set({ validationStatus: 'SKIPPED', validationError: 'Superseded by a later ingest of this run' }).where(and(eq(etlStagingRows.etlRunId, runId), gt(etlStagingRows.rowNumber, staged.length)));
         for (let start = 0; start < staged.length; start += 500) {
           await tx.insert(etlStagingRows).values(staged.slice(start, start + 500).map((row) => ({ etlRunId: runId, ...row }))).onConflictDoUpdate({
             target: [etlStagingRows.etlRunId, etlStagingRows.rowNumber],

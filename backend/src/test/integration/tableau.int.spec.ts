@@ -250,15 +250,74 @@ describe('TableauService (FR-19, decision #9)', () => {
     const afterFail = await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, failedRun!.id) });
     expect(afterFail?.alertedAt).toBeTruthy();
 
-    const alerts = await ctx.db.select({ aggregateType: outboxEvents.aggregateType, eventType: outboxEvents.eventType }).from(outboxEvents);
+    // Postgres returns rows in no guaranteed order without ORDER BY.
+    const alerts = await ctx.db.select({ aggregateType: outboxEvents.aggregateType, eventType: outboxEvents.eventType }).from(outboxEvents).orderBy(asc(outboxEvents.aggregateType));
     expect(alerts).toEqual([
-      { aggregateType: 'tableau_freshness', eventType: 'rocketchat.message.send' },
       { aggregateType: 'tableau_etl_run', eventType: 'rocketchat.message.send' },
+      { aggregateType: 'tableau_freshness', eventType: 'rocketchat.message.send' },
     ]);
 
     // Updating per-view schedule preserves existing mapping
     const updated = await service.updateView(view.id, { scheduleTime: '08:30', freshnessSlaMinutes: 90 });
     expect(updated).toMatchObject({ scheduleTime: '08:30', freshnessSlaMinutes: 90, columnMapping: MAPPING });
+  });
+
+  it('sends one alert per active ALERTS channel, deduplicated even when two workers check at once', async () => {
+    const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
+    const channels = await ctx.db.insert(rocketchatChannels).values([
+      { purpose: 'ALERTS', type: 'GROUP', rcRoomId: 'room-alerts-1', name: 'alertas-etl', isActive: true },
+      { purpose: 'ALERTS', type: 'GROUP', rcRoomId: 'room-alerts-2', name: 'alertas-direccion', isActive: true },
+    ]).returning({ id: rocketchatChannels.id });
+    const afterSla = new Date('2026-11-23T15:20:00.000Z');
+    const workerCheck = () => ctx.database.withRequestContext('', 'JOB', async () => {
+      await ctx.database.db.execute(sql`SET LOCAL ROLE agency_worker`);
+      return service.checkStaleAlerts(afterSla);
+    });
+
+    const sent = await Promise.all([workerCheck(), workerCheck()]);
+    expect(sent[0] + sent[1]).toBe(2);
+    expect(await workerCheck()).toBe(0);
+
+    download = () => { throw new Error('Tableau 503'); };
+    const failedRun = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    await service.processQueued();
+
+    // No thread id: the dispatcher would send `sourceMessageId` to Rocket.Chat as `tmid`.
+    const rows = await ctx.db.select({ aggregateType: outboxEvents.aggregateType, aggregateId: outboxEvents.aggregateId, channelId: sql<string>`${outboxEvents.payload}->>'channelId'`, threadId: sql<string | null>`${outboxEvents.payload}->>'sourceMessageId'` }).from(outboxEvents);
+    const key = (row: (typeof rows)[number]) => `${row.aggregateType}|${row.channelId}`;
+    const alerts = rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+    const channelIds = channels.map((channel) => channel.id).sort();
+    expect(alerts).toEqual([
+      ...channelIds.map((channelId) => ({ aggregateType: 'tableau_etl_run', aggregateId: failedRun!.id, channelId, threadId: null })),
+      ...channelIds.map((channelId) => ({ aggregateType: 'tableau_freshness', aggregateId: view.id, channelId, threadId: null })),
+    ]);
+  });
+
+  it('re-ingesting a run with fewer rows supersedes its extra staging rows and leaves other runs untouched', async () => {
+    const view = await hourlyView();
+    const profile = await profileWithRef('TU-1');
+    download = () => csv(['TU-1,2026-11-21 06:00,4']);
+    const other = await service.run({ viewId: view.id, businessDate: '2026-11-21' });
+    await service.processQueued();
+    download = () => csv(['TU-1,2026-11-22 06:00,1', 'TU-1,2026-11-22 07:00,2']);
+    const run = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    await service.processQueued();
+
+    // The stored artifact is replaced by a shorter one (e.g. a trimmed export) and reprocessed.
+    await ctx.db.update(etlRuns).set({ rawCsv: csv(['TU-1,2026-11-22 06:00,1']).body }).where(eq(etlRuns.id, run!.id));
+    await expect(service.reprocess(run!.id)).resolves.toMatchObject({ status: 'SUCCESS', rowCount: 1 });
+
+    const staged = await ctx.db.select({ rowNumber: etlStagingRows.rowNumber, status: etlStagingRows.validationStatus, error: etlStagingRows.validationError }).from(etlStagingRows).where(eq(etlStagingRows.etlRunId, run!.id)).orderBy(asc(etlStagingRows.rowNumber));
+    expect(staged).toEqual([
+      { rowNumber: 1, status: 'VALID', error: null },
+      { rowNumber: 2, status: 'SKIPPED', error: 'Superseded by a later ingest of this run' },
+    ]);
+    const points = await ctx.db.select({ etlRunId: tableauHourlyPoints.etlRunId, sourceHour: tableauHourlyPoints.sourceHour, points: tableauHourlyPoints.points }).from(tableauHourlyPoints).where(eq(tableauHourlyPoints.profileId, profile.id)).orderBy(asc(tableauHourlyPoints.sourceHour));
+    expect(points).toEqual([
+      { etlRunId: other!.id, sourceHour: new Date('2026-11-21T11:00:00.000Z'), points: '4.0000' },
+      { etlRunId: run!.id, sourceHour: new Date('2026-11-22T11:00:00.000Z'), points: '1.0000' },
+      { etlRunId: run!.id, sourceHour: new Date('2026-11-22T12:00:00.000Z'), points: '0.0000' },
+    ]);
   });
 
   it('persists raw CSV artifacts on failure and reprocesses offline without hitting Tableau again (A9)', async () => {
@@ -292,6 +351,15 @@ describe('TableauService (FR-19, decision #9)', () => {
 
     const points = await ctx.db.select({ profileId: tableauHourlyPoints.profileId, points: tableauHourlyPoints.points }).from(tableauHourlyPoints);
     expect(points).toEqual([{ profileId: profile.id, points: '18.2500' }]);
+
+    // Reprocessing after a timezone fix moves the hour: the old hour of this run must not keep its points.
+    await service.updateView(view.id, { sourceTimezone: 'UTC' });
+    await expect(service.reprocess(queued!.id)).resolves.toMatchObject({ status: 'SUCCESS' });
+    const moved = await ctx.db.select({ sourceHour: tableauHourlyPoints.sourceHour, points: tableauHourlyPoints.points }).from(tableauHourlyPoints).orderBy(asc(tableauHourlyPoints.sourceHour));
+    expect(moved).toEqual([
+      { sourceHour: new Date('2026-11-22T10:00:00.000Z'), points: '18.2500' },
+      { sourceHour: new Date('2026-11-22T15:00:00.000Z'), points: '0.0000' },
+    ]);
 
     // Run without stored raw CSV refuses offline reprocess with 409
     const [emptyRun] = await ctx.db.insert(etlRuns).values({ viewId: view.id, businessDate: '2026-11-21', status: 'FAILED' }).returning();

@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { competitions, competitionParticipants, goals, operatorAccountEntries, operatorCompensation, payrollAdjustments, payrollLines, payrollPeriods, pointsLedger, users } from '../../database/schema/index.js';
@@ -87,6 +87,7 @@ export class PayrollService {
     if (missing.length) throw new ConflictException(`Compensation is not configured for operators: ${missing.join(', ')}`);
     const consumption = await this.cafeteriaConsumption(period);
     let linesComputed = 0;
+    const computed: string[] = [];
     for (const operatorId of new Set([...byOperator.keys(), ...consumption.keys()])) {
       const priced = priceSegments(byOperator.get(operatorId) ?? []);
       const cafeteriaDebitCop = (consumption.get(operatorId) ?? 0).toFixed(2);
@@ -103,8 +104,21 @@ export class PayrollService {
         continue;
       }
       linesComputed += 1;
+      computed.push(operatorId);
       await this.db.db.insert(payrollLines).values({ periodId, operatorId, ...line, status: 'DRAFT', computedAt: new Date(), computedBy: actorId }).onConflictDoUpdate({ target: [payrollLines.periodId, payrollLines.operatorId], set: { ...line, computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` } });
     }
+    // A draft line from an earlier compute whose operator now has nothing to pay or
+    // deduct (points reversed, consumption refunded) would otherwise keep its old
+    // amounts and reach the export. agency_app cannot DELETE, so it is zeroed.
+    await this.db.db
+      .update(payrollLines)
+      .set({ pointsTotal: '0.0000', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop: '0.00', computedAt: new Date(), computedBy: actorId, version: sql`${payrollLines.version} + 1` })
+      .where(and(
+        eq(payrollLines.periodId, periodId),
+        eq(payrollLines.status, 'DRAFT'),
+        computed.length ? notInArray(payrollLines.operatorId, computed) : undefined,
+        or(ne(payrollLines.pointsTotal, '0'), ne(payrollLines.grossCop, '0'), ne(payrollLines.netCop, '0'), ne(payrollLines.cafeteriaDebitCop, '0')),
+      ));
     await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'payroll.period.computed', entityType: 'payroll_period', entityId: periodId, result: 'SUCCESS', metadata: { periodId, count: linesComputed } });
     return { periodId, linesComputed };
   }
