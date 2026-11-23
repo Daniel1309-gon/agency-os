@@ -281,6 +281,78 @@
         },
         "type": "array"
       },
+      "CafeteriaSalesSummary": {
+        "properties": {
+          "averageTicketCop": {
+            "type": "string"
+          },
+          "cancelledCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deliveredCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deliveredTotalCop": {
+            "type": "string"
+          },
+          "expiredCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from": {
+            "type": "string"
+          },
+          "inProgressCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "type": "string"
+          },
+          "topItems": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "revenueCop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "quantity",
+                "revenueCop"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "totalOrders": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "totalOrders",
+          "deliveredCount",
+          "deliveredTotalCop",
+          "averageTicketCop",
+          "cancelledCount",
+          "expiredCount",
+          "inProgressCount",
+          "topItems"
+        ],
+        "type": "object"
+      },
       "ErrorEnvelope": {
         "properties": {
           "error": {
@@ -2282,6 +2354,58 @@
           "pagination": "NOT_APPLICABLE",
           "path": "/api/v1/cafeteria/products/{id}",
           "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/cafeteria/sales/summary": {
+      "get": {
+        "operationId": "CafeteriaController.salesSummary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CafeteriaSalesSummary"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-permissions": [
+          "cafeteria.manage"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "cafeteria.manage"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/cafeteria/sales/summary",
+          "scope": "GLOBAL",
           "shift": false
         }
       }

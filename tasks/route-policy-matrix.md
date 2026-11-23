@@ -38,6 +38,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `GET /api/v1/cafeteria/products` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/cafeteria/products` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/cafeteria/products/{id}` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/cafeteria/sales/summary` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | BOUNDED_FILTER |
 | `GET /api/v1/competitions` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/competitions` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/competitions/{id}/leaderboard` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { CafeteriaService } from './cafeteria.service.js';
 import { createFakeDatabase, type FakeDatabase } from '../../test/support/fake-db.js';
-import { orderListQuerySchema, type OrderStatusInput } from './cafeteria.schemas.js';
+import { orderListQuerySchema, salesSummaryQuerySchema, type OrderStatusInput } from './cafeteria.schemas.js';
 
 const ORDER = '11111111-1111-1111-1111-111111111111';
 const OPERATOR = '22222222-2222-2222-2222-222222222222';
@@ -240,6 +240,19 @@ describe('CafeteriaService.orders', () => {
     expect(orderListQuerySchema.safeParse({ from: '2026-02-31' }).success).toBe(false);
     expect(orderListQuerySchema.safeParse({ limit: 0 }).success).toBe(false);
     expect(orderListQuerySchema.safeParse({ limit: 501 }).success).toBe(false);
+  });
+
+  it('parses the kitchen active filter from the query string without treating "false" as true', () => {
+    expect(orderListQuerySchema.parse({ active: 'true' })).toEqual({ limit: 200, active: true });
+    expect(orderListQuerySchema.parse({ active: 'false' })).toEqual({ limit: 200, active: false });
+    expect(orderListQuerySchema.safeParse({ active: 'yes' }).success).toBe(false);
+  });
+
+  it('requires an ordered Bogota date range for the sales summary', () => {
+    expect(salesSummaryQuerySchema.parse({ from: '2026-11-01', to: '2026-11-22' })).toEqual({ from: '2026-11-01', to: '2026-11-22' });
+    expect(salesSummaryQuerySchema.safeParse({ from: '2026-11-01' }).success).toBe(false);
+    expect(salesSummaryQuerySchema.safeParse({ from: '2026-11-22', to: '2026-11-01' }).success).toBe(false);
+    expect(salesSummaryQuerySchema.safeParse({ from: '2026-02-30', to: '2026-03-01' }).success).toBe(false);
   });
 });
 

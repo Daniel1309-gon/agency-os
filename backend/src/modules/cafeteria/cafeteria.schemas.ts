@@ -21,9 +21,16 @@ export const orderListQuerySchema = z.object({
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
+  // Kitchen display: only orders still in the kitchen flow, so delivered history cannot push them past the limit.
+  active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
 }).refine((value) => !value.from || !value.to || value.from <= value.to, { message: '`from` must be on or before `to`', path: ['to'] });
+export const salesSummaryQuerySchema = z.object({
+  from: calendarDateSchema,
+  to: calendarDateSchema,
+}).refine((value) => value.from <= value.to, { message: '`from` must be on or before `to`', path: ['to'] });
 export type ProductInput = z.infer<typeof productSchema>;
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 export type OrderInput = z.infer<typeof orderSchema>;
 export type OrderStatusInput = z.infer<typeof orderStatusSchema>;
 export type OrderListQueryInput = z.infer<typeof orderListQuerySchema>;
+export type SalesSummaryQueryInput = z.infer<typeof salesSummaryQuerySchema>;

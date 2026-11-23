@@ -359,6 +359,50 @@ describe('the kitchen flow and the debit', () => {
     expect(limited[0].id).toBe(second.orderId);
   });
 
+  it('lists only kitchen-flow orders with active=true, even when newer delivered orders exceed the limit', async () => {
+    const stillActive = await placedOrder();
+    const delivered = await placedOrder();
+    await ctx.db.update(cafeteriaOrders).set({ placedAt: new Date('2026-11-22T13:00:00.000Z') }).where(eq(cafeteriaOrders.id, stillActive.orderId));
+    await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: new Date('2026-11-22T15:00:00.000Z') }).where(eq(cafeteriaOrders.id, delivered.orderId));
+
+    expect((await cafeteria.orders({ limit: 1 })).map((order) => order.id)).toEqual([delivered.orderId]);
+    expect((await cafeteria.orders({ active: true, limit: 1 })).map((order) => order.id)).toEqual([stillActive.orderId]);
+  });
+
+  it('aggregates the sales summary over the whole Bogota range in Postgres', async () => {
+    const first = await placedOrder();
+    const second = await placedOrder();
+    const cancelled = await placedOrder();
+    const outOfRange = await placedOrder();
+    const inRange = new Date('2026-11-23T03:30:00.000Z'); // 2026-11-22 22:30 Bogota
+    for (const order of [first, second]) {
+      await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: inRange }).where(eq(cafeteriaOrders.id, order.orderId));
+    }
+    await ctx.db.update(cafeteriaOrders).set({ status: 'CANCELLED', placedAt: inRange }).where(eq(cafeteriaOrders.id, cancelled.orderId));
+    await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: new Date('2026-11-23T05:30:00.000Z') }).where(eq(cafeteriaOrders.id, outOfRange.orderId));
+    const [orderRow] = await ctx.db.select({ totalCop: cafeteriaOrders.totalCop }).from(cafeteriaOrders).where(eq(cafeteriaOrders.id, first.orderId));
+    const [itemRow] = await ctx.db.select({ name: cafeteriaOrderItems.productNameSnapshot, quantity: cafeteriaOrderItems.quantity, lineTotalCop: cafeteriaOrderItems.lineTotalCop }).from(cafeteriaOrderItems).where(eq(cafeteriaOrderItems.orderId, first.orderId));
+    const unitTotal = Number(orderRow.totalCop);
+
+    const summary = await cafeteria.salesSummary({ from: '2026-11-22', to: '2026-11-22' });
+
+    expect(summary).toMatchObject({
+      from: '2026-11-22',
+      to: '2026-11-22',
+      totalOrders: 3,
+      deliveredCount: 2,
+      deliveredTotalCop: (unitTotal * 2).toFixed(2),
+      averageTicketCop: unitTotal.toFixed(2),
+      cancelledCount: 1,
+      expiredCount: 0,
+      inProgressCount: 0,
+    });
+    expect(summary.topItems).toEqual([{ name: itemRow.name, quantity: itemRow.quantity * 2, revenueCop: (Number(itemRow.lineTotalCop) * 2).toFixed(2) }]);
+
+    const empty = await cafeteria.salesSummary({ from: '2026-10-01', to: '2026-10-01' });
+    expect(empty).toMatchObject({ totalOrders: 0, deliveredTotalCop: '0.00', averageTicketCop: '0.00', topItems: [] });
+  });
+
   it('records audit_log entries when creating and updating cafeteria products', async () => {
     const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
     const created = await cafeteria.createProduct(LUNCH, kitchen.id);

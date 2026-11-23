@@ -1,4 +1,4 @@
-import type { CafeteriaOrder, CafeteriaOrderStatus } from '@agency-os/shared';
+import type { CafeteriaOrderStatus } from '@agency-os/shared';
 
 export interface CafeteriaProductFormValues {
   sku: string;
@@ -29,22 +29,8 @@ export interface UpdateCafeteriaProductPayload {
   isAvailable?: boolean;
 }
 
-export interface SalesTopItem {
-  name: string;
-  quantity: number;
-  revenueCop: number;
-}
-
-export interface CafeteriaSalesSummary {
-  totalOrders: number;
-  deliveredCount: number;
-  deliveredTotalCop: number;
-  averageTicketCop: number;
-  cancelledCount: number;
-  expiredCount: number;
-  inProgressCount: number;
-  topItems: SalesTopItem[];
-}
+/** Rows requested for the history table; the closure KPIs come from the server summary. */
+export const SALES_HISTORY_LIMIT = 500;
 
 const ORDER_STATUS_LABELS: Record<CafeteriaOrderStatus, string> = {
   PLACED: 'Recibido',
@@ -100,49 +86,16 @@ export function buildSalesOrdersQuery(filters: { from?: string; to?: string; sta
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   if (filters.status) params.set('status', filters.status);
-  params.set('limit', String(filters.limit ?? 500));
+  params.set('limit', String(filters.limit ?? SALES_HISTORY_LIMIT));
   return `/cafeteria/orders?${params.toString()}`;
 }
 
-export function summarizeCafeteriaSales(orders: readonly CafeteriaOrder[]): CafeteriaSalesSummary {
-  let deliveredCount = 0;
-  let deliveredTotalCop = 0;
-  let cancelledCount = 0;
-  let expiredCount = 0;
-  let inProgressCount = 0;
-  const itemTotals = new Map<string, SalesTopItem>();
+export function buildSalesSummaryQuery(filters: { from: string; to: string }): string {
+  const params = new URLSearchParams({ from: filters.from, to: filters.to });
+  return `/cafeteria/sales/summary?${params.toString()}`;
+}
 
-  for (const order of orders) {
-    if (order.status === 'DELIVERED') {
-      deliveredCount += 1;
-      deliveredTotalCop += Number(order.totalCop);
-      for (const item of order.items) {
-        const current = itemTotals.get(item.productNameSnapshot) ?? { name: item.productNameSnapshot, quantity: 0, revenueCop: 0 };
-        current.quantity += item.quantity;
-        current.revenueCop += Number(item.lineTotalCop);
-        itemTotals.set(item.productNameSnapshot, current);
-      }
-    } else if (order.status === 'CANCELLED') {
-      cancelledCount += 1;
-    } else if (order.status === 'EXPIRED') {
-      expiredCount += 1;
-    } else {
-      inProgressCount += 1;
-    }
-  }
-
-  const topItems = [...itemTotals.values()]
-    .sort((left, right) => right.quantity - left.quantity || right.revenueCop - left.revenueCop || left.name.localeCompare(right.name))
-    .slice(0, 5);
-
-  return {
-    totalOrders: orders.length,
-    deliveredCount,
-    deliveredTotalCop,
-    averageTicketCop: deliveredCount ? deliveredTotalCop / deliveredCount : 0,
-    cancelledCount,
-    expiredCount,
-    inProgressCount,
-    topItems,
-  };
+/** The history table hit the server limit, so older orders in the range are not listed. */
+export function isSalesHistoryTruncated(rowCount: number, limit: number = SALES_HISTORY_LIMIT): boolean {
+  return rowCount >= limit;
 }

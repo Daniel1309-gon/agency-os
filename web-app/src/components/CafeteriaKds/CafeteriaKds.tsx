@@ -19,6 +19,10 @@ const nextStatus: Partial<Record<CafeteriaOrderStatus, CafeteriaOrderStatus>> = 
   READY: 'DELIVERED',
 };
 
+// Only orders still in the kitchen flow: the history of delivered orders must not
+// push an active order past the server limit and off the display.
+const KDS_ORDERS_PATH = '/cafeteria/orders?active=true&limit=500';
+
 function socketOrigin(): string {
   const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:3000/api/v1';
   return new URL(baseUrl).origin;
@@ -38,7 +42,7 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     setIsLoading(true);
     setError(null);
     try {
-      const raw = await apiClient.request<unknown>('/cafeteria/orders');
+      const raw = await apiClient.request<unknown>(KDS_ORDERS_PATH);
       const parsed = cafeteriaOrderSchema.array().parse(raw);
       setOrders((current) => applyOrderSnapshot(current, parsed));
     } catch (nextError) {
