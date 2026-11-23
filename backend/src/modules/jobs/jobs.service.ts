@@ -151,7 +151,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async expireOrders(): Promise<void> {
-    await this.db.db.update(cafeteriaOrders).set({ status: 'EXPIRED' }).where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())));
+    const expired = await this.db.db
+      .update(cafeteriaOrders)
+      .set({ status: 'EXPIRED' })
+      .where(and(eq(cafeteriaOrders.status, 'READY'), isNotNull(cafeteriaOrders.pickupDeadlineAt), lt(cafeteriaOrders.pickupDeadlineAt, new Date())))
+      .returning({ id: cafeteriaOrders.id });
+    await Promise.all(expired.map((row) => this.realtime.publishCafeteriaOrderChanged(row.id)));
   }
 
   private async materializeShifts(businessDate = businessDateInBogota(new Date())): Promise<number> {
@@ -235,6 +240,56 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * FR-16 (A11): avisa por Rocket.Chat (via outbox durable) 5 minutos antes del
+   * tope de 20 minutos usando el reloj de Postgres (`now()`), marcando
+   * `breaks.notified_at` en la misma transaccion para no duplicar avisos.
+   * Corre despues del cierre automatico de 20 min para que un break vencido
+   * nunca reciba un aviso anticipado (ADR 0012).
+   */
+  private async notifyEndingBreaks(): Promise<number> {
+    return this.db.transaction(async () => {
+      const due = await this.db.db
+        .update(breaks)
+        .set({ notifiedAt: sql`now()` })
+        .where(and(
+          eq(breaks.status, 'IN_PROGRESS'),
+          isNull(breaks.notifiedAt),
+          isNotNull(breaks.startedAt),
+          sql`${breaks.startedAt} + interval '15 minutes' <= now()`,
+          sql`${breaks.startedAt} + interval '20 minutes' > now()`,
+        ))
+        .returning({
+          id: breaks.id,
+          shiftId: breaks.shiftId,
+          remainingMinutes: sql<number>`greatest(1, ceil(extract(epoch from ((${breaks.startedAt} + interval '20 minutes') - now())) / 60))::int`,
+        });
+      if (!due.length) return 0;
+      const shiftRows = await this.db.db
+        .select({ id: shifts.id, operatorId: shifts.operatorId })
+        .from(shifts)
+        .where(inArray(shifts.id, due.map((row) => row.shiftId)));
+      const operatorByShift = new Map(shiftRows.map((row) => [row.id, row.operatorId]));
+      const notices = due
+        .map((row) => {
+          const operatorId = operatorByShift.get(row.shiftId);
+          if (!operatorId) return null;
+          return {
+            eventType: 'rocketchat.message.send',
+            aggregateType: 'break',
+            aggregateId: row.id,
+            payload: {
+              targetUserId: operatorId,
+              body: `Tu break termina en ${row.remainingMinutes} min (límite máximo de 20 min).`,
+            },
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+      if (notices.length) await this.db.db.insert(outboxEvents).values(notices);
+      return notices.length;
+    });
+  }
+
+  /**
    * Cierra a los 20 minutos los breaks que el operador inicio y no termino. El
    * `ended_at` sale de `started_at + 20 min` en Postgres, no del reloj del
    * worker: el tope es una regla de la plataforma, no del proceso que la aplica.
@@ -245,6 +300,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       .set({ status: 'COMPLETED', endedAt: sql`${breaks.startedAt} + interval '20 minutes'`, durationMinutes: 20 })
       .where(and(eq(breaks.status, 'IN_PROGRESS'), sql`${breaks.startedAt} + interval '20 minutes' <= now()`))
       .returning({ id: breaks.id, shiftId: breaks.shiftId });
+    await this.notifyEndingBreaks();
     if (!closed.length) return;
     const operators = await this.db.db
       .selectDistinct({ operatorId: shifts.operatorId })

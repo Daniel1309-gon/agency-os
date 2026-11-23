@@ -116,6 +116,55 @@ describe('placing an order', () => {
     expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(0);
     expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(0);
   });
+
+  it('rejects a soft-deleted product even if isAvailable is still true (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    await ctx.pool.query('UPDATE cafeteria_products SET deleted_at = now() WHERE id = $1', [lunch.id]);
+
+    await expect(
+      cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }] }, operator.id, 'key-deleted'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('deterministically triggers 23505 inside withRequestContext savepoint and returns a consistent response shape (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    const input = { items: [{ productId: lunch.id, quantity: 2 }] };
+
+    // Synchronize both calls right after the pre-check returns undefined so both
+    // enter tx.transaction (SAVEPOINT) concurrently and the loser deterministically hits 23505.
+    const target = cafeteria as unknown as { findOrderSummary: (op: string, key: string) => Promise<unknown> };
+    const origFind = target.findOrderSummary.bind(cafeteria);
+    let precheckHits = 0;
+    let releaseBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => { releaseBarrier = resolve; });
+    const spy = vi.spyOn(target, 'findOrderSummary').mockImplementation(async (op: string, key: string) => {
+      const res = await origFind(op, key);
+      if (res === undefined) {
+        precheckHits += 1;
+        if (precheckHits === 2) releaseBarrier();
+        await barrier;
+      }
+      return res;
+    });
+
+    try {
+      const [first, second] = await Promise.all([
+        ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+        ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+      ]);
+
+      expect(precheckHits).toBe(2);
+      expect(second.id).toBe(first.id);
+      expect(Object.keys(first).sort()).toEqual(Object.keys(second).sort());
+      expect(second).toEqual(first);
+      expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(1);
+      expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('the kitchen flow and the debit', () => {

@@ -23,7 +23,7 @@
     "module-no-direct-schema:src/modules/icebreakers/icebreakers.service.ts:../../database/schema/index.js:icebreakerEffectiveness,icebreakerEvaluations,icebreakerReviews,icebreakerRules,icebreakerViolations,icebreakers",
     "module-no-direct-schema:src/modules/jobs/jobs.service.ts:../../database/schema/index.js:breaks,cafeteriaOrders,crewMembers,outboxEvents,profileAssignments,profileSessions,roles,shiftTemplates,shifts,users",
     "module-no-private-cross-import:src/modules/jobs/jobs.service.ts:../realtime/realtime.service.js",
-    "module-no-direct-schema:src/modules/metrics/metrics.service.ts:../../database/schema/index.js:cafeteriaOrders,crewMembers,crews,metricEvents,metricReconciliation,profileDailyMetrics,profileSessions,shifts,ttProfiles",
+    "module-no-direct-schema:src/modules/metrics/metrics.service.ts:../../database/schema/index.js:cafeteriaOrders,crewMembers,crews,metricEvents,metricReconciliation,profileAssignments,profileDailyMetrics,profileSessions,shifts,ttProfiles",
     "module-no-direct-schema:src/modules/operator-status/operator-status.service.ts:../../database/schema/index.js:operatorCurrentStatus,operatorStatusEvents",
     "module-no-private-cross-import:src/modules/operator-status/operator-status.service.ts:../realtime/realtime.service.js",
     "module-no-direct-schema:src/modules/outbox/outbox.service.ts:../../database/schema/index.js:outboxEvents",

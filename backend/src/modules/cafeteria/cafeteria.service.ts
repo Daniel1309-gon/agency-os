@@ -41,14 +41,14 @@ export class CafeteriaService {
 
   async createOrder(input: OrderInput, operatorId: string, idempotencyKey: string) {
     if (!idempotencyKey) throw new ConflictException('Idempotency-Key is required');
-    const existing = await this.db.db.query.cafeteriaOrders.findFirst({ where: and(eq(cafeteriaOrders.operatorId, operatorId), eq(cafeteriaOrders.idempotencyKey, idempotencyKey)) });
+    const existing = await this.findOrderSummary(operatorId, idempotencyKey);
     if (existing) return this.withOrderItems(existing);
     try {
       const order = await this.db.db.transaction(async (tx) => {
         let total = 0;
         const itemRows: Array<{ productId: string; productNameSnapshot: string; unitPriceCop: string; quantity: number; lineTotalCop: string; notes?: string }> = [];
         for (const item of input.items) {
-          const product = await tx.query.cafeteriaProducts.findFirst({ where: and(eq(cafeteriaProducts.id, item.productId), eq(cafeteriaProducts.isAvailable, true)) });
+          const product = await tx.query.cafeteriaProducts.findFirst({ where: and(eq(cafeteriaProducts.id, item.productId), eq(cafeteriaProducts.isAvailable, true), isNull(cafeteriaProducts.deletedAt)) });
           if (!product) throw new NotFoundException(`Product ${item.productId} not available`);
           const line = Number(product.priceCop) * item.quantity;
           total += line;
@@ -62,11 +62,20 @@ export class CafeteriaService {
       return this.withOrderItems(order);
     } catch (error) {
       if (isPgError(error, PG_UNIQUE_VIOLATION)) {
-        const concurrent = await this.db.db.query.cafeteriaOrders.findFirst({ where: and(eq(cafeteriaOrders.operatorId, operatorId), eq(cafeteriaOrders.idempotencyKey, idempotencyKey)) });
+        const concurrent = await this.findOrderSummary(operatorId, idempotencyKey);
         if (concurrent) return this.withOrderItems(concurrent);
       }
       throw error;
     }
+  }
+
+  private async findOrderSummary(operatorId: string, idempotencyKey: string) {
+    const row = await this.db.db.query.cafeteriaOrders.findFirst({
+      where: and(eq(cafeteriaOrders.operatorId, operatorId), eq(cafeteriaOrders.idempotencyKey, idempotencyKey)),
+      columns: { id: true, orderNumber: true, status: true, totalCop: true },
+    });
+    if (!row) return undefined;
+    return { id: row.id, orderNumber: row.orderNumber, status: row.status, totalCop: row.totalCop };
   }
 
   async updateStatus(orderId: string, input: OrderStatusInput, actorId: string) {

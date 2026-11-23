@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { MetricsService } from '../../modules/metrics/metrics.service.js';
-import { metricEvents, profileDailyMetrics } from '../../database/schema/index.js';
-import { createProfile, createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
+import { metricEvents, profileAssignments, profileDailyMetrics, profileSessions } from '../../database/schema/index.js';
+import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
 let metrics: MetricsService;
@@ -23,12 +24,32 @@ beforeEach(async () => {
 
 const AT = '2026-08-04T10:00:00.000Z';
 
+async function assign(
+  operatorId: string,
+  profileId: string,
+  options: { start?: string; end?: string; status?: 'ACTIVE' | 'ENDED' | 'CANCELLED' } = {},
+) {
+  const admin = await createUser(ctx, { role: 'ADMIN' });
+  const [row] = await ctx.db
+    .insert(profileAssignments)
+    .values({
+      operatorId,
+      profileId,
+      validRange: halfOpen(new Date(options.start ?? '2026-08-04T06:05:00.000Z'), new Date(options.end ?? '2026-08-04T14:05:00.000Z')),
+      status: options.status ?? 'ACTIVE',
+      assignedBy: admin.id,
+    })
+    .returning({ id: profileAssignments.id });
+  return row;
+}
+
 describe('decision #15 — metric ingestion is idempotent', () => {
   it('accepts a batch once and ignores the retry', async () => {
     // Criterio de entrega de PLAN.md §9: la extension reintenta ante caida de
     // red, y los puntos son dinero.
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
     const batch = {
       events: [
         { dedupeKey: 'evt-1', profileId: profile.id, eventType: 'POINTS', points: 10, occurredAt: AT, payload: {} },
@@ -49,6 +70,7 @@ describe('decision #15 — metric ingestion is idempotent', () => {
   it('accepts the new events of a partially retried batch', async () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
     const event = (key: string) => ({ dedupeKey: key, profileId: profile.id, eventType: 'POINTS', points: 1, occurredAt: AT, payload: {} });
 
     await metrics.ingest({ events: [event('a'), event('b')] }, operator.id);
@@ -62,6 +84,7 @@ describe('decision #15 — metric ingestion is idempotent', () => {
     // leido en dos momentos son dos hechos, no un reintento.
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
     const at = (iso: string) => ({ dedupeKey: 'same', profileId: profile.id, eventType: 'POINTS', points: 1, occurredAt: iso, payload: {} });
 
     await metrics.ingest({ events: [at(AT)] }, operator.id);
@@ -74,6 +97,7 @@ describe('decision #15 — metric ingestion is idempotent', () => {
   it('keeps the raw payload and the operator that sent it', async () => {
     const operator = await createUser(ctx);
     const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
     await metrics.ingest(
       { events: [{ dedupeKey: 'evt-raw', profileId: profile.id, eventType: 'ICEBREAKER_SENT', occurredAt: AT, payload: { dom: '3 respuestas' } }] },
       operator.id,
@@ -85,6 +109,77 @@ describe('decision #15 — metric ingestion is idempotent', () => {
       .where(eq(metricEvents.dedupeKey, 'evt-raw'));
     expect(row).toMatchObject({ operatorId: operator.id, eventType: 'ICEBREAKER_SENT', payload: { dom: '3 respuestas' } });
     expect(row.points).toBeNull();
+  });
+});
+
+describe('extension metrics ownership (A3)', () => {
+  it('refuses events for a profile the operator did not hold at occurredAt or for a cancelled assignment', async () => {
+    const operator = await createUser(ctx);
+    const otherOperator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const cancelledProfile = await createProfile(ctx);
+    await assign(otherOperator.id, profile.id);
+    await assign(operator.id, cancelledProfile.id, { status: 'CANCELLED' });
+
+    await expect(
+      metrics.ingest({ events: [{ dedupeKey: 'unowned-1', profileId: profile.id, eventType: 'POINTS', points: 10, occurredAt: AT, payload: {} }] }, operator.id),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      metrics.ingest({ events: [{ dedupeKey: 'cancelled-1', profileId: cancelledProfile.id, eventType: 'POINTS', points: 10, occurredAt: AT, payload: {} }] }, operator.id),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(await ctx.db.select({ id: metricEvents.id }).from(metricEvents)).toHaveLength(0);
+  });
+
+  it('accepts buffered offline events from an ENDED assignment whose validRange covers occurredAt', async () => {
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id, { status: 'ENDED' });
+
+    await expect(
+      metrics.ingest({ events: [{ dedupeKey: 'buffered-1', profileId: profile.id, eventType: 'POINTS', points: 4, occurredAt: AT, payload: {} }] }, operator.id),
+    ).resolves.toEqual({ accepted: 1, ignored: 0 });
+  });
+
+  it('validates x-session-id format and ownership against operator and event profile', async () => {
+    const operator = await createUser(ctx);
+    const otherOperator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const otherProfile = await createProfile(ctx);
+    const device = await createDevice(ctx, { operatorId: operator.id });
+    const ownAssignment = await assign(operator.id, profile.id);
+    await assign(operator.id, otherProfile.id);
+    const otherAssignment = await assign(otherOperator.id, profile.id, { start: '2026-08-04T14:05:00.000Z', end: '2026-08-04T22:05:00.000Z' });
+    const [ownSession] = await ctx.db.insert(profileSessions).values({ assignmentId: ownAssignment.id, profileId: profile.id, operatorId: operator.id, deviceId: device.id, chromeProfileDir: 'Profile 1', status: 'ACTIVE' }).returning({ id: profileSessions.id });
+    const [foreignSession] = await ctx.db.insert(profileSessions).values({ assignmentId: otherAssignment.id, profileId: profile.id, operatorId: otherOperator.id, deviceId: device.id, chromeProfileDir: 'Profile 1', status: 'CLOSED' }).returning({ id: profileSessions.id });
+    const event = { dedupeKey: 'sess-1', profileId: profile.id, eventType: 'POINTS' as const, points: 2, occurredAt: AT, payload: {} };
+
+    await expect(metrics.ingest({ events: [event] }, operator.id, 'not-a-uuid')).rejects.toThrow(BadRequestException);
+    await expect(metrics.ingest({ events: [event] }, operator.id, foreignSession.id)).rejects.toThrow(ForbiddenException);
+    await expect(
+      metrics.ingest({ events: [{ ...event, dedupeKey: 'sess-mismatch', profileId: otherProfile.id }] }, operator.id, ownSession.id),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(metrics.ingest({ events: [event] }, operator.id, ownSession.id)).resolves.toEqual({ accepted: 1, ignored: 0 });
+  });
+
+  it('rejects empty/whitespace x-session-id (400), unknown UUID (403), mixed batches atomically (403), and exclusive upper-bound timestamps (403)', async () => {
+    const operator = await createUser(ctx);
+    const profile = await createProfile(ctx);
+    const otherProfile = await createProfile(ctx);
+    await assign(operator.id, profile.id, { start: '2026-08-04T06:05:00.000Z', end: '2026-08-04T14:05:00.000Z' });
+    const owned = { dedupeKey: 'mix-ok', profileId: profile.id, eventType: 'POINTS' as const, points: 3, occurredAt: AT, payload: {} };
+    const unowned = { dedupeKey: 'mix-bad', profileId: otherProfile.id, eventType: 'POINTS' as const, points: 3, occurredAt: AT, payload: {} };
+
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '')).rejects.toThrow(BadRequestException);
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '   ')).rejects.toThrow(BadRequestException);
+    await expect(metrics.ingest({ events: [owned] }, operator.id, '00000000-0000-4000-8000-000000000000')).rejects.toThrow(ForbiddenException);
+    await expect(metrics.ingest({ events: [owned, unowned] }, operator.id)).rejects.toThrow(ForbiddenException);
+    await expect(
+      metrics.ingest({ events: [{ ...owned, dedupeKey: 'at-upper', occurredAt: '2026-08-04T14:05:00.000Z' }] }, operator.id),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(await ctx.db.select({ id: metricEvents.id }).from(metricEvents)).toHaveLength(0);
   });
 });
 
