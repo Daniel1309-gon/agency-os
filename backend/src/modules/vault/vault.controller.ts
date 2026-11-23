@@ -35,6 +35,12 @@ export class VaultKeyController {
   rotateKey(@CurrentUser() user: AccessTokenClaims) {
     return this.vault.rotateEncryptionKey(user.sub);
   }
+
+  @Post('keys/reencrypt')
+  @RequirePermissions('vault.keys.rotate')
+  reencryptCredentials(@CurrentUser() user: AccessTokenClaims) {
+    return this.vault.reencryptToActiveKey(user.sub);
+  }
 }
 
 @Controller('agent/session')

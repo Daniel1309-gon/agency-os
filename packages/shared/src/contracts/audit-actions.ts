@@ -51,6 +51,7 @@ export const AUDIT_ACTIONS = {
   'vault.credential.handoff': { entity: 'profile', label: 'Entrega a la estación' },
   'vault.credential.rotated': { entity: 'profile', label: 'Credencial rotada' },
   'vault.key.rotated': { entity: null, label: 'Clave del vault rotada' },
+  'vault.credentials.reencrypted': { entity: null, label: 'Credenciales recifradas a la clave vigente' },
 
   'shift.created': { entity: 'shift', label: 'Turno creado' },
   'shift.started': { entity: 'shift', label: 'Turno iniciado' },

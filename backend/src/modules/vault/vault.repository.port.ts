@@ -33,6 +33,24 @@ export interface VaultEncryptedCredential {
   aadContext: string;
 }
 
+export interface VaultStaleCredential {
+  id: string;
+  profileId: string;
+  ciphertext: Buffer;
+  nonce: Buffer;
+  tag: Buffer;
+  keyVersion: number;
+  aadContext: string;
+}
+
+export interface VaultReencryptedPayload {
+  ciphertext: Buffer;
+  nonce: Buffer;
+  tag: Buffer;
+  keyVersion: number;
+  aadContext: string;
+}
+
 export interface VaultCredentialRotation extends VaultEncryptedCredential {
   profileId: string;
   version: number;
@@ -112,6 +130,10 @@ export interface VaultRepository {
     deviceId: string;
   }): Promise<{ operatorId: string } | undefined>;
   currentCredential(profileId: string): Promise<VaultEncryptedCredential | undefined>;
+  reencryptStaleCredentials(
+    activeKeyVersion: number,
+    reencrypt: (row: VaultStaleCredential) => Promise<VaultReencryptedPayload>,
+  ): Promise<number>;
   markGrantConsumed(grantId: string, consumedAt: Date): Promise<void>;
   /** Destinatarios y nombres legibles de una alerta de abuso (SEC-10). */
   abuseAlertTargets(userId: string, profileId: string): Promise<VaultAbuseAlertTargets>;
