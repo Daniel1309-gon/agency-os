@@ -37,5 +37,5 @@ export function evaluationSummary(result: IcebreakerEvaluationResult): { title: 
   const details = result.violations.map((violation) => `${violation.severity === 'BLOCKING' ? 'Bloqueante' : 'Advertencia'}: ${violation.name}`);
   if (result.score !== undefined) details.push(`Puntaje: ${Math.round(result.score * 100)}/100`);
   if (result.status === 'BLOCKED') return { title: 'Bloqueado: incumple las normas de TalkyTimes y no se puede publicar.', details };
-  return { title: details.length ? 'Aprobado con advertencias: ya puedes publicarlo.' : 'Aprobado: ya puedes publicarlo.', details };
+  return { title: result.violations.length ? 'Aprobado con advertencias: ya puedes publicarlo.' : 'Aprobado: ya puedes publicarlo.', details };
 }

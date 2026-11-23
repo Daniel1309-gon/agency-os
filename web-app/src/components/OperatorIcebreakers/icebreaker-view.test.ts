@@ -38,5 +38,7 @@ describe('operator icebreaker view model (FR-21 to FR-24)', () => {
       details: ['Bloqueante: Prohibido pedir datos de contacto', 'Advertencia: Evitar emojis excesivos', 'Puntaje: 12/100'],
     });
     expect(evaluationSummary({ id: ID, status: 'APPROVED', blocking: false, matchedRules: [], violations: [], source: 'LOCAL_RULES' })).toEqual({ title: 'Aprobado: ya puedes publicarlo.', details: [] });
+    // A score alone is not a warning.
+    expect(evaluationSummary({ id: ID, status: 'APPROVED', blocking: false, matchedRules: [], violations: [], score: 0.82, source: 'AI_ENGINE' })).toEqual({ title: 'Aprobado: ya puedes publicarlo.', details: ['Puntaje: 82/100'] });
   });
 });

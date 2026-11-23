@@ -160,6 +160,19 @@ describe('icebreaker workspace rules (FR-21, FR-22, FR-24)', () => {
     expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, id) }))?.status).toBe('PUBLISHED');
   });
 
+  it('refuses to publish an icebreaker whose profile is no longer assigned to the operator', async () => {
+    const operator = await createUser(ctx);
+    const actor = { sub: operator.id, role: 'OPERADOR' as const };
+    const profile = await createProfile(ctx);
+    await assign(operator.id, profile.id);
+    const created = await service.create({ profileId: profile.id, text: 'Hola, ¿qué tal tu día?' }, actor);
+    await service.evaluate(created.id, actor);
+    await ctx.db.update(profileAssignments).set({ status: 'ENDED' }).where(eq(profileAssignments.operatorId, operator.id));
+
+    await expect(service.publish(created.id, actor)).rejects.toThrow(ForbiddenException);
+    expect((await ctx.db.query.icebreakers.findFirst({ where: eq(icebreakers.id, created.id) }))?.status).toBe('APPROVED');
+  });
+
   it('increments the version on publish instead of resetting it', async () => {
     const { actor, id } = await draft('Hola, ¿qué tal tu día?');
     await service.evaluate(id, actor);

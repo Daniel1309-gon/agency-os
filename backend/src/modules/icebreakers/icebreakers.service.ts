@@ -80,6 +80,9 @@ export class IcebreakersService {
   }
 
   async publish(id: string, actor: IcebreakerActor) {
+    const item = await this.db.db.query.icebreakers.findFirst({ where: and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub)) });
+    if (!item || item.status !== 'APPROVED') throw new ConflictException('Icebreaker requires an approved evaluation');
+    await this.assertAssignedProfile(item.profileId ?? undefined, actor);
     const [row] = await this.db.db.update(icebreakers).set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date(), version: sql`${icebreakers.version} + 1` }).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub), eq(icebreakers.status, 'APPROVED'))).returning({ id: icebreakers.id, status: icebreakers.status, publishedAt: icebreakers.publishedAt });
     if (!row) throw new ConflictException('Icebreaker requires an approved evaluation');
     await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.published', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { status: 'PUBLISHED' } });
