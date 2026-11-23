@@ -1,8 +1,8 @@
-import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
-import { icebreakerEffectiveness, icebreakerEvaluations, icebreakerReviews, icebreakerRules, icebreakerViolations, icebreakers } from '../../database/schema/index.js';
+import { icebreakerEffectiveness, icebreakerEvaluations, icebreakerReviews, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments } from '../../database/schema/index.js';
 import type { IcebreakerCreateInput, IcebreakerUpdateInput, ReviewInput, RuleInput, RuleUpdateInput } from './icebreakers.schemas.js';
 import { AiEngineClient, type AiEvaluation } from './ai-engine.client.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
@@ -30,10 +30,11 @@ export class IcebreakersService {
 
   async list(actor: IcebreakerActor) { return this.db.db.select({ id: icebreakers.id, profileId: icebreakers.profileId, text: icebreakers.text, status: icebreakers.status, version: icebreakers.version, publishedAt: icebreakers.publishedAt, createdAt: icebreakers.createdAt, updatedAt: icebreakers.updatedAt }).from(icebreakers).where(eq(icebreakers.operatorId, actor.sub)).orderBy(asc(icebreakers.createdAt)); }
 
-  async create(input: IcebreakerCreateInput, actor: IcebreakerActor) { const [row] = await this.db.db.insert(icebreakers).values({ ...input, operatorId: actor.sub }).returning({ id: icebreakers.id, status: icebreakers.status, version: icebreakers.version }); return row; }
+  async create(input: IcebreakerCreateInput, actor: IcebreakerActor) { await this.assertAssignedProfile(input.profileId, actor); const [row] = await this.db.db.insert(icebreakers).values({ ...input, operatorId: actor.sub }).returning({ id: icebreakers.id, status: icebreakers.status, version: icebreakers.version }); return row; }
 
   async update(id: string, input: IcebreakerUpdateInput, actor: IcebreakerActor) {
     const { version, ...changes } = input;
+    await this.assertAssignedProfile(changes.profileId, actor);
     const [row] = await this.db.db.update(icebreakers).set({ ...changes, version: version + 1, updatedAt: new Date() }).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub), eq(icebreakers.version, version), sql`${icebreakers.status} IN ('DRAFT', 'BLOCKED')`)).returning({ id: icebreakers.id, version: icebreakers.version, status: icebreakers.status });
     if (!row) throw new ConflictException('Icebreaker is not editable or has changed');
     return row;
@@ -42,6 +43,8 @@ export class IcebreakersService {
   async evaluate(id: string, actor: IcebreakerActor) {
     const item = await this.db.db.query.icebreakers.findFirst({ where: and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub)) });
     if (!item) throw new NotFoundException('Icebreaker not found');
+    // FR-24: drafts, blocked and approved texts can be re-evaluated; a published one is final.
+    if (item.status === 'PUBLISHED') throw new ConflictException('A published icebreaker cannot be evaluated again');
     const rules = await this.db.db.query.icebreakerRules.findMany({ where: eq(icebreakerRules.isActive, true) });
     // FR-22: the local rules always run. The AI engine can add a block, never lift one.
     const local = rules.filter((rule) => matchesRule(rule, item.text));
@@ -66,17 +69,28 @@ export class IcebreakersService {
       if (remote) await tx.insert(icebreakerEvaluations).values({ icebreakerId: id, evaluator: 'AI_ENGINE', status: 'SUCCESS', result: { ...remote.result, verdict: remote.status, violatedRules: remote.violatedRules }, score: remote.score.toFixed(4), model: remote.model, tokenCostUsd: remote.tokenCostUsd?.toFixed(6) });
       // FR-25: every broken rule leaves a trace, whoever found it.
       if (broken.length) await tx.insert(icebreakerViolations).values(broken.map((rule) => ({ icebreakerId: id, ruleId: rule.id, severity: rule.severity, status: 'OPEN' })));
-      await tx.update(icebreakers).set({ status, version: item.version + 1, updatedAt: new Date() }).where(eq(icebreakers.id, id));
+      // Compare-and-swap on the version read above: a concurrent edit or publish wins and this evaluation rolls back.
+      const [moved] = await tx.update(icebreakers).set({ status, version: item.version + 1, updatedAt: new Date() }).where(and(eq(icebreakers.id, id), eq(icebreakers.version, item.version))).returning({ id: icebreakers.id });
+      if (!moved) throw new ConflictException('Icebreaker changed during evaluation; evaluate it again');
     });
     await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.evaluated', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { profileId: item.profileId, status, source: remote ? 'AI_ENGINE' : 'LOCAL_RULES', count: matchedRules.length } });
-    return { id, status, blocking, matchedRules, ...(remote ? { score: remote.score, source: 'AI_ENGINE' as const } : { source: 'LOCAL_RULES' as const }) };
+    // FR-22: "Se indica qué regla específica fue incumplida": by name, not only by code.
+    const violations = broken.map((rule) => ({ code: rule.code, name: rule.name, severity: rule.severity }));
+    return { id, status, blocking, matchedRules, violations, ...(remote ? { score: remote.score, source: 'AI_ENGINE' as const } : { source: 'LOCAL_RULES' as const }) };
   }
 
   async publish(id: string, actor: IcebreakerActor) {
-    const [row] = await this.db.db.update(icebreakers).set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date(), version: 1 }).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub), eq(icebreakers.status, 'APPROVED'))).returning({ id: icebreakers.id, status: icebreakers.status, publishedAt: icebreakers.publishedAt });
+    const [row] = await this.db.db.update(icebreakers).set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date(), version: sql`${icebreakers.version} + 1` }).where(and(eq(icebreakers.id, id), eq(icebreakers.operatorId, actor.sub), eq(icebreakers.status, 'APPROVED'))).returning({ id: icebreakers.id, status: icebreakers.status, publishedAt: icebreakers.publishedAt });
     if (!row) throw new ConflictException('Icebreaker requires an approved evaluation');
     await this.audit?.record({ actorType: 'USER', actorUserId: actor.sub, action: 'icebreaker.published', entityType: 'icebreaker', entityId: id, result: 'SUCCESS', metadata: { status: 'PUBLISHED' } });
     return row;
+  }
+
+  /** FR-21: an icebreaker belongs to a profile the operator is assigned to right now. */
+  private async assertAssignedProfile(profileId: string | undefined, actor: IcebreakerActor): Promise<void> {
+    if (!profileId) return;
+    const [assignment] = await this.db.db.select({ id: profileAssignments.id }).from(profileAssignments).where(and(eq(profileAssignments.operatorId, actor.sub), eq(profileAssignments.profileId, profileId), eq(profileAssignments.status, 'ACTIVE'), sql`${profileAssignments.validRange} @> now()`)).limit(1);
+    if (!assignment) throw new ForbiddenException('The profile is not assigned to you right now');
   }
 
   async createRule(input: RuleInput, actorId: string) {
