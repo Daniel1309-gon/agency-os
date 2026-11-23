@@ -284,10 +284,13 @@ export class VaultService {
   /**
    * Igual que `deny`: el reuso termina en excepcion, asi que su bitacora se
    * escribe en una transaccion propia para que el rollback del request no la borre.
+   * Corre bajo el rol interno `JOB` para poder marcar `reuse_attempted` y obtener
+   * `profileId` incluso si la asignacion vencio o si otro operador intento el
+   * replay, sin aflojar la politica RLS del rol `OPERADOR`.
    */
   private async recordGrantReuse(grantId: string, context: RequestContext): Promise<void> {
     let profileId: string | undefined;
-    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+    await this.database.independentTransaction(context.userId, 'JOB', async () => {
       profileId = await this.repository.markGrantReuse(grantId);
       await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId, reused: true } });
     });
