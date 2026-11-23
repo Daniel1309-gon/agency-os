@@ -14,10 +14,11 @@ Objective: give the operator a web workspace to write, evaluate, fix and publish
 
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
-| T1 | S1–S4 | inline | in progress | Risk: item 2 (ownership guard on operator input) |
-| T2 | S5 | inline | pending | |
+| T1 | S1–S4 | inline | done | `75e9904`; icebreakers.int RED 4 → GREEN 10/10, rls-service-writes 7/7. Risk: item 2 (ownership guard on operator input) |
+| T2 | S5 | inline | done | view-model tests 4/4 + navigation test; web 104/104, lint, build; `pnpm ci:quality` exit 0 (243 unit, 104 web); `pnpm ci:database` exit 0 (347). Not done: browser walkthrough of the page. |
 
 ## Log
 
 - **L1** (2026-11-23) User: "revisa lo que ha hecho gemini, corrige lo que veas que es necesario y continua." After the review of batches 4–6, the next remaining-scope item chosen was A8 (icebreaker UI).
 - **L2** (2026-11-23) Found while reading the API: `evaluate` has no status guard (a PUBLISHED icebreaker loses its status when re-evaluated), `publish` sets `version: 1`, `create`/`update` accept any `profileId`.
+- **L3** (2026-11-23) OrbStack hung mid-run (every `docker` call blocked); restarted it, Postgres volumes intact, and the vault/icebreaker suites passed (41/41). It was the environment, not the code.
