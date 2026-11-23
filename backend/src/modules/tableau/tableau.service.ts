@@ -266,7 +266,7 @@ export class TableauService {
       const existing = await this.db.db
         .select({ id: outboxEvents.id })
         .from(outboxEvents)
-        .where(and(eq(outboxEvents.aggregateType, 'tableau_freshness'), eq(outboxEvents.aggregateId, item.viewId), sql`${outboxEvents.payload}->>'sourceMessageId' = ${dedupeKey}`))
+        .where(and(eq(outboxEvents.aggregateType, 'tableau_freshness'), eq(outboxEvents.aggregateId, item.viewId), sql`${outboxEvents.payload}->>'alertKey' = ${dedupeKey}`))
         .limit(1);
       if (existing.length) continue;
       sent += await this.enqueueAlertsChannel(
@@ -294,21 +294,31 @@ export class TableauService {
     );
   }
 
-  private async enqueueAlertsChannel(aggregateType: string, aggregateId: string, body: string, sourceMessageId: string): Promise<number> {
+  /**
+   * One outbox row per active ALERTS channel, deduplicated by `alertKey` + channel
+   * (index `outbox_alert_key_unique`): a concurrent worker that already enqueued the
+   * same alert makes the insert a no-op. `sourceMessageId` must stay unset: the
+   * dispatcher sends it to Rocket.Chat as the thread id of a real message.
+   */
+  private async enqueueAlertsChannel(aggregateType: string, aggregateId: string, body: string, alertKey: string): Promise<number> {
     const channels = await this.db.db
       .select({ id: rocketchatChannels.id })
       .from(rocketchatChannels)
       .where(and(eq(rocketchatChannels.purpose, 'ALERTS'), eq(rocketchatChannels.isActive, true)));
     if (!channels.length) return 0;
-    await this.db.db.insert(outboxEvents).values(
-      channels.map((channel) => ({
-        eventType: 'rocketchat.message.send',
-        aggregateType,
-        aggregateId,
-        payload: { channelId: channel.id, body, sourceMessageId },
-      })),
-    );
-    return channels.length;
+    const inserted = await this.db.db
+      .insert(outboxEvents)
+      .values(
+        channels.map((channel) => ({
+          eventType: 'rocketchat.message.send',
+          aggregateType,
+          aggregateId,
+          payload: { channelId: channel.id, body, alertKey },
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: outboxEvents.id });
+    return inserted.length;
   }
 
   /** Worker only: claims queued runs (and stale running ones) and executes them one by one. */
