@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { asc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { IcebreakersService } from '../../modules/icebreakers/icebreakers.service.js';
+import { ruleSchema } from '../../modules/icebreakers/icebreakers.schemas.js';
 import type { AiEngineClient, AiEvaluation } from '../../modules/icebreakers/ai-engine.client.js';
 import { auditLog, crewMembers, crews, icebreakerEvaluations, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments } from '../../database/schema/index.js';
 import { createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
@@ -247,5 +248,30 @@ describe('icebreaker moderation queue and rule lifecycle (FR-25 to FR-27)', () =
 
     const auditActions = (await ctx.db.select({ action: auditLog.action }).from(auditLog)).map((row) => row.action);
     expect(auditActions).toContain('icebreaker.rule.updated');
+  });
+
+  it('rejects rules whose pattern cannot work, so one bad regex cannot block every icebreaker', async () => {
+    const base = { code: 'R1', name: 'Rule', severity: 'BLOCKING' as const };
+    expect(ruleSchema.safeParse({ ...base, kind: 'REGEX', pattern: '([a-z' }).success).toBe(false);
+    expect(ruleSchema.safeParse({ ...base, kind: 'REGEX' }).success).toBe(false);
+    expect(ruleSchema.safeParse({ ...base, kind: 'KEYWORD', pattern: '   ' }).success).toBe(false);
+    expect(ruleSchema.safeParse({ ...base, kind: 'MANUAL', pattern: 'tel:' }).success).toBe(false);
+    expect(ruleSchema.safeParse({ ...base, kind: 'REGEX', pattern: '\\d{7,}' }).success).toBe(true);
+    expect(ruleSchema.safeParse({ ...base, kind: 'KEYWORD', pattern: 'tel:' }).success).toBe(true);
+    expect(ruleSchema.safeParse({ ...base, kind: 'MANUAL' }).success).toBe(true);
+
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const regex = await service.createRule({ ...base, code: 'PHONE', kind: 'REGEX', pattern: '\\d{7,}' }, admin.id);
+    await expect(service.updateRule(regex.id, { pattern: '([a-z', version: 1 }, admin.id)).rejects.toThrow(BadRequestException);
+    const keyword = await service.createRule({ ...base, code: 'IG', kind: 'KEYWORD', pattern: 'instagram' }, admin.id);
+    await expect(service.updateRule(keyword.id, { kind: 'REGEX', version: 1 }, admin.id)).resolves.toMatchObject({ version: 2 });
+    await expect(service.updateRule(keyword.id, { kind: 'REGEX', pattern: '(', version: 2 }, admin.id)).rejects.toThrow(BadRequestException);
+    await expect(service.updateRule(keyword.id, { kind: 'MANUAL', version: 2 }, admin.id)).resolves.toMatchObject({ version: 3 });
+
+    const stored = await ctx.db.select({ code: icebreakerRules.code, kind: icebreakerRules.kind, pattern: icebreakerRules.pattern, version: icebreakerRules.version }).from(icebreakerRules).orderBy(asc(icebreakerRules.code));
+    expect(stored).toEqual([
+      { code: 'IG', kind: 'MANUAL', pattern: null, version: 3 },
+      { code: 'PHONE', kind: 'REGEX', pattern: '\\d{7,}', version: 1 },
+    ]);
   });
 });

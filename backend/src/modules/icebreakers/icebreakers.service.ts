@@ -1,9 +1,9 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { icebreakerEffectiveness, icebreakerEvaluations, icebreakerReviews, icebreakerRules, icebreakerViolations, icebreakers, profileAssignments, ttProfiles, users } from '../../database/schema/index.js';
-import type { IcebreakerCreateInput, IcebreakerUpdateInput, ReviewInput, RuleInput, RuleUpdateInput, ViolationsQueryInput } from './icebreakers.schemas.js';
+import { rulePatternIssue, type IcebreakerCreateInput, type IcebreakerUpdateInput, type ReviewInput, type RuleInput, type RuleKind, type RuleUpdateInput, type ViolationsQueryInput } from './icebreakers.schemas.js';
 import { AiEngineClient, type AiEvaluation } from './ai-engine.client.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 
@@ -109,7 +109,10 @@ export class IcebreakersService {
   }
 
   async createRule(input: RuleInput, actorId: string) {
-    const [row] = await this.db.db.insert(icebreakerRules).values({ ...input, createdBy: actorId }).returning({ id: icebreakerRules.id, code: icebreakerRules.code, severity: icebreakerRules.severity });
+    const issue = rulePatternIssue(input.kind, input.pattern);
+    if (issue) throw new BadRequestException(issue);
+    const pattern = input.kind === 'MANUAL' ? null : input.pattern;
+    const [row] = await this.db.db.insert(icebreakerRules).values({ ...input, pattern, createdBy: actorId }).returning({ id: icebreakerRules.id, code: icebreakerRules.code, severity: icebreakerRules.severity });
     await this.audit?.record({ actorType: 'USER', actorUserId: actorId, action: 'icebreaker.rule.created', entityType: 'icebreaker_rule', entityId: row.id, result: 'SUCCESS', metadata: { key: row.code } });
     return row;
   }
@@ -118,6 +121,16 @@ export class IcebreakersService {
 
   async updateRule(id: string, input: RuleUpdateInput, actorId?: string) {
     const { version, ...changes } = input;
+    if (changes.kind !== undefined || changes.pattern !== undefined) {
+      const [current] = await this.db.db.select({ kind: icebreakerRules.kind, pattern: icebreakerRules.pattern }).from(icebreakerRules).where(and(eq(icebreakerRules.id, id), eq(icebreakerRules.version, version))).limit(1);
+      if (!current) throw new ConflictException('Rule was modified or not found');
+      const kind = changes.kind ?? (current.kind as RuleKind);
+      // Switching to MANUAL drops the old pattern instead of refusing the change.
+      const pattern = kind === 'MANUAL' && changes.pattern === undefined ? null : changes.pattern !== undefined ? changes.pattern : current.pattern;
+      const issue = rulePatternIssue(kind, pattern);
+      if (issue) throw new BadRequestException(issue);
+      changes.pattern = kind === 'MANUAL' ? null : pattern;
+    }
     const [row] = await this.db.db.update(icebreakerRules).set({ ...changes, version: version + 1 }).where(and(eq(icebreakerRules.id, id), eq(icebreakerRules.version, version))).returning({ id: icebreakerRules.id, code: icebreakerRules.code, version: icebreakerRules.version, isActive: icebreakerRules.isActive });
     if (!row) throw new ConflictException('Rule was modified or not found');
     await this.audit?.record({

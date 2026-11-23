@@ -59,7 +59,16 @@ describe('icebreaker moderation & rules view helpers (FR-25 to FR-27)', () => {
       kind: 'MANUAL',
       pattern: '',
       severity: 'INFO',
-    }, 2)).toEqual({ name: 'Revisión manual', kind: 'MANUAL', severity: 'INFO', version: 2 });
+    }, 2)).toEqual({ name: 'Revisión manual', kind: 'MANUAL', pattern: null, severity: 'INFO', version: 2 });
+  });
+
+  it('drops a leftover pattern when the rule becomes MANUAL, which the API refuses to store', () => {
+    expect(buildUpdateRulePayload({ name: 'Manual', kind: 'MANUAL', pattern: 'whatsapp', severity: 'INFO' }, 3))
+      .toEqual({ name: 'Manual', kind: 'MANUAL', pattern: null, severity: 'INFO', version: 3 });
+    expect(buildCreateRulePayload({ code: 'm1', name: 'Manual', kind: 'MANUAL', pattern: 'whatsapp', severity: 'INFO' }))
+      .toEqual({ code: 'M1', name: 'Manual', kind: 'MANUAL', severity: 'INFO' });
+    expect(buildUpdateRulePayload({ name: 'Teléfono', kind: 'REGEX', pattern: ' \\d{7,} ', severity: 'BLOCKING' }, 4))
+      .toEqual({ name: 'Teléfono', kind: 'REGEX', pattern: '\\d{7,}', severity: 'BLOCKING', version: 4 });
   });
 
   it('validates review payloads and exposes Spanish labels', () => {
