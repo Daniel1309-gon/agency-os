@@ -80,8 +80,8 @@ const adminRoutes: readonly WorkspaceRoute[] = [
 const cafeteriaRoutes: readonly WorkspaceRoute[] = [
   { id: 'cafeteriaOrders', path: '/app/pedidos', label: 'Pedidos', group: 'Punto', kicker: 'Operación en tiempo real', title: 'Pedidos de hoy', description: 'Mueve cada pedido por su estado hasta la entrega.', permission: 'cafeteria.manage', showDate: true },
   { id: 'cafeteriaMenu', path: '/app/menu', label: 'Menú', group: 'Punto', kicker: 'Disponibilidad · hoy', title: 'Menú de hoy', description: 'Consulta los productos publicados y sus tiempos de preparación.', permission: 'cafeteria.manage', showDate: true },
-  { id: 'cafeteriaSales', path: '/app/ventas', label: 'Ventas', group: 'Punto', kicker: 'Entrega 2', title: 'Ventas', description: 'El historial y el cierre de ventas estarán disponibles en una entrega posterior.', pending: true },
-  { id: 'cafeteriaInventory', path: '/app/inventario', label: 'Inventario', group: 'Punto', kicker: 'Entrega 2', title: 'Inventario', description: 'El control de existencias estará disponible en una entrega posterior.', pending: true },
+  { id: 'cafeteriaSales', path: '/app/ventas', label: 'Ventas', group: 'Punto', kicker: 'Cierre y trazabilidad', title: 'Ventas de cafetería', description: 'Consulta el historial de pedidos y el cierre diario de ventas en hora de Bogotá.', permission: 'cafeteria.manage', showDate: true, longPage: true },
+  { id: 'cafeteriaInventory', path: '/app/inventario', label: 'Inventario', group: 'Punto', kicker: 'Catálogo de productos', title: 'Inventario y disponibilidad', description: 'Administra productos, precios, tiempos de retiro y disponibilidad en el menú.', permission: 'cafeteria.manage', longPage: true },
 ];
 
 const routesByRole: Record<RoleCode, readonly WorkspaceRoute[]> = {

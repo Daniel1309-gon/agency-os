@@ -15,10 +15,11 @@ Objective: close the remaining unblocked A5 scope from `odd/tasks/HANDOFF-2026-1
 | ID | Specs | Route | Status | Evidence |
 |---|---|---|---|---|
 | T1 | S1, S2 | inline | done | `GET /cafeteria/orders` validated via `orderListQuerySchema` (Bogota day bounds, `limit` 1..500, `operatorName`, `cancelledAt`/`cancelReason`), `route-contracts.ts` `BOUNDED_FILTER`, OpenAPI + route-policy-matrix updated, `cafeteria.product.created`/`updated` audit trail added; shared build/lint/typecheck, backend lint/typecheck/241 unit/7 arch/10 contracts, live `cafeteria.int` 20/20, web 91/91 pass. Risk: none |
-| T2 | S3, S4, S5 | inline | in_progress | Slice 14 (`feat/scope-14-web-cafeteria-pages`) |
+| T2 | S3, S4, S5 | inline | done | Added `CafeteriaInventory` (`/app/inventario`), `CafeteriaSales` (`/app/ventas`), `cafeteria-management-view.ts` + tests, gated routes with `cafeteria.manage`, removed `pending: true` & `PendingWorkspacePage`; `web-app` lint, typecheck, `vite build`, vitest 16/16 (94/94 tests) pass. Risk: none |
 
 ## Log
 
 - **L1** (2026-11-22) User: "git push, pr y luego seguimos con el bloque" (PRs #15 and #16 opened; continuing with Batch 6 — A5 Ventas & Inventario).
 - **L2** (2026-11-22) Read-only explorer mapped all remaining unblocked Block 1 items (A5 Ventas/Inventario, A7, A8, A9, A10) and verified A5 is 100% unblocked and removes the last `pending: true` placeholders in `web-app`.
-- **L3** (2026-11-22) Slice 13 (`feat/scope-13-cafeteria-sales-audit`) verified and ready to commit. Proceeding to Slice 14 (`feat/scope-14-web-cafeteria-pages`, T2).
+- **L3** (2026-11-22) Slice 13 (`feat/scope-13-cafeteria-sales-audit`, `23a459a`) verified and committed. Proceeding to Slice 14 (`feat/scope-14-web-cafeteria-pages`, T2).
+- **L4** (2026-11-22) Slice 14 (`feat/scope-14-web-cafeteria-pages`) verified (`web-app` lint/typecheck/build/94 tests). Batch 6 (A5 Ventas & Inventario) complete locally; ready for user decision on pushing/opening PRs #17–#18 or continuing with A7–A10.
