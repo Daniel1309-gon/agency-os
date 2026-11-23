@@ -1,0 +1,22 @@
+# Close project scope — batch 9 (A7: per-profile dashboard & role audiences, FR-20 / MET-07)
+
+Objective: close the unblocked A7 scope from `odd/tasks/HANDOFF-2026-11-22.md`: scope and bound every metrics read endpoint by role/crew audience, fix `ranking()` mixing `EXTENSION` + `TABLEAU` rows, add an operator-safe profile-activity endpoint, and upgrade `/app/metricas` into a per-profile dashboard with timeseries drilldown, ranking, reconciliation, and coordinator access. Base: `feat/scope-19-web-icebreaker-moderation` (`87b9994`). Delivery: `stacked-to-main`, continuing the #5–#23 chain (slice 20 `feat/scope-20-metrics-audience-scoping`, slice 21 `feat/scope-21-web-profile-dashboard`; never push or open PR without user OK).
+
+## Specs
+
+- **S1 (Audience scoping & bounded queries on metrics API)** `GET /metrics/profiles`, `GET /metrics/ranking`, `GET /metrics/profiles/:id/timeseries`, and `GET /metrics/reconciliation` validate calendar dates (`from <= to`) and `limit`, enforce role/crew scope (`ADMIN`/`DIRECTOR_OPERATIVO` global; `COORDINADOR` restricted to profiles held by active crew members; `403` on out-of-scope timeseries), keep `ranking()` strictly on `source = 'EXTENSION'` (no double-counting with Tableau), and update `route-contracts.ts` to `BOUNDED_FILTER` + OpenAPI/matrix snapshots.
+- **S2 (Operator-safe profile activity endpoint)** `GET /metrics/me/profiles` (`@RequireRoles('OPERADOR')`) returns extension-only daily communication metrics (`messagesSent`, `responses`, `responseRate`, `icebreakersSent`, `icebreakersReplied`) for profiles currently assigned to the operator, never exposing raw `points` or other operators' data (FR-28).
+- **S3 (Web per-profile dashboard & role audiences)** Upgrade `/app/metricas` (`ManagementOverview.tsx` + `metrics-view.ts` + tests) with Bogota date range filter, per-profile ranking/activity table, profile timeseries drilldown (`EXTENSION` vs `TABLEAU`), and reconciliation table for `ADMIN`/`DIRECTOR_OPERATIVO`; expose crew-scoped `/app/metricas` to `COORDINADOR` in `workspace-navigation.ts`.
+
+## Tasks
+
+| ID | Specs | Route | Status | Evidence |
+|---|---|---|---|---|
+| T1 | S1, S2 | inline | done | Role/crew audience scoping & bounded queries (`from`/`to`/`limit`) on `metrics/profiles`, `ranking` (fixed EXTENSION+TABLEAU double-count), `timeseries` (`403` out-of-scope), `reconciliation`, plus operator-safe `GET /metrics/me/profiles` (no raw `points`), shared contracts, `BOUNDED_FILTER` OpenAPI + matrix refreshed; shared build/lint/typecheck, backend lint/typecheck/243 unit/7 arch/10 contracts, live `metrics.int` 13/13 pass. Risk: item 2 (audience scoping on metrics reads) |
+| T2 | S3 | inline | in_progress | Slice 21 (`feat/scope-21-web-profile-dashboard`) |
+
+## Log
+
+- **L1** (2026-11-23) User: "si" (approved starting A7 right after PRs #17–#23 were published).
+- **L2** (2026-11-23) Inspection of `metrics.service.ts` confirmed `profiles`, `ranking`, `timeseries`, and `reconciliation` were all unscoped and unbounded, and `ranking()` summed `EXTENSION` + `TABLEAU` rows together.
+- **L3** (2026-11-23) Slice 20 (`feat/scope-20-metrics-audience-scoping`) verified and ready to commit. Proceeding to Slice 21 (`feat/scope-21-web-profile-dashboard`, T2).

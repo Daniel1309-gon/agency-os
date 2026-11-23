@@ -1,11 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { and, asc, count, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { DatabaseService } from '../../database/database.service.js';
 import { cafeteriaOrders, crewMembers, crews, metricEvents, metricReconciliation, profileAssignments, profileDailyMetrics, profileSessions, shifts, ttProfiles } from '../../database/schema/index.js';
-import type { MetricBatchInput } from './metrics.schemas.js';
+import type { MetricBatchInput, MetricQueryInput, RankingQueryInput, ReconciliationQueryInput } from './metrics.schemas.js';
+
+type MetricsActor = Pick<AccessTokenClaims, 'sub' | 'role'>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isGlobalAudience = (user?: MetricsActor): boolean => !user || user.role === 'ADMIN' || user.role === 'DIRECTOR_OPERATIVO';
 
 @Injectable()
 export class MetricsService {
@@ -67,32 +71,151 @@ export class MetricsService {
     return { accepted: inserted.length, ignored: rows.length - inserted.length };
   }
 
-  async profiles(from?: string, to?: string, profileId?: string) {
+  private profileScope(user: MetricsActor | undefined, profileIdColumn: AnyPgColumn): SQL | undefined {
+    if (isGlobalAudience(user)) return undefined;
+    if (user!.role === 'COORDINADOR') {
+      return sql`exists (
+        select 1 from ${profileAssignments} assignment
+        inner join ${crewMembers} member on member.user_id = assignment.operator_id
+        inner join ${crews} crew on crew.id = member.crew_id
+        where assignment.profile_id = ${profileIdColumn}
+          and assignment.status in ('ACTIVE', 'ENDED')
+          and member.valid_range @> now()
+          and crew.coordinator_id = ${user!.sub}
+          and crew.is_active = true
+      )`;
+    }
+    return sql`exists (
+      select 1 from ${profileAssignments} assignment
+      where assignment.profile_id = ${profileIdColumn}
+        and assignment.operator_id = ${user!.sub}
+        and assignment.status = 'ACTIVE'
+        and assignment.valid_range @> now()
+    )`;
+  }
+
+  private async assertProfileInAudience(profileId: string, user: MetricsActor): Promise<void> {
+    const scope = this.profileScope(user, ttProfiles.id);
+    if (!scope) return;
+    const [allowed] = await this.db.db.select({ id: ttProfiles.id }).from(ttProfiles).where(and(eq(ttProfiles.id, profileId), scope)).limit(1);
+    if (!allowed) throw new ForbiddenException('Profile is outside your audience scope');
+  }
+
+  async profiles(from?: string, to?: string, profileId?: string, user?: MetricsActor, limit = 200) {
+    const boundedLimit = Math.min(Math.max(limit, 1), 500);
+    const scope = this.profileScope(user, profileDailyMetrics.profileId);
     const filters = [eq(profileDailyMetrics.source, 'EXTENSION')];
     if (from) filters.push(gte(profileDailyMetrics.businessDate, from));
     if (to) filters.push(lte(profileDailyMetrics.businessDate, to));
     if (profileId) filters.push(eq(profileDailyMetrics.profileId, profileId));
-    return this.db.db.select({ profileId: profileDailyMetrics.profileId, displayName: ttProfiles.displayName, businessDate: profileDailyMetrics.businessDate, points: profileDailyMetrics.points, messagesSent: profileDailyMetrics.messagesSent, responses: profileDailyMetrics.responses, responseRate: profileDailyMetrics.responseRate, source: profileDailyMetrics.source }).from(profileDailyMetrics).innerJoin(ttProfiles, eq(ttProfiles.id, profileDailyMetrics.profileId)).where(and(...filters)).orderBy(asc(profileDailyMetrics.businessDate));
+    if (scope) filters.push(scope);
+    return this.db.db
+      .select({ profileId: profileDailyMetrics.profileId, displayName: ttProfiles.displayName, businessDate: profileDailyMetrics.businessDate, points: profileDailyMetrics.points, messagesSent: profileDailyMetrics.messagesSent, responses: profileDailyMetrics.responses, responseRate: profileDailyMetrics.responseRate, source: profileDailyMetrics.source })
+      .from(profileDailyMetrics)
+      .innerJoin(ttProfiles, eq(ttProfiles.id, profileDailyMetrics.profileId))
+      .where(and(...filters))
+      .orderBy(asc(profileDailyMetrics.businessDate), asc(ttProfiles.displayName))
+      .limit(boundedLimit);
   }
 
-  async ranking() {
+  /** FR-28 / A7: operator-safe activity view over currently assigned profiles without raw points or commission leakage. */
+  async operatorProfiles(user: MetricsActor, query: Partial<MetricQueryInput> = {}) {
+    const boundedLimit = Math.min(Math.max(query.limit ?? 200, 1), 500);
+    const scope = this.profileScope({ sub: user.sub, role: 'OPERADOR' }, profileDailyMetrics.profileId)!;
+    const filters = [eq(profileDailyMetrics.source, 'EXTENSION'), scope];
+    if (query.from) filters.push(gte(profileDailyMetrics.businessDate, query.from));
+    if (query.to) filters.push(lte(profileDailyMetrics.businessDate, query.to));
+    if (query.profileId) filters.push(eq(profileDailyMetrics.profileId, query.profileId));
+    return this.db.db
+      .select({
+        profileId: profileDailyMetrics.profileId,
+        displayName: ttProfiles.displayName,
+        businessDate: profileDailyMetrics.businessDate,
+        messagesSent: profileDailyMetrics.messagesSent,
+        responses: profileDailyMetrics.responses,
+        responseRate: profileDailyMetrics.responseRate,
+        icebreakersSent: profileDailyMetrics.icebreakersSent,
+        icebreakersReplied: profileDailyMetrics.icebreakersReplied,
+      })
+      .from(profileDailyMetrics)
+      .innerJoin(ttProfiles, eq(ttProfiles.id, profileDailyMetrics.profileId))
+      .where(and(...filters))
+      .orderBy(desc(profileDailyMetrics.businessDate), asc(ttProfiles.displayName))
+      .limit(boundedLimit);
+  }
+
+  async ranking(query: Partial<RankingQueryInput> = {}, user?: MetricsActor) {
+    const boundedLimit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+    const scope = this.profileScope(user, profileDailyMetrics.profileId);
+    const filters = [eq(profileDailyMetrics.source, 'EXTENSION')];
+    if (query.from) filters.push(gte(profileDailyMetrics.businessDate, query.from));
+    if (query.to) filters.push(lte(profileDailyMetrics.businessDate, query.to));
+    if (scope) filters.push(scope);
     // La expresion se repite en el ORDER BY en vez de ordenar por `response_rate`:
     // Drizzle no emite alias para las columnas seleccionadas (mapea por posicion),
     // asi que ese nombre lo resolvia Postgres contra la columna homonima de
     // profile_daily_metrics — sin agrupar — y la consulta moria con un 42803.
     const responseRate = sql<number>`coalesce(sum(${profileDailyMetrics.responses})::numeric / nullif(sum(${profileDailyMetrics.messagesSent}), 0), 0)`;
-    return this.db.db.select({ profileId: profileDailyMetrics.profileId, displayName: ttProfiles.displayName, responseRate }).from(profileDailyMetrics).innerJoin(ttProfiles, eq(ttProfiles.id, profileDailyMetrics.profileId)).groupBy(profileDailyMetrics.profileId, ttProfiles.displayName).orderBy(sql`${responseRate} DESC`);
+    return this.db.db
+      .select({
+        profileId: profileDailyMetrics.profileId,
+        displayName: ttProfiles.displayName,
+        points: sql<string>`coalesce(sum(${profileDailyMetrics.points}), 0)::text`,
+        messagesSent: sql<number>`coalesce(sum(${profileDailyMetrics.messagesSent}), 0)::int`,
+        responses: sql<number>`coalesce(sum(${profileDailyMetrics.responses}), 0)::int`,
+        responseRate,
+      })
+      .from(profileDailyMetrics)
+      .innerJoin(ttProfiles, eq(ttProfiles.id, profileDailyMetrics.profileId))
+      .where(and(...filters))
+      .groupBy(profileDailyMetrics.profileId, ttProfiles.displayName)
+      .orderBy(sql`${responseRate} DESC`, asc(ttProfiles.displayName))
+      .limit(boundedLimit);
   }
 
-  async timeseries(profileId: string, from?: string, to?: string) {
+  async timeseries(profileId: string, from?: string, to?: string, user?: MetricsActor, limit = 90) {
+    if (!UUID_PATTERN.test(profileId)) throw new BadRequestException('Invalid profileId');
+    if (user) await this.assertProfileInAudience(profileId, user);
+    const boundedLimit = Math.min(Math.max(limit, 1), 366);
     const filters = [eq(profileDailyMetrics.profileId, profileId)];
     if (from) filters.push(gte(profileDailyMetrics.businessDate, from));
     if (to) filters.push(lte(profileDailyMetrics.businessDate, to));
-    return this.db.db.select({ businessDate: profileDailyMetrics.businessDate, source: profileDailyMetrics.source, points: profileDailyMetrics.points, messagesSent: profileDailyMetrics.messagesSent, responses: profileDailyMetrics.responses, responseRate: profileDailyMetrics.responseRate, icebreakersSent: profileDailyMetrics.icebreakersSent, icebreakersReplied: profileDailyMetrics.icebreakersReplied }).from(profileDailyMetrics).where(and(...filters)).orderBy(asc(profileDailyMetrics.businessDate));
+    return this.db.db
+      .select({ businessDate: profileDailyMetrics.businessDate, source: profileDailyMetrics.source, points: profileDailyMetrics.points, messagesSent: profileDailyMetrics.messagesSent, responses: profileDailyMetrics.responses, responseRate: profileDailyMetrics.responseRate, icebreakersSent: profileDailyMetrics.icebreakersSent, icebreakersReplied: profileDailyMetrics.icebreakersReplied })
+      .from(profileDailyMetrics)
+      .where(and(...filters))
+      .orderBy(asc(profileDailyMetrics.businessDate))
+      .limit(boundedLimit);
   }
 
-  async reconciliation(date?: string) {
-    return this.db.db.select({ id: metricReconciliation.id, profileId: metricReconciliation.profileId, businessDate: metricReconciliation.businessDate, extensionPoints: metricReconciliation.extensionPoints, tableauPoints: metricReconciliation.tableauPoints, differencePoints: metricReconciliation.differencePoints, tolerancePoints: metricReconciliation.tolerancePoints, status: metricReconciliation.status, details: metricReconciliation.details, createdAt: metricReconciliation.createdAt }).from(metricReconciliation).where(date ? eq(metricReconciliation.businessDate, date) : undefined).orderBy(asc(metricReconciliation.businessDate));
+  async reconciliation(query?: string | Partial<ReconciliationQueryInput>, user?: MetricsActor) {
+    const filtersObj: Partial<ReconciliationQueryInput> = typeof query === 'string' ? { date: query } : (query ?? {});
+    const boundedLimit = Math.min(Math.max(filtersObj.limit ?? 100, 1), 200);
+    const scope = this.profileScope(user, metricReconciliation.profileId);
+    const filters: SQL[] = [];
+    if (filtersObj.date) filters.push(eq(metricReconciliation.businessDate, filtersObj.date));
+    if (filtersObj.from) filters.push(gte(metricReconciliation.businessDate, filtersObj.from));
+    if (filtersObj.to) filters.push(lte(metricReconciliation.businessDate, filtersObj.to));
+    if (scope) filters.push(scope);
+    return this.db.db
+      .select({
+        id: metricReconciliation.id,
+        profileId: metricReconciliation.profileId,
+        displayName: ttProfiles.displayName,
+        businessDate: metricReconciliation.businessDate,
+        extensionPoints: metricReconciliation.extensionPoints,
+        tableauPoints: metricReconciliation.tableauPoints,
+        differencePoints: metricReconciliation.differencePoints,
+        tolerancePoints: metricReconciliation.tolerancePoints,
+        status: metricReconciliation.status,
+        details: metricReconciliation.details,
+        createdAt: metricReconciliation.createdAt,
+      })
+      .from(metricReconciliation)
+      .innerJoin(ttProfiles, eq(ttProfiles.id, metricReconciliation.profileId))
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(metricReconciliation.businessDate), asc(ttProfiles.displayName))
+      .limit(boundedLimit);
   }
 
   async operations(user: Pick<AccessTokenClaims, 'sub' | 'role'>) {

@@ -67,11 +67,12 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/icebreakers/{id}/publish` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/icebreakers/{id}/reviews` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: icebreaker.review | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/icebreakers/violations` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: icebreaker.review | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | BOUNDED_FILTER |
+| `GET /api/v1/metrics/me/profiles` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | BOUNDED_FILTER |
 | `GET /api/v1/metrics/operations` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | NOT_APPLICABLE |
-| `GET /api/v1/metrics/profiles` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | UNBOUNDED |
-| `GET /api/v1/metrics/profiles/{id}/timeseries` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
-| `GET /api/v1/metrics/ranking` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
-| `GET /api/v1/metrics/reconciliation` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/metrics/profiles` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | BOUNDED_FILTER |
+| `GET /api/v1/metrics/profiles/{id}/timeseries` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | BOUNDED_FILTER |
+| `GET /api/v1/metrics/ranking` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | BOUNDED_FILTER |
+| `GET /api/v1/metrics/reconciliation` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; permissions: metrics.audit | NOT_REQUIRED | NOT_REQUIRED | CREW | NOT_APPLICABLE | BOUNDED_FILTER |
 | `GET /api/v1/notifications` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | UNBOUNDED |
 | `PATCH /api/v1/notifications/{id}/read` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/operators/me/status` | OPERADOR | authenticated; roles: OPERADOR | NOT_REQUIRED | REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |

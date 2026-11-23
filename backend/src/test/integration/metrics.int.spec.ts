@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { MetricsService } from '../../modules/metrics/metrics.service.js';
-import { metricEvents, profileAssignments, profileDailyMetrics, profileSessions } from '../../database/schema/index.js';
+import { crewMembers, crews, metricEvents, metricReconciliation, profileAssignments, profileDailyMetrics, profileSessions } from '../../database/schema/index.js';
 import { createDevice, createProfile, createTestContext, createUser, destroyTestContext, halfOpen, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -212,17 +212,82 @@ describe('metrics read models', () => {
     expect(august.map((row) => row.points)).toEqual(['10.0000', '20.0000']);
   });
 
-  it('ranks profiles by response rate without dividing by zero', async () => {
+  it('ranks profiles by response rate without dividing by zero or double-counting TABLEAU rows', async () => {
     const busy = await createProfile(ctx, { displayName: 'Ana' });
     const idle = await createProfile(ctx, { displayName: 'Bea' });
     await ctx.db.insert(profileDailyMetrics).values([
-      { profileId: busy.id, businessDate: '2026-08-04', source: 'EXTENSION', messagesSent: 100, responses: 40 },
-      { profileId: idle.id, businessDate: '2026-08-04', source: 'EXTENSION', messagesSent: 0, responses: 0 },
+      { profileId: busy.id, businessDate: '2026-08-04', source: 'EXTENSION', points: '50.0000', messagesSent: 100, responses: 40 },
+      { profileId: busy.id, businessDate: '2026-08-04', source: 'TABLEAU', points: '50.0000', messagesSent: 100, responses: 40 },
+      { profileId: idle.id, businessDate: '2026-08-04', source: 'EXTENSION', points: '0.0000', messagesSent: 0, responses: 0 },
     ]);
 
     const ranking = await metrics.ranking();
     expect(ranking).toHaveLength(2);
+    expect(ranking[0]).toMatchObject({ profileId: busy.id, points: '50.0000', messagesSent: 100, responses: 40 });
     expect(Number(ranking[0].responseRate)).toBeCloseTo(0.4, 4);
     expect(Number(ranking[1].responseRate)).toBe(0);
+  });
+});
+
+describe('metrics role audiences (A7 — FR-20 / MET-07)', () => {
+  it('scopes COORDINADOR to profiles assigned to their active crew across profiles, ranking, timeseries, and reconciliation', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coord = await createUser(ctx, { role: 'COORDINADOR' });
+    const inCrewOp = await createUser(ctx);
+    const outCrewOp = await createUser(ctx);
+    const inProfile = await createProfile(ctx, { displayName: 'Perfil Crew' });
+    const outProfile = await createProfile(ctx, { displayName: 'Perfil Externo' });
+
+    const [crew] = await ctx.db.insert(crews).values({ name: 'Cuadrilla Norte', coordinatorId: coord.id, isActive: true }).returning({ id: crews.id });
+    const now = Date.now();
+    await ctx.db.insert(crewMembers).values({ crewId: crew.id, userId: inCrewOp.id, validRange: halfOpen(new Date(now - 3_600_000), new Date(now + 3_600_000)) });
+    await assign(inCrewOp.id, inProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString() });
+    await assign(outCrewOp.id, outProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString() });
+
+    await ctx.db.insert(profileDailyMetrics).values([
+      { profileId: inProfile.id, businessDate: '2026-11-22', source: 'EXTENSION', points: '80.0000', messagesSent: 50, responses: 20 },
+      { profileId: outProfile.id, businessDate: '2026-11-22', source: 'EXTENSION', points: '120.0000', messagesSent: 60, responses: 30 },
+    ]);
+    await ctx.db.insert(metricReconciliation).values([
+      { profileId: inProfile.id, businessDate: '2026-11-22', extensionPoints: '80.0000', tableauPoints: '80.0000', differencePoints: '0.0000', tolerancePoints: '1.0000', status: 'OK' },
+      { profileId: outProfile.id, businessDate: '2026-11-22', extensionPoints: '120.0000', tableauPoints: '115.0000', differencePoints: '5.0000', tolerancePoints: '1.0000', status: 'DIVERGENT' },
+    ]);
+
+    const coordActor = { sub: coord.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    expect((await metrics.profiles(undefined, undefined, undefined, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    expect((await metrics.ranking({}, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    expect((await metrics.reconciliation({}, coordActor)).map((r) => r.profileId)).toEqual([inProfile.id]);
+    await expect(metrics.timeseries(inProfile.id, undefined, undefined, coordActor)).resolves.toHaveLength(1);
+    await expect(metrics.timeseries(outProfile.id, undefined, undefined, coordActor)).rejects.toThrow(ForbiddenException);
+
+    expect(await metrics.profiles(undefined, undefined, undefined, adminActor)).toHaveLength(2);
+    expect(await metrics.ranking({}, adminActor)).toHaveLength(2);
+    expect(await metrics.reconciliation({}, adminActor)).toHaveLength(2);
+  });
+
+  it('returns only currently assigned profiles to OPERADOR without exposing raw points', async () => {
+    const operator = await createUser(ctx);
+    const otherOp = await createUser(ctx);
+    const activeProfile = await createProfile(ctx, { displayName: 'Activo' });
+    const endedProfile = await createProfile(ctx, { displayName: 'Terminado' });
+    const otherProfile = await createProfile(ctx, { displayName: 'Ajeno' });
+    const now = Date.now();
+
+    await assign(operator.id, activeProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString(), status: 'ACTIVE' });
+    await assign(operator.id, endedProfile.id, { start: new Date(now - 7_200_000).toISOString(), end: new Date(now - 3_600_000).toISOString(), status: 'ENDED' });
+    await assign(otherOp.id, otherProfile.id, { start: new Date(now - 3_600_000).toISOString(), end: new Date(now + 3_600_000).toISOString(), status: 'ACTIVE' });
+
+    await ctx.db.insert(profileDailyMetrics).values([
+      { profileId: activeProfile.id, businessDate: '2026-11-22', source: 'EXTENSION', points: '99.0000', messagesSent: 40, responses: 16, icebreakersSent: 10, icebreakersReplied: 4 },
+      { profileId: endedProfile.id, businessDate: '2026-11-22', source: 'EXTENSION', points: '50.0000', messagesSent: 20, responses: 5 },
+      { profileId: otherProfile.id, businessDate: '2026-11-22', source: 'EXTENSION', points: '70.0000', messagesSent: 30, responses: 9 },
+    ]);
+
+    const rows = await metrics.operatorProfiles({ sub: operator.id, role: 'OPERADOR' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ profileId: activeProfile.id, messagesSent: 40, responses: 16, icebreakersSent: 10, icebreakersReplied: 4 });
+    expect('points' in rows[0]).toBe(false);
   });
 });

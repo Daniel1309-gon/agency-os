@@ -121,6 +121,70 @@ export const operationalMetricsSchema = z.object({
 });
 export type OperationalMetrics = z.infer<typeof operationalMetricsSchema>;
 
+export const metricSourceSchema = z.enum(['EXTENSION', 'TABLEAU']);
+export type MetricSource = z.infer<typeof metricSourceSchema>;
+
+export const profileDailyMetricSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  businessDate: z.string(),
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  source: metricSourceSchema,
+});
+export type ProfileDailyMetric = z.infer<typeof profileDailyMetricSchema>;
+
+export const profileRankingRowSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.union([z.number(), z.string()]),
+});
+export type ProfileRankingRow = z.infer<typeof profileRankingRowSchema>;
+
+export const profileTimeseriesPointSchema = z.object({
+  businessDate: z.string(),
+  source: metricSourceSchema,
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  icebreakersSent: z.number().int().nonnegative(),
+  icebreakersReplied: z.number().int().nonnegative(),
+});
+export type ProfileTimeseriesPoint = z.infer<typeof profileTimeseriesPointSchema>;
+
+export const metricReconciliationRowSchema = z.object({
+  id: z.string().uuid(),
+  profileId: z.string().uuid(),
+  displayName: z.string().optional(),
+  businessDate: z.string(),
+  extensionPoints: z.string(),
+  tableauPoints: z.string(),
+  differencePoints: z.string(),
+  tolerancePoints: z.string(),
+  status: z.string(),
+  details: z.record(z.string(), z.unknown()).nullable().optional(),
+  createdAt: z.string(),
+});
+export type MetricReconciliationRow = z.infer<typeof metricReconciliationRowSchema>;
+
+export const operatorProfileMetricSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  businessDate: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  icebreakersSent: z.number().int().nonnegative(),
+  icebreakersReplied: z.number().int().nonnegative(),
+});
+export type OperatorProfileMetric = z.infer<typeof operatorProfileMetricSchema>;
+
 export const userSummarySchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
