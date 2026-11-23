@@ -196,3 +196,48 @@ migraciones ni restaurar la base salvo incidente de datos; en ese caso seguir
 ## Estaciones Windows
 
 Alta, renovación y baja: [`station/RUNBOOK.md`](station/RUNBOOK.md).
+
+## Bot de Rocket.Chat y rotación de PAT (E1-15)
+
+Referencia de arquitectura: [ADR 0010](../../docs/decisions/0010-rocketchat-channels-membership-and-routing.md).
+
+### 1. Webhook saliente permanente
+
+En Rocket.Chat (**Administration → Workspace → Integrations → Outgoing**):
+
+- **Event Trigger**: `Message Sent`.
+- **URL**: `https://erp.globalcompany.company/api/v1/rocketchat/bot/events` (endpoint público de webhook autenticado por token compartido; nunca abrir otras rutas de `/api/v1` al exterior).
+  - Si la regla WAF de mTLS bloquea el tráfico entrante sin certificado cliente, agregar una excepción WAF **acotada exclusivamente** a `POST /api/v1/rocketchat/bot/events` (idealmente restringida también a la IP de salida de Rocket.Chat).
+- **Trigger Words**: exactamente el mismo valor que `ROCKETCHAT_BOT_TRIGGER` (por defecto `ayuda`).
+- **Token**: exactamente el mismo valor que `ROCKETCHAT_WEBHOOK_SECRET` (mínimo 32 caracteres aleatorios).
+- **Salas autorizadas**: cada sala donde opera el bot debe estar registrada en Agency OS (`rocketchat_channels`) con `purpose = 'BOT'` e `is_active = true`.
+- **Observabilidad de descartes**: cualquier webhook descartado antes de entrar a auditoría (`INVALID_PAYLOAD`, `INVALID_TOKEN`, `OWN_MESSAGE`, `TRIGGER_NOT_CONFIGURED`, `PREFIX_NOT_MATCHED`, `ROOM_NOT_REGISTERED`) emite un log `warn` en `api` con el mensaje `Rocket.Chat bot webhook discarded` y el campo `reason`, sin registrar nunca el token ni el cuerpo del mensaje.
+
+### 2. Alcance mínimo del PAT de `agency.bot`
+
+- Usar una cuenta técnica dedicada (`agency.bot`), agregada manualmente solo a las salas autorizadas (grupos privados `GROUP` de cuadrilla, alertas y bot).
+- Permisos requeridos del Personal Access Token:
+  - `chat.sendMessage` (envío de avisos, alertas y respuestas en hilo).
+  - Lectura `groups.members` / `channels.members` para el escaneo pasivo de deriva (`GET /api/v1/rocketchat/channels/:id/drift`).
+- **Prohibido** asignar rol de administrador o permisos de escritura sobre membresía (`invite`, `kick`, `create-p`, `create-c`). La membresía de los grupos privados la mantienen los coordinadores manualmente en Rocket.Chat.
+
+### 3. Rotación de PAT y secreto de webhook
+
+```sh
+export COMPOSE='docker compose --env-file deploy/production/.env.production -f compose.production.yml'
+```
+
+1. **Generar credenciales nuevas sin revocar aún el PAT activo**:
+   - En Rocket.Chat, crear un nuevo Personal Access Token para `agency.bot` (el PAT anterior sigue vigente durante el cambio).
+   - Si se rota también el webhook, generar un nuevo secreto: `openssl rand -hex 32`.
+2. **Actualizar `deploy/production/.env.production`** (`chmod 600`): reemplazar `ROCKETCHAT_TOKEN` (y `ROCKETCHAT_WEBHOOK_SECRET` si aplica).
+3. **Recrear `api` y `worker`**:
+   ```sh
+   $COMPOSE up -d api worker
+   ```
+4. **Si se rotó `ROCKETCHAT_WEBHOOK_SECRET`**, actualizar inmediatamente el campo **Token** en la integración saliente de Rocket.Chat para que coincida con el nuevo valor.
+5. **Verificar y recuperar**:
+   - Confirmar `curl -fsS https://erp.globalcompany.company/health/ready`.
+   - Enviar una consulta de prueba (`ayuda ...`) en una sala `BOT` y confirmar respuesta en hilo y ausencia de `reason: "INVALID_TOKEN"` en `$COMPOSE logs --tail=50 api`.
+   - Revisar la cola durable (`GET /api/v1/outbox/summary`): los mensajes emitidos durante el reinicio se reintentan automáticamente con la misma clave de idempotencia; si algún evento llegó a `DEAD`, reencolarlo con `POST /api/v1/outbox/:id/requeue`.
+6. **Revocar el PAT anterior** en Rocket.Chat una vez confirmada la entrega.

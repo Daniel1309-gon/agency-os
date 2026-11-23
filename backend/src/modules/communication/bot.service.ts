@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
 import { and, eq, like, sql } from 'drizzle-orm';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { AuditService } from '../../common/audit/audit.service.js';
+import { LoggerService } from '../../common/logger/logger.service.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { ConfigService } from '../../config/config.service.js';
 import { DatabaseService } from '../../database/database.service.js';
@@ -27,6 +28,7 @@ export class BotService {
     private readonly audit: AuditService,
     private readonly redis: RedisService,
     @Inject(BOT_ANSWER_PROVIDER) private readonly answers: BotAnswerProvider,
+    @Optional() private readonly logger?: LoggerService,
   ) {}
 
   /**
@@ -37,16 +39,16 @@ export class BotService {
   async handle(payload: unknown): Promise<{ accepted: true; reason?: string }> {
     const startedAt = Date.now();
     const input = normalizeRocketChatWebhook(payload);
-    if (!input) return { accepted: true, reason: 'INVALID_PAYLOAD' };
-    if (!this.secretMatches(input.token)) return { accepted: true, reason: 'INVALID_TOKEN' };
-    if (input.userId === this.config.get('ROCKETCHAT_USER_ID')) return { accepted: true, reason: 'OWN_MESSAGE' };
-    if (input.triggerWord.toLocaleLowerCase() !== this.config.get('ROCKETCHAT_BOT_TRIGGER').toLocaleLowerCase()) return { accepted: true, reason: 'TRIGGER_NOT_CONFIGURED' };
+    if (!input) return this.discard('INVALID_PAYLOAD');
+    if (!this.secretMatches(input.token)) return this.discard('INVALID_TOKEN');
+    if (input.userId === this.config.get('ROCKETCHAT_USER_ID')) return this.discard('OWN_MESSAGE');
+    if (input.triggerWord.toLocaleLowerCase() !== this.config.get('ROCKETCHAT_BOT_TRIGGER').toLocaleLowerCase()) return this.discard('TRIGGER_NOT_CONFIGURED');
 
     const question = stripBotTrigger(input.text, this.config.get('ROCKETCHAT_BOT_TRIGGER'));
-    if (question === undefined) return { accepted: true, reason: 'PREFIX_NOT_MATCHED' };
+    if (question === undefined) return this.discard('PREFIX_NOT_MATCHED');
 
     const room = await this.findBotRoom(input.roomId);
-    if (!room) return { accepted: true, reason: 'ROOM_NOT_REGISTERED' };
+    if (!room) return this.discard('ROOM_NOT_REGISTERED');
 
     const rateLimited = await this.isRateLimited(input.userId);
     if (rateLimited) {
@@ -167,6 +169,11 @@ export class BotService {
       result: outcome === 'ANSWERED' || outcome === 'UNLINKED_USER' ? 'SUCCESS' : 'IGNORED',
       metadata: { source: 'ROCKETCHAT', outcome, ...(article ? { article } : {}), ...(version ? { version } : {}), latencyMs: Date.now() - startedAt },
     });
+  }
+
+  private discard(reason: string): { accepted: true; reason: string } {
+    this.logger?.warn('Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason });
+    return { accepted: true, reason };
   }
 
   private secretMatches(provided: string): boolean {

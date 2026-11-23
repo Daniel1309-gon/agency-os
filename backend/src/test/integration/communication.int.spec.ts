@@ -402,6 +402,46 @@ describe('informational Rocket.Chat bot', () => {
     expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'bot-room', body: 'Tu cuenta todavía no está vinculada con Agency OS. Contacta a administración' }]);
   });
 
+  it('logs sanitized discard reasons without leaking webhook secrets or message bodies (E1-15)', async () => {
+    const audit = new AuditService(ctx.database);
+    const config = new ConfigService();
+    const logger = new LoggerService('fatal');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const bot = new BotService(ctx.database, config, audit, ctx.redis, new FaqBotAnswerProvider(), logger);
+
+    const leakedSecret = 'wrong-super-secret-webhook-token-value-12345';
+    const sensitiveBody = 'ayuda mi contraseña secreta es XYZ-999';
+    await expect(bot.handle({ invalid: true })).resolves.toEqual({ accepted: true, reason: 'INVALID_PAYLOAD' });
+    await expect(bot.handle({
+      token: leakedSecret,
+      user_id: 'rc-user-1',
+      channel_id: 'bot-room',
+      message_id: 'discard-1',
+      timestamp: new Date().toISOString(),
+      text: sensitiveBody,
+      trigger_word: 'ayuda',
+    })).resolves.toEqual({ accepted: true, reason: 'INVALID_TOKEN' });
+    await expect(bot.handle({
+      token: process.env.ROCKETCHAT_WEBHOOK_SECRET!,
+      user_id: 'rc-user-1',
+      channel_id: 'unregistered-room',
+      message_id: 'discard-2',
+      timestamp: new Date().toISOString(),
+      text: sensitiveBody,
+      trigger_word: 'ayuda',
+    })).resolves.toEqual({ accepted: true, reason: 'ROOM_NOT_REGISTERED' });
+
+    expect(warnSpy.mock.calls).toEqual([
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'INVALID_PAYLOAD' }],
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'INVALID_TOKEN' }],
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'ROOM_NOT_REGISTERED' }],
+    ]);
+    const serialized = JSON.stringify(warnSpy.mock.calls);
+    expect(serialized).not.toContain(leakedSecret);
+    expect(serialized).not.toContain(process.env.ROCKETCHAT_WEBHOOK_SECRET!);
+    expect(serialized).not.toContain(sensitiveBody);
+  });
+
   it('limits each Rocket.Chat user to ten queries per minute in Redis', async () => {
     const operator = await createUser(ctx);
     await ctx.db.update(users).set({ rocketchatUserId: 'rate-limited-user' }).where(eq(users.id, operator.id));
