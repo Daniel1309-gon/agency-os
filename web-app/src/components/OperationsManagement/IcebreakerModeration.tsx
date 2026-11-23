@@ -244,7 +244,7 @@ export function IcebreakerModeration({ accessToken, user }: { accessToken: strin
                   <option value="MANUAL">Revisión manual</option>
                 </select>
               </label>
-              <label><span>Patrón</span><input value={ruleForm.pattern} onChange={(event) => setRuleForm((c) => ({ ...c, pattern: event.target.value }))} placeholder="whatsapp" /></label>
+              <label><span>Patrón</span><input value={ruleForm.kind === 'MANUAL' ? '' : ruleForm.pattern} disabled={ruleForm.kind === 'MANUAL'} onChange={(event) => setRuleForm((c) => ({ ...c, pattern: event.target.value }))} placeholder="whatsapp" /></label>
               <label>
                 <span>Severidad</span>
                 <select value={ruleForm.severity} onChange={(event) => setRuleForm((c) => ({ ...c, severity: event.target.value as IcebreakerRuleSeverity }))}>

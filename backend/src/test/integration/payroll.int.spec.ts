@@ -428,6 +428,10 @@ describe('cafeteria consumption in payroll (FR-35)', () => {
     const lines = await payroll.lines(period.id);
     expect(lines.find((line) => line.operatorId === refunded.id)).toMatchObject({ pointsTotal: '0.0000', grossCop: '0.00', netCop: '0.00', cafeteriaDebitCop: '0.00', version: 1 });
     expect(lines.find((line) => line.operatorId === paid.id)).toMatchObject({ netCop: '1000.00', cafeteriaDebitCop: '0.00' });
+
+    // Recomputing again changes nothing: an already zeroed line keeps its version.
+    await payroll.compute(period.id, admin.id);
+    expect((await payroll.lines(period.id)).find((line) => line.operatorId === refunded.id)).toMatchObject({ cafeteriaDebitCop: '0.00', version: 1 });
   });
 
   it('records a zero deduction when the operator consumed nothing', async () => {

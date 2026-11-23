@@ -507,6 +507,8 @@ describe('Rocket.Chat channel lifecycle and drift scan (E1-13)', () => {
     await expect(communication.updateChannel(crewChannel.id, { purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
     await expect(communication.updateChannel(crewChannel.id, { purpose: 'BOT' }, coordActor)).rejects.toThrow(ForbiddenException);
     await expect(communication.updateChannel(alertsChannel.id, { name: 'Mine now' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { isActive: false }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { crewId: ownedCrew.id }, coordActor)).rejects.toThrow(ForbiddenException);
     await expect(communication.createChannel({ crewId: ownedCrew.id, rcRoomId: 'grp-new-alerts', name: 'New alerts', type: 'GROUP', purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
     const stored = await ctx.db.select({ id: rocketchatChannels.id, name: rocketchatChannels.name, purpose: rocketchatChannels.purpose }).from(rocketchatChannels).orderBy(asc(rocketchatChannels.rcRoomId));
     expect(stored).toEqual([

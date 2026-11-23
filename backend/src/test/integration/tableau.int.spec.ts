@@ -293,6 +293,33 @@ describe('TableauService (FR-19, decision #9)', () => {
     ]);
   });
 
+  it('re-ingesting a run with fewer rows supersedes its extra staging rows and leaves other runs untouched', async () => {
+    const view = await hourlyView();
+    const profile = await profileWithRef('TU-1');
+    download = () => csv(['TU-1,2026-11-21 06:00,4']);
+    const other = await service.run({ viewId: view.id, businessDate: '2026-11-21' });
+    await service.processQueued();
+    download = () => csv(['TU-1,2026-11-22 06:00,1', 'TU-1,2026-11-22 07:00,2']);
+    const run = await service.run({ viewId: view.id, businessDate: '2026-11-22' });
+    await service.processQueued();
+
+    // The stored artifact is replaced by a shorter one (e.g. a trimmed export) and reprocessed.
+    await ctx.db.update(etlRuns).set({ rawCsv: csv(['TU-1,2026-11-22 06:00,1']).body }).where(eq(etlRuns.id, run!.id));
+    await expect(service.reprocess(run!.id)).resolves.toMatchObject({ status: 'SUCCESS', rowCount: 1 });
+
+    const staged = await ctx.db.select({ rowNumber: etlStagingRows.rowNumber, status: etlStagingRows.validationStatus, error: etlStagingRows.validationError }).from(etlStagingRows).where(eq(etlStagingRows.etlRunId, run!.id)).orderBy(asc(etlStagingRows.rowNumber));
+    expect(staged).toEqual([
+      { rowNumber: 1, status: 'VALID', error: null },
+      { rowNumber: 2, status: 'SKIPPED', error: 'Superseded by a later ingest of this run' },
+    ]);
+    const points = await ctx.db.select({ etlRunId: tableauHourlyPoints.etlRunId, sourceHour: tableauHourlyPoints.sourceHour, points: tableauHourlyPoints.points }).from(tableauHourlyPoints).where(eq(tableauHourlyPoints.profileId, profile.id)).orderBy(asc(tableauHourlyPoints.sourceHour));
+    expect(points).toEqual([
+      { etlRunId: other!.id, sourceHour: new Date('2026-11-21T11:00:00.000Z'), points: '4.0000' },
+      { etlRunId: run!.id, sourceHour: new Date('2026-11-22T11:00:00.000Z'), points: '1.0000' },
+      { etlRunId: run!.id, sourceHour: new Date('2026-11-22T12:00:00.000Z'), points: '0.0000' },
+    ]);
+  });
+
   it('persists raw CSV artifacts on failure and reprocesses offline without hitting Tableau again (A9)', async () => {
     const view = await hourlyView();
     const profile = await profileWithRef('TU-99');
