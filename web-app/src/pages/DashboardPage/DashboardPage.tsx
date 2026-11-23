@@ -10,6 +10,7 @@ import { OperatorProfiles } from '../../components/OperatorProfiles/OperatorProf
 import { OperatorShiftPanel } from '../../components/OperatorShift/OperatorShiftPanel';
 import { AssignmentManagement } from '../../components/OperationsManagement/AssignmentManagement';
 import { CrewManagement } from '../../components/OperationsManagement/CrewManagement';
+import { PayrollManagement } from '../../components/OperationsManagement/PayrollManagement';
 import { ProfileManagement } from '../../components/OperationsManagement/ProfileManagement';
 import { ScheduledMessagesPanel } from '../../components/OperationsManagement/ScheduledMessagesPanel';
 import { ShiftManagement } from '../../components/OperationsManagement/ShiftManagement';
@@ -99,6 +100,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'assignments': return <AssignmentManagement accessToken={accessToken} user={user} onNavigate={onNavigate} />;
     case 'crews': return <CrewManagement accessToken={accessToken} user={user} />;
     case 'shifts': return <ShiftManagement accessToken={accessToken} user={user} />;
+    case 'payroll': return <PayrollManagement accessToken={accessToken} user={user} />;
     case 'messages': return <ScheduledMessagesPanel accessToken={accessToken} user={user} />;
     case 'metrics': return <ManagementOverview accessToken={accessToken} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;

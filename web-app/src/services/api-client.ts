@@ -155,6 +155,25 @@ export class ApiClient {
     }
   }
 
+  async requestBlob(path: string, options: RequestOptions = {}): Promise<{ blob: Blob; filename: string | null }> {
+    const { skipRefresh = false } = options;
+    try {
+      return await this.executeBlob(path, options, true);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 401 || skipRefresh || path === '/auth/refresh') {
+        throw error;
+      }
+
+      await this.refresh();
+      try {
+        return await this.executeBlob(path, { ...options, skipRefresh: true }, true);
+      } catch (retryError) {
+        if (retryError instanceof ApiError && retryError.status === 401) this.endSession();
+        throw retryError;
+      }
+    }
+  }
+
   private async execute<T>(path: string, options: RequestOptions, includeAccessToken: boolean): Promise<T> {
     const { skipRefresh: _skipRefresh, ...requestInit } = options;
     const headers = new Headers(requestInit.headers);
@@ -170,6 +189,35 @@ export class ApiClient {
     if (!response.ok) throw new ApiError(response.status, errorPayload(payload, response.status));
     return payload as T;
   }
+
+  private async executeBlob(path: string, options: RequestOptions, includeAccessToken: boolean): Promise<{ blob: Blob; filename: string | null }> {
+    const { skipRefresh: _skipRefresh, ...requestInit } = options;
+    const headers = new Headers(requestInit.headers);
+    if (includeAccessToken && this.accessToken) headers.set('authorization', `Bearer ${this.accessToken}`);
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...requestInit,
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const payload = await responsePayload(response);
+      throw new ApiError(response.status, errorPayload(payload, response.status));
+    }
+    return {
+      blob: await response.blob(),
+      filename: parseContentDispositionFilename(response.headers.get('content-disposition')),
+    };
+  }
+}
+
+export function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  const raw = quoted?.[1] ?? /filename=([^;\s]+)/i.exec(header)?.[1];
+  if (!raw) return null;
+  const sanitized = raw.replaceAll('\\', '/').split('/').pop()?.trim() ?? '';
+  return sanitized || null;
 }
 
 export const apiClient = new ApiClient();

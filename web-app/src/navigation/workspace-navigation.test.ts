@@ -17,6 +17,7 @@ describe('workspace navigation', () => {
       '/app/asignaciones',
       '/app/cuadrillas',
       '/app/turnos',
+      '/app/nomina',
       '/app/mensajes',
       '/app/seguridad',
       '/app/acceso-ip',
@@ -53,7 +54,7 @@ describe('workspace navigation', () => {
     const groups = groupWorkspaceRoutes(getWorkspaceRoutes('ADMIN', ['*']));
 
     expect(groups.map(([group]) => group)).toEqual(['Operación', 'Control']);
-    expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos']);
+    expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos', '/app/nomina']);
     expect(groups[1][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
   });
 
