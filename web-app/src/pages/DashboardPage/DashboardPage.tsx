@@ -86,7 +86,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'payroll': return <PayrollManagement accessToken={accessToken} user={user} />;
     case 'icebreakerReview': return <IcebreakerModeration accessToken={accessToken} user={user} />;
     case 'messages': return <ScheduledMessagesPanel accessToken={accessToken} user={user} />;
-    case 'metrics': return <ManagementOverview accessToken={accessToken} />;
+    case 'metrics': return <ManagementOverview accessToken={accessToken} user={user} />;
     case 'security': return <SecurityOverview accessToken={accessToken} user={user} />;
     case 'ipAllowlist': return <IpAllowlistPanel accessToken={accessToken} user={user} />;
     case 'outbox': return <OutboxPanel accessToken={accessToken} />;
