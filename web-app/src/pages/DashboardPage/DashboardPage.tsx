@@ -10,6 +10,7 @@ import { MetricCard } from '../../components/MetricCard/MetricCard';
 import { OperatorCafeteriaPanel } from '../../components/OperatorCafeteriaPanel/OperatorCafeteriaPanel';
 import { OperatorProfiles } from '../../components/OperatorProfiles/OperatorProfiles';
 import { OperatorShiftPanel } from '../../components/OperatorShift/OperatorShiftPanel';
+import { OperatorIcebreakersPanel } from '../../components/OperatorIcebreakers/OperatorIcebreakersPanel';
 import { AssignmentManagement } from '../../components/OperationsManagement/AssignmentManagement';
 import { CrewManagement } from '../../components/OperationsManagement/CrewManagement';
 import { PayrollManagement } from '../../components/OperationsManagement/PayrollManagement';
@@ -73,6 +74,7 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
   switch (route.id) {
     case 'operatorProfiles': return <OperatorProfiles accessToken={accessToken} />;
     case 'operatorShift': return <OperatorShiftPanel accessToken={accessToken} />;
+    case 'operatorIcebreakers': return <OperatorIcebreakersPanel accessToken={accessToken} />;
     case 'operatorCafeteria': return <OperatorCafeteriaPanel accessToken={accessToken} />;
     case 'team': return <CoordinatorTeamPage accessToken={accessToken} />;
     case 'users': return <UserManagement accessToken={accessToken} user={user} />;

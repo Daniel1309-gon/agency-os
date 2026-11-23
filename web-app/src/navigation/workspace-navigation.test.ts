@@ -58,6 +58,12 @@ describe('workspace navigation', () => {
     expect(getWorkspaceRoutes('DIRECTOR_OPERATIVO', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/ventas');
   });
 
+  it('gives the operator an icebreaker workspace right after the shift', () => {
+    expect(getWorkspaceRoutes('OPERADOR', ['profiles.read', 'shifts.read']).map((route) => route.path)).toEqual(['/app/perfiles', '/app/turno', '/app/icebreakers', '/app/cafeteria']);
+    expect(resolveWorkspaceRoute('OPERADOR', ['profiles.read'], '/app/icebreakers').path).toBe('/app/icebreakers');
+    expect(getWorkspaceRoutes('COORDINADOR', ['*']).map((route) => route.path)).not.toContain('/app/icebreakers');
+  });
+
   it('resolves unknown and forbidden paths to the role default', () => {
     expect(resolveWorkspaceRoute('OPERADOR', ['profiles.read'], '/app/metricas').path).toBe('/app/perfiles');
     expect(resolveWorkspaceRoute('ADMIN', ['*'], '/app/no-existe').path).toBe('/app/metricas');

@@ -48,6 +48,9 @@ export {
   shiftStatusSchema,
   shiftSummarySchema,
   userSummarySchema,
+  icebreakerEvaluationResultSchema,
+  icebreakerStatusSchema,
+  icebreakerSummarySchema,
   type AssignedProfile,
   type BreakStatus,
   type BreakSummary,
@@ -69,6 +72,9 @@ export {
   type ShiftStatus,
   type ShiftSummary,
   type UserSummary,
+  type IcebreakerEvaluationResult,
+  type IcebreakerStatus,
+  type IcebreakerSummary,
 } from './contracts/agency.js';
 export {
   assignmentHistoryResponseSchema,
