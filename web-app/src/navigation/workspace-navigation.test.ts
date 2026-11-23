@@ -38,11 +38,12 @@ describe('workspace navigation', () => {
     expect(routes.map((route) => route.path)).toEqual(['/app/metricas', '/app/auditoria']);
   });
 
-  it('keeps pending cafeteria pages visible without granting APIs', () => {
+  it('gates all cafeteria pages behind cafeteria.manage with no pending placeholders', () => {
     const routes = getWorkspaceRoutes('CAFETERIA', ['cafeteria.manage']);
 
-    expect(routes.filter((route) => route.pending).map((route) => route.path)).toEqual(['/app/ventas', '/app/inventario']);
-    expect(routes.find((route) => route.path === '/app/ventas')?.permission).toBeUndefined();
+    expect(routes.map((route) => route.path)).toEqual(['/app/pedidos', '/app/menu', '/app/ventas', '/app/inventario']);
+    expect(routes.every((route) => !route.pending && route.permission === 'cafeteria.manage')).toBe(true);
+    expect(getWorkspaceRoutes('CAFETERIA', [])).toEqual([]);
   });
 
   it('resolves unknown and forbidden paths to the role default', () => {

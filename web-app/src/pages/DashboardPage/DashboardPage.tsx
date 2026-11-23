@@ -2,6 +2,8 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import type { UserSummary } from '@agency-os/shared';
 import { AppShell } from '../../components/AppShell/AppShell';
 import { CafeteriaKds } from '../../components/CafeteriaKds/CafeteriaKds';
+import { CafeteriaInventory } from '../../components/CafeteriaManagement/CafeteriaInventory';
+import { CafeteriaSales } from '../../components/CafeteriaManagement/CafeteriaSales';
 import { CafeteriaOverview } from '../../components/CafeteriaOverview/CafeteriaOverview';
 import { ManagementOverview } from '../../components/ManagementOverview/ManagementOverview';
 import { MetricCard } from '../../components/MetricCard/MetricCard';
@@ -67,29 +69,7 @@ function CoordinatorTeamPage({ accessToken }: { accessToken: string | null }) {
   </div>;
 }
 
-function PendingWorkspacePage({ route, onNavigate }: { route: WorkspaceRoute; onNavigate: (path: string) => void }) {
-  const fallbackPath = route.id === 'cafeteriaSales' ? '/app/pedidos' : '/app/menu';
-  const fallbackLabel = route.id === 'cafeteriaSales' ? 'Ir a pedidos' : 'Ir al menú';
-
-  return <section className="panel pending-workspace" aria-labelledby="pending-workspace-title">
-    <span className="pending-workspace__mark" aria-hidden="true">·</span>
-    <div>
-      <p className="panel-kicker">{route.kicker}</p>
-      <h2 id="pending-workspace-title">{route.title}</h2>
-      <p>{route.description}</p>
-      <span className="status-pill status-pill--quiet">Disponible más adelante</span>
-      <a className="primary-button primary-button--compact" href={fallbackPath} onClick={(event) => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        onNavigate(fallbackPath);
-      }}>{fallbackLabel} <span aria-hidden="true">↗</span></a>
-    </div>
-  </section>;
-}
-
 function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceContentProps): ReactNode {
-  if (route.pending) return <PendingWorkspacePage route={route} onNavigate={onNavigate} />;
-
   switch (route.id) {
     case 'operatorProfiles': return <OperatorProfiles accessToken={accessToken} />;
     case 'operatorShift': return <OperatorShiftPanel accessToken={accessToken} />;
@@ -109,6 +89,8 @@ function WorkspaceContent({ route, accessToken, user, onNavigate }: WorkspaceCon
     case 'audit': return <AuditLogPanel accessToken={accessToken} user={user} />;
     case 'cafeteriaOrders': return <CafeteriaKds accessToken={accessToken} />;
     case 'cafeteriaMenu': return <CafeteriaOverview accessToken={accessToken} />;
+    case 'cafeteriaSales': return <CafeteriaSales accessToken={accessToken} />;
+    case 'cafeteriaInventory': return <CafeteriaInventory accessToken={accessToken} />;
   }
 }
 
