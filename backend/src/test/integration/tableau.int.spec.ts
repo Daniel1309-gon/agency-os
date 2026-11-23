@@ -325,6 +325,15 @@ describe('TableauService (FR-19, decision #9)', () => {
     const points = await ctx.db.select({ profileId: tableauHourlyPoints.profileId, points: tableauHourlyPoints.points }).from(tableauHourlyPoints);
     expect(points).toEqual([{ profileId: profile.id, points: '18.2500' }]);
 
+    // Reprocessing after a timezone fix moves the hour: the old hour of this run must not keep its points.
+    await service.updateView(view.id, { sourceTimezone: 'UTC' });
+    await expect(service.reprocess(queued!.id)).resolves.toMatchObject({ status: 'SUCCESS' });
+    const moved = await ctx.db.select({ sourceHour: tableauHourlyPoints.sourceHour, points: tableauHourlyPoints.points }).from(tableauHourlyPoints).orderBy(asc(tableauHourlyPoints.sourceHour));
+    expect(moved).toEqual([
+      { sourceHour: new Date('2026-11-22T10:00:00.000Z'), points: '18.2500' },
+      { sourceHour: new Date('2026-11-22T15:00:00.000Z'), points: '0.0000' },
+    ]);
+
     // Run without stored raw CSV refuses offline reprocess with 409
     const [emptyRun] = await ctx.db.insert(etlRuns).values({ viewId: view.id, businessDate: '2026-11-21', status: 'FAILED' }).returning();
     await expect(service.reprocess(emptyRun.id)).rejects.toThrow(ConflictException);
