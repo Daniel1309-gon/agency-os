@@ -24,8 +24,14 @@ export const configSchema = z.object({
   DEV_CLIENT_CERT_FINGERPRINT: z.string().regex(/^[0-9a-f]{64}$/).optional().or(z.literal('')).default(''),
   REQUIRE_SHIFT_FOR_AUTH: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
   EXTENSION_ID: z.string().regex(/^[a-p]{32}$/).optional().or(z.literal('')).default(''),
+  // Tableau Cloud pod origin, e.g. https://prod-uk-a.online.tableau.com (no /api path).
   TABLEAU_API_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),
-  TABLEAU_AUTH_TOKEN: z.string().optional().or(z.literal('')).default(''),
+  TABLEAU_API_VERSION: z.string().regex(/^\d+\.\d+$/).default('3.29'),
+  TABLEAU_SITE_CONTENT_URL: z.string().optional().or(z.literal('')).default(''),
+  // Personal access token of a dedicated, least-privileged Tableau user. Only the
+  // worker signs in with it: a second sign-in with the same PAT ends the first session.
+  TABLEAU_PAT_NAME: z.string().optional().or(z.literal('')).default(''),
+  TABLEAU_PAT_SECRET: z.string().optional().or(z.literal('')).default(''),
   AI_ENGINE_URL: z.string().url().optional().or(z.literal('')).default(''),
   AI_ENGINE_TOKEN: z.string().optional().or(z.literal('')).default(''),
   ROCKETCHAT_BASE_URL: z.string().url().optional().or(z.literal('')).default(''),

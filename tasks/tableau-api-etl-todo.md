@@ -35,15 +35,15 @@
 
 ## Diseño e implementación
 
-- [ ] Sustituir `TABLEAU_AUTH_TOKEN` como mecanismo principal por signin con PAT.
+- [x] Sustituir `TABLEAU_AUTH_TOKEN` como mecanismo principal por signin con PAT (`tableau.client.ts`, 2026-11-22).
 - [ ] Separar UUID de API, content URL y URL visible.
-- [ ] Implementar cliente con timeout, backoff, jitter y límite de concurrencia.
-- [ ] Implementar artefacto crudo y checksum.
+- [x] Implementar cliente con timeout, backoff ante 429 y un solo re-signin ante 401. Concurrencia: el worker ejecuta las corridas de a una. Sin jitter (un solo proceso).
+- [ ] Implementar artefacto crudo y checksum. Checksum SHA-256 por corrida hecho; falta guardar el CSV crudo (decidir almacenamiento).
 - [ ] Implementar schema/mapping por vista.
-- [ ] Reemplazar ejecución `void` desde HTTP por worker/job durable.
-- [ ] Hacer la creación de `etl_runs` atómica entre instancias.
-- [ ] Eliminar N+1 de resolución de perfiles.
-- [ ] Implementar staging y promoción atómica.
+- [x] Reemplazar ejecución `void` desde HTTP por worker (`tableau.worker.ts`): la API encola y el worker reclama con `FOR UPDATE SKIP LOCKED` y recupera corridas `RUNNING` de más de 30 min.
+- [x] Hacer la creación de `etl_runs` atómica entre instancias (índice único vista+fecha con `ON CONFLICT DO NOTHING`).
+- [x] Eliminar N+1 de resolución de perfiles (una consulta por corrida, por `external_ref`).
+- [x] Implementar staging y promoción atómica (una transacción; staging con upsert por corrida+fila, migración 0026).
 - [ ] Implementar puntos horarios y conciliación.
 - [ ] Implementar una worksheet temporal de Revenue como fuente de detalle; Revenue detailed queda catalogada como resumen.
 - [ ] Agregar métricas de frescura y alertas.
@@ -51,11 +51,11 @@
 
 ## Gate de entrega
 
-- [ ] Pruebas unitarias del cliente Tableau.
+- [x] Pruebas unitarias del cliente Tableau (`tableau.client.spec.ts`, `tableau-parse.spec.ts`).
 - [ ] Pruebas de contrato con fixtures reales anonimizados.
-- [ ] Pruebas de integración PostgreSQL/Redis.
+- [x] Pruebas de integración PostgreSQL (`tableau.int.spec.ts`).
 - [ ] Prueba de dos instancias ejecutando el mismo run.
-- [ ] Prueba de respuesta 429 y reintentos.
-- [ ] Prueba de schema drift.
+- [x] Prueba de respuesta 429 y reintentos.
+- [x] Prueba de schema drift (columna mapeada ausente → corrida `FAILED` con el nombre de la columna).
 - [ ] Prueba de reproceso desde artefacto crudo.
 - [ ] Revisión de seguridad sin secretos en logs ni archivos.
