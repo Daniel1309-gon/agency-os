@@ -598,3 +598,55 @@ describe('the secret never reaches the logs', () => {
     expect(JSON.stringify(dump.rows)).not.toContain(SECRET);
   });
 });
+
+describe('credential re-encryption to active DEK (SEC-09b)', () => {
+  it('re-encrypts active credentials on older DEK versions without changing credential version or leaking plaintext, and is idempotent', async () => {
+    const s = await scenario();
+    const [before] = await ctx.db
+      .select({
+        keyVersion: ttProfileCredentials.keyVersion,
+        version: ttProfileCredentials.version,
+        ciphertext: ttProfileCredentials.secretCiphertext,
+      })
+      .from(ttProfileCredentials)
+      .where(and(eq(ttProfileCredentials.profileId, s.profileId), eq(ttProfileCredentials.isCurrent, true)));
+    expect(before?.keyVersion).toBe(1);
+
+    const { keyVersion } = await vault.rotateEncryptionKey(s.adminId);
+    expect(keyVersion).toBe(2);
+
+    const first = await vault.reencryptToActiveKey(s.adminId);
+    expect(first).toEqual({ activeKeyVersion: 2, reencryptedCount: 1 });
+
+    const [after] = await ctx.db
+      .select({
+        keyVersion: ttProfileCredentials.keyVersion,
+        version: ttProfileCredentials.version,
+        aadContext: ttProfileCredentials.aadContext,
+        ciphertext: ttProfileCredentials.secretCiphertext,
+      })
+      .from(ttProfileCredentials)
+      .where(and(eq(ttProfileCredentials.profileId, s.profileId), eq(ttProfileCredentials.isCurrent, true)));
+    expect(after?.keyVersion).toBe(2);
+    expect(after?.version).toBe(before?.version);
+    expect(after?.aadContext).toBe(`${s.profileId}:2`);
+    expect(after?.ciphertext.equals(before!.ciphertext)).toBe(false);
+
+    // The re-encrypted credential still decrypts to the exact same secret.
+    const { grantId } = await vault.grant({ profileId: s.profileId, sessionId: s.sessionId }, contextFor(s));
+    const redeemed = await vault.redeem({ grantId }, contextFor(s));
+    expect(redeemed.secret).toBe(SECRET);
+
+    // Audit entry records count and key version, never plaintext.
+    const auditRows = await ctx.db
+      .select({ action: auditLog.action, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vault.credentials.reencrypted'));
+    expect(auditRows).toEqual([{ action: 'vault.credentials.reencrypted', metadata: { version: 2, count: 1 } }]);
+    expect(JSON.stringify(auditRows)).not.toContain(SECRET);
+
+    // Second call is idempotent.
+    const second = await vault.reencryptToActiveKey(s.adminId);
+    expect(second).toEqual({ activeKeyVersion: 2, reencryptedCount: 0 });
+  });
+});

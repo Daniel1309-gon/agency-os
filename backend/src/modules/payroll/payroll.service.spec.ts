@@ -34,8 +34,7 @@ describe('PayrollService.compute', () => {
   });
 
   it('multiplies points by rate for gross, and gross by commission for net', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1000.0000' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.3000', pointsToCopRate: '10.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1000.0000', compensationId: 'c1', commissionRate: '0.3000', pointsToCopRate: '10.0000', lastDate: '2026-08-10' }]);
 
     const result = await h.service.compute(PERIOD, ACTOR);
 
@@ -45,8 +44,7 @@ describe('PayrollService.compute', () => {
 
   it('snapshots the commission and the rate onto the line', async () => {
     // Decision #13: cambiar la comision manana no puede reescribir lo ya liquidado.
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '500.0000' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.4500', pointsToCopRate: '8.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '500.0000', compensationId: 'c1', commissionRate: '0.4500', pointsToCopRate: '8.0000', lastDate: '2026-08-10' }]);
 
     await h.service.compute(PERIOD, ACTOR);
 
@@ -60,24 +58,17 @@ describe('PayrollService.compute', () => {
     });
   });
 
-  it('falls back to the period rate when the operator has no compensation row', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '100.0000' }]);
-    h.db.stub('operator_compensation').findFirst(undefined);
+  it('refuses to compute when the operator has no compensation row', async () => {
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '100.0000', compensationId: null, commissionRate: null, pointsToCopRate: null, lastDate: '2026-08-10' }]);
 
-    await h.service.compute(PERIOD, ACTOR);
-
-    // Sin comision vigente se paga el 100%: no se inventa un descuento.
-    expect(lastLine(h.db)).toMatchObject({
-      commissionRateSnapshot: '1',
-      pointsToCopRateSnapshot: '12.5000',
-      grossCop: '1250.00',
-      netCop: '1250.00',
-    });
+    // FR-29: the commission is individual. Neither an invented discount nor an
+    // assumed 100%: the administrator configures it before payroll runs.
+    await expect(h.service.compute(PERIOD, ACTOR)).rejects.toThrow(`Compensation is not configured for operators: ${OPERATOR}`);
+    expect(h.db.inserted('payroll_lines')).toHaveLength(0);
   });
 
   it('rounds money to two decimals, and derives net from the already rounded gross', async () => {
-    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '333.3333' }]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '0.3333', pointsToCopRate: '3.0000' });
+    h.db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '333.3333', compensationId: 'c1', commissionRate: '0.3333', pointsToCopRate: '3.0000', lastDate: '2026-08-10' }]);
 
     await h.service.compute(PERIOD, ACTOR);
     const line = lastLine(h.db);
@@ -93,10 +84,9 @@ describe('PayrollService.compute', () => {
 
   it('computes a line per operator', async () => {
     h.db.stub('points_ledger').select([
-      { operatorId: OPERATOR, points: '10.0000' },
-      { operatorId: ACTOR, points: '20.0000' },
+      { operatorId: OPERATOR, points: '10.0000', compensationId: 'c1', commissionRate: '1.0000', pointsToCopRate: '2.0000', lastDate: '2026-08-10' },
+      { operatorId: ACTOR, points: '20.0000', compensationId: 'c2', commissionRate: '1.0000', pointsToCopRate: '2.0000', lastDate: '2026-08-10' },
     ]);
-    h.db.stub('operator_compensation').findFirst({ commissionRate: '1.0000', pointsToCopRate: '2.0000' });
 
     const result = await h.service.compute(PERIOD, ACTOR);
 
@@ -145,25 +135,23 @@ describe('PayrollService period lifecycle', () => {
 });
 
 describe('PayrollService.summary', () => {
-  it('never exposes the commission rate to the operator', async () => {
-    // Criterio de entrega de PLAN.md §9.
+  it('never exposes the commission rate, raw points or gross COP to the operator', async () => {
+    // Criterio de entrega de PLAN.md §9 y FR-28.
     const { service, db } = harness();
-    db.stub('points_ledger').select([{ points: '1200.0000' }]);
-    db.stub('payroll_lines').select([{ netCop: '3600.00', grossCop: '12000.00' }]);
+    db.stub('payroll_periods').findFirst(openPeriod);
+    db.stub('points_ledger').select([{ operatorId: OPERATOR, points: '1200.0000', compensationId: 'c1', commissionRate: '0.3000', pointsToCopRate: '10.0000', lastDate: '2026-08-10' }]);
 
     const summary = await service.summary(OPERATOR);
 
-    expect(summary).toEqual({ points: '1200.0000', netCop: '3600.00', grossCop: '12000.00' });
-    expect(Object.keys(summary)).not.toContain('commissionRate');
-    expect(JSON.stringify(summary)).not.toContain('commission');
+    expect(summary).toEqual({ periodId: PERIOD, points: '360.0000', netCop: '3600.00', compensationConfigured: true });
+    expect(JSON.stringify(summary)).not.toMatch(/commission|grossCop|1200|12000/);
   });
 
-  it('reports zeros instead of nulls when the operator has no movement yet', async () => {
+  it('reports zeros instead of nulls when there is no current period', async () => {
     const { service, db } = harness();
-    db.stub('points_ledger').select([]);
-    db.stub('payroll_lines').select([]);
+    db.stub('payroll_periods').findFirst(undefined);
 
-    await expect(service.summary(OPERATOR)).resolves.toEqual({ points: '0', netCop: '0', grossCop: '0' });
+    await expect(service.summary(OPERATOR)).resolves.toEqual({ periodId: null, points: '0.0000', netCop: '0.00', compensationConfigured: false });
   });
 });
 

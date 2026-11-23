@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { breakSummarySchema, shiftSummarySchema, type BreakSummary, type ShiftSummary } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { StatusPill } from '../StatusPill/StatusPill';
-import { breakStatusCopy, formatLocalTime, parseScheduledRange, shiftStatusCopy } from './shift-view';
+import { breakStatusCopy, formatLocalTime, parseScheduledRange, shiftStatusCopy, startDeviationCopy } from './shift-view';
 
 /** OPS-06: dos ventanas de 4 h desde la hora programada y un tope de 20 min. */
 const BREAK_WINDOW_MS = 4 * 3_600_000;
@@ -51,6 +51,19 @@ export function OperatorShiftPanel({ accessToken }: { accessToken: string | null
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
+
+  async function startShift(shiftId: string) {
+    setIsStarting(true);
+    setError(null);
+    try {
+      await apiClient.request(`/shifts/${shiftId}/start`, { method: 'POST', body: '{}' });
+      await loadShift();
+    } catch (nextError) {
+      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos iniciar tu turno.');
+    } finally {
+      setIsStarting(false);
+    }
+  }
 
   async function startBreak() {
     setIsStarting(true);
@@ -102,12 +115,14 @@ export function OperatorShiftPanel({ accessToken }: { accessToken: string | null
       </header>
       {error && <p className="form-notice form-notice--error" role="alert">{error}</p>}
       {isLoading && <p className="panel-state">Cargando tu jornada…</p>}
-      {!isLoading && !shift && <div className="shift-empty" role="status"><strong>No hay un turno en curso.</strong><span>Cuando coordinación active tu jornada aparecerá aquí, junto con tus ventanas de break.</span></div>}
+      {!isLoading && !shift && <div className="shift-empty" role="status"><strong>No tienes un turno en este horario.</strong><span>Cuando llegue la hora de un turno programado aparecerá aquí para que lo inicies, junto con tus ventanas de break.</span></div>}
       {!isLoading && shift && <>
         <div className="operator-shift-summary">
           <div><span className="panel-kicker">Ventana programada</span><strong>{range ? `${formatLocalTime(range.from)} — ${formatLocalTime(range.to)}` : 'Horario no disponible'}</strong><small>Jornada del {shift.businessDate}</small></div>
           {shiftCopy && <StatusPill status={shiftCopy.tone} label={shiftCopy.label} />}
         </div>
+        {shift.status === 'SCHEDULED' && <button className="primary-button" type="button" onClick={() => void startShift(shift.id)} disabled={isStarting}>{isStarting ? 'Iniciando…' : 'Iniciar turno'}</button>}
+        {shift.actualStartAt && range && <p className="panel-state">Inicio real {formatLocalTime(shift.actualStartAt)} · {startDeviationCopy(range.from, shift.actualStartAt)}</p>}
         <div className="break-window" aria-label="Break del turno">
           {range && shift.status === 'IN_PROGRESS' && inWindow && windowEnd && <p className="panel-state">Ventana {(windowIndex ?? 0) + 1} de break · hasta las {formatLocalTime(windowEnd)}</p>}
           {range && shift.status === 'IN_PROGRESS' && !inWindow && <p className="panel-state">Las ventanas de break de este turno ya pasaron.</p>}

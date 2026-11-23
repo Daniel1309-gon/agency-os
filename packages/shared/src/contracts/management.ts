@@ -142,7 +142,7 @@ function validateAuditMetadata(value: unknown, path: string, context: z.Refineme
   });
 }
 
-const auditMetadataSchema = z.record(z.unknown()).superRefine((value, context) => validateAuditMetadata(value, 'metadata', context));
+const auditMetadataSchema = z.record(z.string(), z.unknown()).superRefine((value, context) => validateAuditMetadata(value, 'metadata', context));
 
 export const auditRecordSchema = z.object({
   id: z.number().int().nonnegative(),
@@ -239,6 +239,40 @@ export type NotificationRecord = z.infer<typeof notificationRecordSchema>;
 
 export const readinessResponseSchema = z.object({
   status: z.string(),
-  checks: z.record(z.boolean()),
+  checks: z.record(z.string(), z.boolean()),
 }).strict();
 export type ReadinessResponse = z.infer<typeof readinessResponseSchema>;
+
+export const payrollPeriodStatusSchema = z.enum(['OPEN', 'LOCKED', 'CLOSED', 'PAID']);
+export type PayrollPeriodStatus = z.infer<typeof payrollPeriodStatusSchema>;
+
+export const payrollPeriodRecordSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  startsOn: z.string(),
+  endsOn: z.string(),
+  status: payrollPeriodStatusSchema,
+  defaultPointsToCopRate: z.string().optional(),
+  lockedAt: z.string().nullable().optional(),
+  closedAt: z.string().nullable().optional(),
+  paidAt: z.string().nullable().optional(),
+  createdBy: z.string().uuid().nullable().optional(),
+  createdAt: z.string().optional(),
+}).strict();
+export type PayrollPeriodRecord = z.infer<typeof payrollPeriodRecordSchema>;
+
+export const payrollLineRecordSchema = z.object({
+  id: z.string().uuid(),
+  periodId: z.string().uuid(),
+  operatorId: z.string().uuid(),
+  pointsTotal: z.string(),
+  commissionRateSnapshot: z.string(),
+  pointsToCopRateSnapshot: z.string(),
+  grossCop: z.string(),
+  netCop: z.string(),
+  cafeteriaDebitCop: z.string().optional(),
+  status: z.string(),
+  version: z.number().int(),
+  computedAt: z.string().nullable().optional(),
+}).strict();
+export type PayrollLineRecord = z.infer<typeof payrollLineRecordSchema>;

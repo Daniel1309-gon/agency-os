@@ -28,6 +28,13 @@ export function breakStatusCopy(status: BreakStatus): { label: string; action: '
   return { label: status === 'COMPLETED' ? 'Completado' : 'Cancelado', action: null };
 }
 
+/** Contrasts the real start the operator recorded with the scheduled start, in whole minutes. */
+export function startDeviationCopy(scheduledFrom: Date, actualStartAt: Date | string): string {
+  const minutes = Math.trunc((new Date(actualStartAt).getTime() - scheduledFrom.getTime()) / 60_000);
+  if (minutes === 0) return 'a la hora programada';
+  return minutes > 0 ? `${minutes} min después de lo programado` : `${-minutes} min antes de lo programado`;
+}
+
 export function formatLocalTime(value: Date | string): string {
   return new Date(value).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 }

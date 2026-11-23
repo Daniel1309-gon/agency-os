@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { DatabaseService } from '../../database/database.service.js';
 import {
@@ -25,7 +25,9 @@ import type {
   VaultLaunchingSession,
   VaultPreparedHandoffSession,
   VaultProfileUpdate,
+  VaultReencryptedPayload,
   VaultScopeActor,
+  VaultStaleCredential,
   VaultRepository,
 } from './vault.repository.port.js';
 
@@ -261,6 +263,50 @@ export class DrizzleVaultRepository implements VaultRepository {
       keyVersion: credential.keyVersion,
       aadContext: credential.aadContext,
     };
+  }
+
+  async reencryptStaleCredentials(
+    activeKeyVersion: number,
+    reencrypt: (row: VaultStaleCredential) => Promise<VaultReencryptedPayload>,
+  ): Promise<number> {
+    return this.database.db.transaction(async (transaction) => {
+      const stale = await transaction
+        .select({
+          id: ttProfileCredentials.id,
+          profileId: ttProfileCredentials.profileId,
+          ciphertext: ttProfileCredentials.secretCiphertext,
+          nonce: ttProfileCredentials.secretNonce,
+          tag: ttProfileCredentials.secretTag,
+          keyVersion: ttProfileCredentials.keyVersion,
+          aadContext: ttProfileCredentials.aadContext,
+        })
+        .from(ttProfileCredentials)
+        .where(and(eq(ttProfileCredentials.isCurrent, true), lt(ttProfileCredentials.keyVersion, activeKeyVersion)))
+        .orderBy(asc(ttProfileCredentials.id))
+        .for('update');
+
+      let updatedCount = 0;
+      for (const row of stale) {
+        const next = await reencrypt(row);
+        const [updated] = await transaction
+          .update(ttProfileCredentials)
+          .set({
+            secretCiphertext: next.ciphertext,
+            secretNonce: next.nonce,
+            secretTag: next.tag,
+            keyVersion: next.keyVersion,
+            aadContext: next.aadContext,
+          })
+          .where(and(
+            eq(ttProfileCredentials.id, row.id),
+            eq(ttProfileCredentials.isCurrent, true),
+            eq(ttProfileCredentials.keyVersion, row.keyVersion),
+          ))
+          .returning({ id: ttProfileCredentials.id });
+        if (updated) updatedCount += 1;
+      }
+      return updatedCount;
+    });
   }
 
   async markGrantConsumed(grantId: string, consumedAt: Date): Promise<void> {

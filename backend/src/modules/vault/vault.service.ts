@@ -94,6 +94,23 @@ export class VaultService {
     return { keyVersion };
   }
 
+  async reencryptToActiveKey(actorId: string): Promise<{ activeKeyVersion: number; reencryptedCount: number }> {
+    const activeKeyVersion = await this.crypto.currentKeyVersion();
+    await this.crypto.ensureKey(activeKeyVersion);
+    const reencryptedCount = await this.repository.reencryptStaleCredentials(activeKeyVersion, async (row) => {
+      const plaintext = await this.crypto.decrypt(row);
+      return this.crypto.encrypt(plaintext, row.profileId, activeKeyVersion);
+    });
+    await this.audit.record({
+      actorType: 'USER',
+      actorUserId: actorId,
+      action: 'vault.credentials.reencrypted',
+      result: 'SUCCESS',
+      metadata: { version: activeKeyVersion, count: reencryptedCount },
+    });
+    return { activeKeyVersion, reencryptedCount };
+  }
+
   async meta(profileId: string, actor: VaultScopeActor): Promise<{ version: number; rotatedAt: Date; rotatedBy: string }> {
     if (!['ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR'].includes(actor.role)) throw new ForbiddenException('Credential metadata is not available for this role');
     if (!(await this.repository.profileExistsForRotation(profileId, actor))) throw new NotFoundException('Profile not found');
@@ -267,10 +284,13 @@ export class VaultService {
   /**
    * Igual que `deny`: el reuso termina en excepcion, asi que su bitacora se
    * escribe en una transaccion propia para que el rollback del request no la borre.
+   * Corre bajo el rol interno `JOB` para poder marcar `reuse_attempted` y obtener
+   * `profileId` incluso si la asignacion vencio o si otro operador intento el
+   * replay, sin aflojar la politica RLS del rol `OPERADOR`.
    */
   private async recordGrantReuse(grantId: string, context: RequestContext): Promise<void> {
     let profileId: string | undefined;
-    await this.database.independentTransaction(context.userId, 'OPERADOR', async () => {
+    await this.database.independentTransaction(context.userId, 'JOB', async () => {
       profileId = await this.repository.markGrantReuse(grantId);
       await this.audit.record({ actorType: 'DEVICE', actorUserId: context.userId, actorDeviceId: context.deviceId, action: 'vault.credential.redeem', result: 'DENIED', ip: context.ip, metadata: { grantId, reused: true } });
     });

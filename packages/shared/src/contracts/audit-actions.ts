@@ -51,6 +51,7 @@ export const AUDIT_ACTIONS = {
   'vault.credential.handoff': { entity: 'profile', label: 'Entrega a la estación' },
   'vault.credential.rotated': { entity: 'profile', label: 'Credencial rotada' },
   'vault.key.rotated': { entity: null, label: 'Clave del vault rotada' },
+  'vault.credentials.reencrypted': { entity: null, label: 'Credenciales recifradas a la clave vigente' },
 
   'shift.created': { entity: 'shift', label: 'Turno creado' },
   'shift.started': { entity: 'shift', label: 'Turno iniciado' },
@@ -62,11 +63,28 @@ export const AUDIT_ACTIONS = {
   'break.ended': { entity: 'break', label: 'Break terminado' },
 
   'rocketchat.channel.created': { entity: 'rocketchat_channel', label: 'Canal de Rocket.Chat registrado' },
+  'rocketchat.channel.updated': { entity: 'rocketchat_channel', label: 'Canal de Rocket.Chat actualizado' },
+  'rocketchat.channel.drift_scanned': { entity: 'rocketchat_channel', label: 'Deriva de membresía escaneada' },
   'rocketchat.message.scheduled': { entity: 'scheduled_message', label: 'Mensaje programado' },
   'rocketchat.message.cancelled': { entity: 'scheduled_message', label: 'Mensaje programado cancelado' },
   'rocketchat.bot.knowledge.updated': { entity: 'bot_knowledge', label: 'Conocimiento del bot actualizado' },
   'rocketchat.bot.query': { entity: 'user', label: 'Consulta al bot' },
   'outbox.requeued': { entity: 'outbox_event', label: 'Entrega reintentada' },
+
+  'payroll.exported': { entity: 'payroll_period', label: 'Nómina exportada a Excel' },
+  'payroll.period.computed': { entity: 'payroll_period', label: 'Nómina calculada' },
+  'payroll.period.status_changed': { entity: 'payroll_period', label: 'Estado de periodo de nómina actualizado' },
+  'payroll.adjustment.created': { entity: 'payroll_line', label: 'Ajuste de nómina registrado' },
+  'payroll.points_adjusted': { entity: 'user', label: 'Ajuste manual de puntos registrado' },
+
+  'icebreaker.evaluated': { entity: 'icebreaker', label: 'Icebreaker evaluado' },
+  'icebreaker.published': { entity: 'icebreaker', label: 'Icebreaker publicado' },
+  'icebreaker.rule.created': { entity: 'icebreaker_rule', label: 'Regla de icebreaker creada' },
+  'icebreaker.rule.updated': { entity: 'icebreaker_rule', label: 'Regla de icebreaker actualizada' },
+  'icebreaker.reviewed': { entity: 'icebreaker', label: 'Icebreaker revisado' },
+
+  'cafeteria.product.created': { entity: 'cafeteria_product', label: 'Producto de cafetería creado' },
+  'cafeteria.product.updated': { entity: 'cafeteria_product', label: 'Producto de cafetería actualizado' },
 } as const satisfies Record<string, { entity: string | null; label: string }>;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

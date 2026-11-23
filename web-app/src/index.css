@@ -3444,6 +3444,50 @@ a:focus-visible {
   padding-bottom: 15px;
 }
 
+.icebreaker-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.icebreaker-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 12px;
+}
+
+.icebreaker-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.icebreaker-card__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.icebreaker-card textarea {
+  width: 100%;
+}
+
+.cafeteria-inventory-table .management-table__head,
+.cafeteria-inventory-table .management-table__row {
+  grid-template-columns: minmax(200px, 1.4fr) minmax(130px, 0.9fr) minmax(110px, 0.75fr) minmax(100px, 0.6fr) minmax(100px, 0.6fr) minmax(110px, 0.7fr) minmax(170px, auto);
+}
+
+.metrics-six-col-table .management-table__head,
+.metrics-six-col-table .management-table__row {
+  grid-template-columns: minmax(170px, 1.3fr) minmax(110px, 0.8fr) minmax(100px, 0.75fr) minmax(100px, 0.75fr) minmax(100px, 0.75fr) minmax(130px, auto);
+  min-width: 820px;
+}
+
 .assignment-table .management-table__head,
 .assignment-table .management-table__row {
   grid-template-columns: minmax(220px, 1.35fr) minmax(130px, 0.85fr) minmax(180px, 1.1fr) minmax(100px, 0.7fr) minmax(190px, auto);
@@ -3744,7 +3788,9 @@ a:focus-visible {
     padding: 12px 0;
   }
 
-  .assignment-table .management-table__row {
+  .assignment-table .management-table__row,
+  .cafeteria-inventory-table .management-table__row,
+  .metrics-six-col-table .management-table__row {
     grid-template-columns: minmax(0, 1fr) auto;
     min-width: 0;
   }

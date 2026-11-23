@@ -12,6 +12,7 @@ export const operatorStatusSnapshotSchema = z.object({
   status: operatorStatusSchema,
   reason: z.string(),
   changedAt: z.string().datetime({ offset: true }).nullable(),
+  seq: z.number().int().nonnegative().optional(),
 }).strict();
 export type OperatorStatusSnapshot = z.infer<typeof operatorStatusSnapshotSchema>;
 
@@ -120,6 +121,70 @@ export const operationalMetricsSchema = z.object({
 });
 export type OperationalMetrics = z.infer<typeof operationalMetricsSchema>;
 
+export const metricSourceSchema = z.enum(['EXTENSION', 'TABLEAU']);
+export type MetricSource = z.infer<typeof metricSourceSchema>;
+
+export const profileDailyMetricSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  businessDate: z.string(),
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  source: metricSourceSchema,
+});
+export type ProfileDailyMetric = z.infer<typeof profileDailyMetricSchema>;
+
+export const profileRankingRowSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.union([z.number(), z.string()]),
+});
+export type ProfileRankingRow = z.infer<typeof profileRankingRowSchema>;
+
+export const profileTimeseriesPointSchema = z.object({
+  businessDate: z.string(),
+  source: metricSourceSchema,
+  points: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  icebreakersSent: z.number().int().nonnegative(),
+  icebreakersReplied: z.number().int().nonnegative(),
+});
+export type ProfileTimeseriesPoint = z.infer<typeof profileTimeseriesPointSchema>;
+
+export const metricReconciliationRowSchema = z.object({
+  id: z.string().uuid(),
+  profileId: z.string().uuid(),
+  displayName: z.string().optional(),
+  businessDate: z.string(),
+  extensionPoints: z.string(),
+  tableauPoints: z.string(),
+  differencePoints: z.string(),
+  tolerancePoints: z.string(),
+  status: z.string(),
+  details: z.record(z.string(), z.unknown()).nullable().optional(),
+  createdAt: z.string(),
+});
+export type MetricReconciliationRow = z.infer<typeof metricReconciliationRowSchema>;
+
+export const operatorProfileMetricSchema = z.object({
+  profileId: z.string().uuid(),
+  displayName: z.string(),
+  businessDate: z.string(),
+  messagesSent: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  responseRate: z.string().nullable(),
+  icebreakersSent: z.number().int().nonnegative(),
+  icebreakersReplied: z.number().int().nonnegative(),
+});
+export type OperatorProfileMetric = z.infer<typeof operatorProfileMetricSchema>;
+
 export const userSummarySchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
@@ -161,6 +226,7 @@ export const cafeteriaProductSchema = z.object({
   pickupDeadlineMinutes: z.number().nullable().optional(),
   imageUri: z.string().nullable().optional(),
   isAvailable: z.boolean().optional(),
+  updatedAt: z.string().nullable().optional(),
 });
 export type CafeteriaProduct = z.infer<typeof cafeteriaProductSchema>;
 
@@ -178,14 +244,104 @@ export const cafeteriaOrderSchema = z.object({
   id: z.string().uuid(),
   orderNumber: z.number().int(),
   operatorId: z.string().uuid(),
+  operatorName: z.string().nullable().optional(),
   status: cafeteriaOrderStatusSchema,
   placedAt: z.string(),
   acceptedAt: z.string().nullable().optional(),
   readyAt: z.string().nullable().optional(),
   pickupDeadlineAt: z.string().nullable().optional(),
   deliveredAt: z.string().nullable().optional(),
+  cancelledAt: z.string().nullable().optional(),
+  cancelReason: z.string().nullable().optional(),
   totalCop: z.string(),
   notes: z.string().nullable().optional(),
   items: z.array(cafeteriaOrderItemSchema),
+  seq: z.number().int().nonnegative().optional(),
 });
 export type CafeteriaOrder = z.infer<typeof cafeteriaOrderSchema>;
+
+export const cafeteriaSalesSummarySchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  totalOrders: z.number().int().nonnegative(),
+  deliveredCount: z.number().int().nonnegative(),
+  deliveredTotalCop: z.string(),
+  averageTicketCop: z.string(),
+  cancelledCount: z.number().int().nonnegative(),
+  expiredCount: z.number().int().nonnegative(),
+  inProgressCount: z.number().int().nonnegative(),
+  topItems: z.array(z.object({
+    name: z.string(),
+    quantity: z.number().int().nonnegative(),
+    revenueCop: z.string(),
+  })),
+});
+export type CafeteriaSalesSummary = z.infer<typeof cafeteriaSalesSummarySchema>;
+
+/** FR-21 to FR-25: the operator's icebreaker workspace. */
+export const icebreakerStatusSchema = z.enum(['DRAFT', 'BLOCKED', 'APPROVED', 'PUBLISHED']);
+export type IcebreakerStatus = z.infer<typeof icebreakerStatusSchema>;
+
+export const icebreakerSummarySchema = z.object({
+  id: z.string().uuid(),
+  profileId: z.string().uuid().nullable(),
+  text: z.string(),
+  status: icebreakerStatusSchema,
+  version: z.number().int().nonnegative(),
+  publishedAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+});
+export type IcebreakerSummary = z.infer<typeof icebreakerSummarySchema>;
+
+export const icebreakerEvaluationResultSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['APPROVED', 'BLOCKED']),
+  blocking: z.boolean(),
+  matchedRules: z.array(z.string()),
+  violations: z.array(z.object({ code: z.string(), name: z.string(), severity: z.enum(['INFO', 'WARNING', 'BLOCKING']) })),
+  score: z.number().min(0).max(1).optional(),
+  source: z.enum(['AI_ENGINE', 'LOCAL_RULES']),
+});
+export type IcebreakerEvaluationResult = z.infer<typeof icebreakerEvaluationResultSchema>;
+
+export const icebreakerRuleKindSchema = z.enum(['REGEX', 'KEYWORD', 'MANUAL']);
+export type IcebreakerRuleKind = z.infer<typeof icebreakerRuleKindSchema>;
+
+export const icebreakerRuleSeveritySchema = z.enum(['INFO', 'WARNING', 'BLOCKING']);
+export type IcebreakerRuleSeverity = z.infer<typeof icebreakerRuleSeveritySchema>;
+
+export const icebreakerRuleRecordSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  kind: icebreakerRuleKindSchema,
+  pattern: z.string().nullable(),
+  severity: icebreakerRuleSeveritySchema,
+  isActive: z.boolean(),
+  version: z.number().int().positive(),
+});
+export type IcebreakerRuleRecord = z.infer<typeof icebreakerRuleRecordSchema>;
+
+export const icebreakerReviewVerdictSchema = z.enum(['TRUE_POSITIVE', 'FALSE_POSITIVE', 'OVERRIDDEN_ALLOW']);
+export type IcebreakerReviewVerdict = z.infer<typeof icebreakerReviewVerdictSchema>;
+
+export const icebreakerViolationRecordSchema = z.object({
+  id: z.string().uuid(),
+  icebreakerId: z.string().uuid(),
+  icebreakerText: z.string(),
+  icebreakerStatus: icebreakerStatusSchema,
+  operatorId: z.string().uuid(),
+  operatorName: z.string().nullable(),
+  profileId: z.string().uuid().nullable(),
+  profileName: z.string().nullable(),
+  ruleId: z.string().uuid(),
+  ruleCode: z.string(),
+  ruleName: z.string(),
+  severity: icebreakerRuleSeveritySchema,
+  status: z.enum(['OPEN', 'REVIEWED']),
+  reviewedBy: z.string().uuid().nullable(),
+  reviewedAt: z.string().datetime({ offset: true }).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+});
+export type IcebreakerViolationRecord = z.infer<typeof icebreakerViolationRecordSchema>;

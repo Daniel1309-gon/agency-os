@@ -165,6 +165,43 @@ describe('ShiftsService', () => {
     expect((await shiftsService.end(shift.id, operator.id)).effectiveMinutes).toBe(0);
   });
 
+  it('shows the operator the scheduled shift covering now, so the operator can start it', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    const shift = await shiftsService.create(
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-15), scheduledTo: isoOffset(120) },
+      actor.id,
+    );
+
+    expect(await shiftsService.current(operator.id)).toMatchObject({ id: shift.id, status: 'SCHEDULED', actualStartAt: null });
+
+    const before = Date.now();
+    await shiftsService.start(shift.id, operator.id);
+
+    const started = await shiftsService.current(operator.id);
+    expect(started).toMatchObject({ id: shift.id, status: 'IN_PROGRESS' });
+    expect(started?.actualStartAt?.getTime()).toBeGreaterThanOrEqual(before - 1_000);
+  });
+
+  it('does not show a scheduled shift outside its window or a completed one', async () => {
+    const actor = await createUser(ctx, { role: 'ADMIN' });
+    const operator = await createUser(ctx);
+    await shiftsService.create(
+      { operatorId: operator.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(60), scheduledTo: isoOffset(180) },
+      actor.id,
+    );
+    expect(await shiftsService.current(operator.id)).toBeUndefined();
+
+    const other = await createUser(ctx);
+    const done = await shiftsService.create(
+      { operatorId: other.id, businessDate: '2026-08-04', scheduledFrom: isoOffset(-60), scheduledTo: isoOffset(60) },
+      actor.id,
+    );
+    await shiftsService.start(done.id, other.id);
+    await shiftsService.end(done.id, other.id);
+    expect(await shiftsService.current(other.id)).toBeUndefined();
+  });
+
   it('refuses to start a shift twice or to close one that never started', async () => {
     const actor = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);

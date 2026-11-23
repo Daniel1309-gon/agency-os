@@ -17,6 +17,10 @@ describe('workspace navigation', () => {
       '/app/asignaciones',
       '/app/cuadrillas',
       '/app/turnos',
+      '/app/nomina',
+      '/app/ventas',
+      '/app/inventario',
+      '/app/icebreakers-revision',
       '/app/mensajes',
       '/app/seguridad',
       '/app/acceso-ip',
@@ -37,11 +41,28 @@ describe('workspace navigation', () => {
     expect(routes.map((route) => route.path)).toEqual(['/app/metricas', '/app/auditoria']);
   });
 
-  it('keeps pending cafeteria pages visible without granting APIs', () => {
+  it('gates all cafeteria pages behind cafeteria.manage with no pending placeholders', () => {
     const routes = getWorkspaceRoutes('CAFETERIA', ['cafeteria.manage']);
 
-    expect(routes.filter((route) => route.pending).map((route) => route.path)).toEqual(['/app/ventas', '/app/inventario']);
-    expect(routes.find((route) => route.path === '/app/ventas')?.permission).toBeUndefined();
+    expect(routes.map((route) => route.path)).toEqual(['/app/pedidos', '/app/menu', '/app/ventas', '/app/inventario']);
+    expect(routes.every((route) => !route.pending && route.permission === 'cafeteria.manage')).toBe(true);
+    expect(getWorkspaceRoutes('CAFETERIA', [])).toEqual([]);
+  });
+
+  it('lets the director and the admin supervise cafeteria sales and inventory, but not run the kitchen', () => {
+    for (const role of ['DIRECTOR_OPERATIVO', 'ADMIN'] as const) {
+      const paths = getWorkspaceRoutes(role, ['cafeteria.manage']).map((route) => route.path);
+      expect(paths).toEqual(['/app/ventas', '/app/inventario']);
+      expect(resolveWorkspaceRoute(role, ['cafeteria.manage'], '/app/ventas').path).toBe('/app/ventas');
+      expect(resolveWorkspaceRoute(role, ['cafeteria.manage', 'metrics.audit'], '/app/pedidos').path).toBe('/app/metricas');
+    }
+    expect(getWorkspaceRoutes('DIRECTOR_OPERATIVO', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/ventas');
+  });
+
+  it('gives the operator an icebreaker workspace right after the shift', () => {
+    expect(getWorkspaceRoutes('OPERADOR', ['profiles.read', 'shifts.read']).map((route) => route.path)).toEqual(['/app/perfiles', '/app/turno', '/app/icebreakers', '/app/cafeteria']);
+    expect(resolveWorkspaceRoute('OPERADOR', ['profiles.read'], '/app/icebreakers').path).toBe('/app/icebreakers');
+    expect(getWorkspaceRoutes('COORDINADOR', ['*']).map((route) => route.path)).not.toContain('/app/icebreakers');
   });
 
   it('resolves unknown and forbidden paths to the role default', () => {
@@ -49,12 +70,25 @@ describe('workspace navigation', () => {
     expect(resolveWorkspaceRoute('ADMIN', ['*'], '/app/no-existe').path).toBe('/app/metricas');
   });
 
+  it('gives reviewers access to /app/icebreakers-revision behind icebreaker.review', () => {
+    for (const role of ['COORDINADOR', 'DIRECTOR_OPERATIVO', 'ADMIN'] as const) {
+      expect(getWorkspaceRoutes(role, ['icebreaker.review']).map((route) => route.path)).toEqual(['/app/icebreakers-revision']);
+    }
+    expect(getWorkspaceRoutes('OPERADOR', ['icebreaker.review']).map((route) => route.path)).not.toContain('/app/icebreakers-revision');
+  });
+
+  it('gives coordinators crew-scoped /app/metricas behind metrics.audit while keeping operators out', () => {
+    expect(getWorkspaceRoutes('COORDINADOR', ['operators.monitor', 'metrics.audit']).map((route) => route.path)).toEqual(['/app/equipo', '/app/metricas']);
+    expect(getWorkspaceRoutes('OPERADOR', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/metricas');
+  });
+
   it('groups routes in declaration order for the navbar', () => {
     const groups = groupWorkspaceRoutes(getWorkspaceRoutes('ADMIN', ['*']));
 
-    expect(groups.map(([group]) => group)).toEqual(['Operación', 'Control']);
-    expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos']);
-    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
+    expect(groups.map(([group]) => group)).toEqual(['Operación', 'Punto', 'Control']);
+    expect(groups[0][1].map((route) => route.path)).toEqual(['/app/metricas', '/app/usuarios', '/app/perfiles', '/app/asignaciones', '/app/cuadrillas', '/app/turnos', '/app/nomina']);
+    expect(groups[1][1].map((route) => route.path)).toEqual(['/app/ventas', '/app/inventario']);
+    expect(groups[2][1].map((route) => route.path)).toEqual(['/app/icebreakers-revision', '/app/mensajes', '/app/seguridad', '/app/acceso-ip', '/app/entregas', '/app/auditoria']);
   });
 
   it('intercepts only plain primary clicks so new-tab gestures keep working', () => {

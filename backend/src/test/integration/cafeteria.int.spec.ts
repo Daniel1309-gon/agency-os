@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
+import { AuditService } from '../../common/audit/audit.service.js';
 import { CafeteriaService } from '../../modules/cafeteria/cafeteria.service.js';
-import { cafeteriaOrderItems, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
+import { auditLog, cafeteriaOrderItems, cafeteriaOrders, cafeteriaProducts, operatorAccountEntries } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
@@ -10,7 +11,7 @@ let cafeteria: CafeteriaService;
 
 beforeAll(async () => {
   ctx = await createTestContext();
-  cafeteria = new CafeteriaService(ctx.database);
+  cafeteria = new CafeteriaService(ctx.database, undefined, new AuditService(ctx.database));
 });
 
 afterAll(async () => {
@@ -116,6 +117,55 @@ describe('placing an order', () => {
     expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(0);
     expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(0);
   });
+
+  it('rejects a soft-deleted product even if isAvailable is still true (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    await ctx.pool.query('UPDATE cafeteria_products SET deleted_at = now() WHERE id = $1', [lunch.id]);
+
+    await expect(
+      cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }] }, operator.id, 'key-deleted'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('deterministically triggers 23505 inside withRequestContext savepoint and returns a consistent response shape (A5)', async () => {
+    const operator = await createUser(ctx);
+    const lunch = await cafeteria.createProduct(LUNCH);
+    const input = { items: [{ productId: lunch.id, quantity: 2 }] };
+
+    // Synchronize both calls right after the pre-check returns undefined so both
+    // enter tx.transaction (SAVEPOINT) concurrently and the loser deterministically hits 23505.
+    const target = cafeteria as unknown as { findOrderSummary: (op: string, key: string) => Promise<unknown> };
+    const origFind = target.findOrderSummary.bind(cafeteria);
+    let precheckHits = 0;
+    let releaseBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => { releaseBarrier = resolve; });
+    const spy = vi.spyOn(target, 'findOrderSummary').mockImplementation(async (op: string, key: string) => {
+      const res = await origFind(op, key);
+      if (res === undefined) {
+        precheckHits += 1;
+        if (precheckHits === 2) releaseBarrier();
+        await barrier;
+      }
+      return res;
+    });
+
+    try {
+      const [first, second] = await Promise.all([
+        ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+        ctx.database.withRequestContext(operator.id, 'OPERADOR', () => cafeteria.createOrder(input, operator.id, 'race-key-1')),
+      ]);
+
+      expect(precheckHits).toBe(2);
+      expect(second.id).toBe(first.id);
+      expect(Object.keys(first).sort()).toEqual(Object.keys(second).sort());
+      expect(second).toEqual(first);
+      expect(await cafeteria.orders(undefined, operator.id)).toHaveLength(1);
+      expect(await ctx.db.select({ id: cafeteriaOrderItems.id }).from(cafeteriaOrderItems)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('the kitchen flow and the debit', () => {
@@ -178,6 +228,91 @@ describe('the kitchen flow and the debit', () => {
     expect(order.pickupDeadlineAt?.getTime()).toBeGreaterThan(Date.now());
   });
 
+  it('lets only one of two concurrent transitions win, and debits a delivered order once', async () => {
+    // CAF-02: "dos entregas concurrentes producen una sola transición/débito".
+    // A third connection holds the row lock, so both transitions read READY and then
+    // queue on the UPDATE; releasing it makes the race deterministic.
+    // Pairs that are both valid from the starting status, so the SQL compare-and-swap
+    // (not the transition table) is what decides the winner.
+    const races = [
+      { from: 'READY', first: { status: 'DELIVERED' }, second: { status: 'DELIVERED' } },
+      { from: 'PREPARING', first: { status: 'READY' }, second: { status: 'CANCELLED', cancelReason: 'carrera' } },
+    ] as const;
+    for (const race of races) {
+      const { operatorId, orderId, kitchenId } = await placedOrder();
+      const path = race.from === 'READY' ? (['ACCEPTED', 'PREPARING', 'READY'] as const) : (['ACCEPTED', 'PREPARING'] as const);
+      for (const status of path) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+
+      const blocker = await ctx.pool.connect();
+      let results: PromiseSettledResult<unknown>[];
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('SELECT id FROM cafeteria_orders WHERE id = $1 FOR UPDATE', [orderId]);
+        const racing = Promise.allSettled([cafeteria.updateStatus(orderId, race.first, kitchenId), cafeteria.updateStatus(orderId, race.second, kitchenId)]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await blocker.query('COMMIT');
+        results = await racing;
+      } finally {
+        blocker.release();
+      }
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
+      expect(rejected.reason).toBeInstanceOf(ConflictException);
+      expect(String(rejected.reason.message)).toMatch(/changed concurrently/);
+      const [order] = await ctx.db.select({ status: cafeteriaOrders.status }).from(cafeteriaOrders).where(eq(cafeteriaOrders.id, orderId));
+      const debits = await ctx.db.select({ id: operatorAccountEntries.id }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
+      expect(debits).toHaveLength(order.status === 'DELIVERED' ? 1 : 0);
+    }
+  });
+
+  it('uses the shortest pickup deadline among the ordered products', async () => {
+    const operator = await createUser(ctx);
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const lunch = await cafeteria.createProduct({ ...LUNCH, sku: 'ALM-DL' });
+    const coffee = await cafeteria.createProduct({ ...COFFEE, sku: 'CAF-DL' });
+    const order = await cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }, { productId: coffee.id, quantity: 1 }] }, operator.id, 'key-deadline');
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(order.id, { status }, kitchen.id);
+
+    const [ready] = await cafeteria.orders('READY');
+    // Coffee allows 15 minutes, lunch 30: the coffee decides.
+    expect(ready.pickupDeadlineAt!.getTime() - ready.readyAt!.getTime()).toBe(15 * 60_000);
+  });
+
+  it('dates the debit in Bogota, so an order delivered at 22:00 counts on that day', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+
+    // 2026-08-04 03:00Z is 2026-08-03 22:00 in Bogota.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-08-04T03:00:00Z') });
+    try {
+      await cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const [entry] = await ctx.db.select({ businessDate: operatorAccountEntries.businessDate }).from(operatorAccountEntries).where(eq(operatorAccountEntries.operatorId, operatorId));
+    expect(entry.businessDate).toBe('2026-08-03');
+  });
+
+  it('counts the month consumption by the Bogota business date of the debit', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY'] as const) await cafeteria.updateStatus(orderId, { status }, kitchenId);
+    // Delivered on 2026-08-31 22:00 Bogota (2026-09-01 03:00Z): an August debit.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-09-01T03:00:00Z') });
+    try {
+      await cafeteria.updateStatus(orderId, { status: 'DELIVERED' }, kitchenId);
+      // Still 2026-08-31 in Bogota: August's consumption includes it.
+      vi.setSystemTime(new Date('2026-09-01T04:30:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('25000.00');
+      // 2026-09-01 in Bogota: a new month, nothing consumed yet.
+      vi.setSystemTime(new Date('2026-09-01T06:00:00Z'));
+      expect((await cafeteria.account(operatorId)).monthConsumedCop).toBe('0');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not debit a cancelled order', async () => {
     const { operatorId, orderId, kitchenId } = await placedOrder();
     await cafeteria.updateStatus(orderId, { status: 'CANCELLED', cancelReason: 'sin ingredientes' }, kitchenId);
@@ -193,5 +328,97 @@ describe('the kitchen flow and the debit', () => {
     expect(await cafeteria.orders('PLACED')).toHaveLength(1);
     expect(await cafeteria.orders('ACCEPTED')).toHaveLength(1);
     expect(await cafeteria.orders()).toHaveLength(2);
+  });
+
+  it('filters sales history by Bogota calendar date across UTC midnight, bounds limit, and includes operatorName', async () => {
+    const first = await placedOrder();
+    const second = await placedOrder();
+    // 2026-11-22 22:30 Bogota = 2026-11-23 03:30 UTC (must land in 2026-11-22, not 2026-11-23)
+    await ctx.db
+      .update(cafeteriaOrders)
+      .set({ placedAt: new Date('2026-11-23T03:30:00.000Z') })
+      .where(eq(cafeteriaOrders.id, first.orderId));
+    // 2026-11-23 08:00 Bogota = 2026-11-23 13:00 UTC
+    await ctx.db
+      .update(cafeteriaOrders)
+      .set({ placedAt: new Date('2026-11-23T13:00:00.000Z') })
+      .where(eq(cafeteriaOrders.id, second.orderId));
+    await cafeteria.updateStatus(second.orderId, { status: 'CANCELLED', cancelReason: 'Sin stock' }, second.kitchenId);
+
+    const day22 = await cafeteria.orders({ from: '2026-11-22', to: '2026-11-22' });
+    expect(day22.map((order) => order.id)).toEqual([first.orderId]);
+    expect(day22[0].operatorName).toBeTruthy();
+
+    const day23 = await cafeteria.orders({ from: '2026-11-23', to: '2026-11-23', status: 'CANCELLED' });
+    expect(day23.map((order) => order.id)).toEqual([second.orderId]);
+    expect(day23[0].cancelReason).toBe('Sin stock');
+    expect(day23[0].cancelledAt).toBeTruthy();
+
+    const limited = await cafeteria.orders({ from: '2026-11-22', to: '2026-11-23', limit: 1 });
+    expect(limited).toHaveLength(1);
+    expect(limited[0].id).toBe(second.orderId);
+  });
+
+  it('lists only kitchen-flow orders with active=true, even when newer delivered orders exceed the limit', async () => {
+    const stillActive = await placedOrder();
+    const delivered = await placedOrder();
+    await ctx.db.update(cafeteriaOrders).set({ placedAt: new Date('2026-11-22T13:00:00.000Z') }).where(eq(cafeteriaOrders.id, stillActive.orderId));
+    await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: new Date('2026-11-22T15:00:00.000Z') }).where(eq(cafeteriaOrders.id, delivered.orderId));
+
+    expect((await cafeteria.orders({ limit: 1 })).map((order) => order.id)).toEqual([delivered.orderId]);
+    expect((await cafeteria.orders({ active: true, limit: 1 })).map((order) => order.id)).toEqual([stillActive.orderId]);
+  });
+
+  it('aggregates the sales summary over the whole Bogota range in Postgres', async () => {
+    const first = await placedOrder();
+    const second = await placedOrder();
+    const cancelled = await placedOrder();
+    const outOfRange = await placedOrder();
+    const inRange = new Date('2026-11-23T03:30:00.000Z'); // 2026-11-22 22:30 Bogota
+    for (const order of [first, second]) {
+      await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: inRange }).where(eq(cafeteriaOrders.id, order.orderId));
+    }
+    await ctx.db.update(cafeteriaOrders).set({ status: 'CANCELLED', placedAt: inRange }).where(eq(cafeteriaOrders.id, cancelled.orderId));
+    await ctx.db.update(cafeteriaOrders).set({ status: 'DELIVERED', placedAt: new Date('2026-11-23T05:30:00.000Z') }).where(eq(cafeteriaOrders.id, outOfRange.orderId));
+    const [orderRow] = await ctx.db.select({ totalCop: cafeteriaOrders.totalCop }).from(cafeteriaOrders).where(eq(cafeteriaOrders.id, first.orderId));
+    const [itemRow] = await ctx.db.select({ name: cafeteriaOrderItems.productNameSnapshot, quantity: cafeteriaOrderItems.quantity, lineTotalCop: cafeteriaOrderItems.lineTotalCop }).from(cafeteriaOrderItems).where(eq(cafeteriaOrderItems.orderId, first.orderId));
+    const unitTotal = Number(orderRow.totalCop);
+
+    const summary = await cafeteria.salesSummary({ from: '2026-11-22', to: '2026-11-22' });
+
+    expect(summary).toMatchObject({
+      from: '2026-11-22',
+      to: '2026-11-22',
+      totalOrders: 3,
+      deliveredCount: 2,
+      deliveredTotalCop: (unitTotal * 2).toFixed(2),
+      averageTicketCop: unitTotal.toFixed(2),
+      cancelledCount: 1,
+      expiredCount: 0,
+      inProgressCount: 0,
+    });
+    expect(summary.topItems).toEqual([{ name: itemRow.name, quantity: itemRow.quantity * 2, revenueCop: (Number(itemRow.lineTotalCop) * 2).toFixed(2) }]);
+
+    const empty = await cafeteria.salesSummary({ from: '2026-10-01', to: '2026-10-01' });
+    expect(empty).toMatchObject({ totalOrders: 0, deliveredTotalCop: '0.00', averageTicketCop: '0.00', topItems: [] });
+  });
+
+  it('records audit_log entries when creating and updating cafeteria products', async () => {
+    const kitchen = await createUser(ctx, { role: 'CAFETERIA' });
+    const created = await cafeteria.createProduct(LUNCH, kitchen.id);
+    await cafeteria.updateProduct(created.id, { priceCop: 14000, isAvailable: false }, kitchen.id);
+
+    const entries = await ctx.db
+      .select({ action: auditLog.action, actorUserId: auditLog.actorUserId, entityId: auditLog.entityId, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, created.id));
+
+    expect(entries.map((entry) => entry.action).sort()).toEqual([
+      'cafeteria.product.created',
+      'cafeteria.product.updated',
+    ]);
+    expect(entries.every((entry) => entry.actorUserId === kitchen.id)).toBe(true);
+    const updatedAudit = entries.find((entry) => entry.action === 'cafeteria.product.updated');
+    expect(updatedAudit?.metadata).toMatchObject({ sku: 'ALM-01', priceCop: '14000.00', isAvailable: false });
   });
 });

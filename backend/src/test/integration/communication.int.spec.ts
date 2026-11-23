@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { createServer, type Server as HttpServer } from 'node:http';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { AuditService } from '../../common/audit/audit.service.js';
 import { LoggerService } from '../../common/logger/logger.service.js';
 import { ConfigService } from '../../config/config.service.js';
@@ -15,13 +15,15 @@ import { RocketChatClient } from '../../modules/communication/rocketchat.client.
 import { OutboxService } from '../../modules/outbox/outbox.service.js';
 import { OutboxOpsRepository } from '../../modules/outbox/outbox-ops.drizzle-repository.js';
 import { OutboxOpsService } from '../../modules/outbox/outbox-ops.service.js';
-import { auditLog, crews, outboxEvents, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
+import { auditLog, crewMembers, crews, outboxEvents, rocketchatChannels, scheduledMessages, users } from '../../database/schema/index.js';
 import { createTestContext, createUser, destroyTestContext, resetDatabase, seedRoles, type TestContext } from '../support/harness.js';
 
 let ctx: TestContext;
 let server: HttpServer;
 let baseUrl: string;
 let requests: Array<{ id: string; roomId: string; body: string }>;
+let memberListRequests: Array<{ method: string; url: string }>;
+let roomMembersByRoom: Record<string, Array<{ _id: string; username?: string; name?: string }>>;
 let responseStatus = 200;
 let originalEnv: NodeJS.ProcessEnv;
 
@@ -29,6 +31,18 @@ beforeAll(async () => {
   ctx = await createTestContext();
   originalEnv = process.env;
   server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url && (request.url.startsWith('/api/v1/groups.members') || request.url.startsWith('/api/v1/channels.members'))) {
+      memberListRequests.push({ method: request.method, url: request.url });
+      const parsedUrl = new URL(request.url, 'http://127.0.0.1');
+      const roomId = parsedUrl.searchParams.get('roomId') ?? '';
+      const count = Number(parsedUrl.searchParams.get('count') ?? '100');
+      const offset = Number(parsedUrl.searchParams.get('offset') ?? '0');
+      const all = roomMembersByRoom[roomId] ?? [];
+      const slice = all.slice(offset, offset + count);
+      response.writeHead(responseStatus, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(responseStatus < 400 ? { success: true, members: slice, count: slice.length, offset, total: all.length } : { success: false, error: 'controlled failure' }));
+      return;
+    }
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
@@ -54,6 +68,8 @@ beforeEach(async () => {
   await resetDatabase(ctx);
   await seedRoles(ctx);
   requests = [];
+  memberListRequests = [];
+  roomMembersByRoom = {};
   responseStatus = 200;
   process.env.ROCKETCHAT_BASE_URL = baseUrl;
   process.env.ROCKETCHAT_TOKEN = 'controlled-token';
@@ -66,8 +82,9 @@ function services() {
   const outbox = new OutboxService(ctx.database);
   const audit = new AuditService(ctx.database);
   const config = new ConfigService();
-  const communication = new CommunicationService(ctx.database, outbox, audit);
-  const worker = new CommunicationWorker(ctx.database, outbox, new RocketChatClient(config), new LoggerService('fatal'), config);
+  const rocketchat = new RocketChatClient(config);
+  const communication = new CommunicationService(ctx.database, outbox, audit, rocketchat);
+  const worker = new CommunicationWorker(ctx.database, outbox, rocketchat, new LoggerService('fatal'), config);
   const bot = new BotService(ctx.database, config, audit, ctx.redis, new FaqBotAnswerProvider());
   return { communication, worker, bot };
 }
@@ -84,7 +101,7 @@ function stableBotAuditMetadata(rows: Array<{ metadata: unknown }>): Array<Recor
 describe('Rocket.Chat durable delivery', () => {
   it('accepts a structured recurrence rule and rejects a free-form one', () => {
     // Miercoles 23 sep 2026, 09:05 en Bogota.
-    const base = { targetUserId: '00000000-0000-0000-0000-000000000001', body: 'Recurring', scheduledFor: '2026-09-23T14:05:00.000Z' };
+    const base = { targetUserId: '7d0f4f4e-2b1c-4c3a-9f6e-1a2b3c4d5e6f', body: 'Recurring', scheduledFor: '2026-09-23T14:05:00.000Z' };
 
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'DAILY' } }).success).toBe(true);
     expect(scheduledMessageSchema.safeParse({ ...base, recurrenceRule: { frequency: 'WEEKLY', weekdays: [1, 3] } }).success).toBe(true);
@@ -385,6 +402,46 @@ describe('informational Rocket.Chat bot', () => {
     expect(requests).toEqual([{ id: expect.stringMatching(/^agency-outbox-/), roomId: 'bot-room', body: 'Tu cuenta todavía no está vinculada con Agency OS. Contacta a administración' }]);
   });
 
+  it('logs sanitized discard reasons without leaking webhook secrets or message bodies (E1-15)', async () => {
+    const audit = new AuditService(ctx.database);
+    const config = new ConfigService();
+    const logger = new LoggerService('fatal');
+    const warnSpy = vi.spyOn(logger, 'warn');
+    const bot = new BotService(ctx.database, config, audit, ctx.redis, new FaqBotAnswerProvider(), logger);
+
+    const leakedSecret = 'wrong-super-secret-webhook-token-value-12345';
+    const sensitiveBody = 'ayuda mi contraseña secreta es XYZ-999';
+    await expect(bot.handle({ invalid: true })).resolves.toEqual({ accepted: true, reason: 'INVALID_PAYLOAD' });
+    await expect(bot.handle({
+      token: leakedSecret,
+      user_id: 'rc-user-1',
+      channel_id: 'bot-room',
+      message_id: 'discard-1',
+      timestamp: new Date().toISOString(),
+      text: sensitiveBody,
+      trigger_word: 'ayuda',
+    })).resolves.toEqual({ accepted: true, reason: 'INVALID_TOKEN' });
+    await expect(bot.handle({
+      token: process.env.ROCKETCHAT_WEBHOOK_SECRET!,
+      user_id: 'rc-user-1',
+      channel_id: 'unregistered-room',
+      message_id: 'discard-2',
+      timestamp: new Date().toISOString(),
+      text: sensitiveBody,
+      trigger_word: 'ayuda',
+    })).resolves.toEqual({ accepted: true, reason: 'ROOM_NOT_REGISTERED' });
+
+    expect(warnSpy.mock.calls).toEqual([
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'INVALID_PAYLOAD' }],
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'INVALID_TOKEN' }],
+      ['Rocket.Chat bot webhook discarded', { source: 'ROCKETCHAT', reason: 'ROOM_NOT_REGISTERED' }],
+    ]);
+    const serialized = JSON.stringify(warnSpy.mock.calls);
+    expect(serialized).not.toContain(leakedSecret);
+    expect(serialized).not.toContain(process.env.ROCKETCHAT_WEBHOOK_SECRET!);
+    expect(serialized).not.toContain(sensitiveBody);
+  });
+
   it('limits each Rocket.Chat user to ten queries per minute in Redis', async () => {
     const operator = await createUser(ctx);
     await ctx.db.update(users).set({ rocketchatUserId: 'rate-limited-user' }).where(eq(users.id, operator.id));
@@ -397,5 +454,140 @@ describe('informational Rocket.Chat bot', () => {
 
     const events = await ctx.db.select({ id: outboxEvents.id }).from(outboxEvents);
     expect(events).toHaveLength(10);
+  });
+});
+
+describe('Rocket.Chat channel lifecycle and drift scan (E1-13)', () => {
+  it('updates, unlinks, and deactivates channels with crew scoping and audit trail', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const [ownedCrew] = await ctx.db.insert(crews).values({ name: 'Crew A', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    const [foreignCrew] = await ctx.db.insert(crews).values({ name: 'Crew B' }).returning({ id: crews.id });
+    const [ownedChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-crew-a', name: 'Crew A Private', type: 'GROUP', purpose: 'CREW' }).returning();
+    const [foreignChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: foreignCrew.id, rcRoomId: 'grp-crew-b', name: 'Crew B Private', type: 'GROUP', purpose: 'CREW' }).returning();
+    const { communication } = services();
+    const coordActor = { sub: coordinator.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    await expect(communication.updateChannel(ownedChannel.id, {}, adminActor)).rejects.toThrow(BadRequestException);
+    await expect(communication.updateChannel(foreignChannel.id, { name: 'Hijack' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(ownedChannel.id, { crewId: null }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(ownedChannel.id, { crewId: foreignCrew.id }, coordActor)).rejects.toThrow(ForbiddenException);
+
+    const renamed = await communication.updateChannel(ownedChannel.id, { name: 'Crew A Ops' }, coordActor);
+    expect(renamed.name).toBe('Crew A Ops');
+    expect(renamed.isActive).toBe(true);
+
+    const archived = await communication.updateChannel(ownedChannel.id, { crewId: null, isActive: false }, adminActor);
+    expect(archived.crewId).toBeNull();
+    expect(archived.isActive).toBe(false);
+    await expect(communication.channels(adminActor)).resolves.toEqual([expect.objectContaining({ id: foreignChannel.id })]);
+
+    const audits = await ctx.db
+      .select({ actorUserId: auditLog.actorUserId, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'rocketchat.channel.updated'));
+    expect(audits).toHaveLength(2);
+    expect(audits).toEqual(expect.arrayContaining([
+      { actorUserId: coordinator.id, metadata: expect.objectContaining({ crewId: ownedCrew.id, status: 'ACTIVE' }) },
+      { actorUserId: admin.id, metadata: expect.objectContaining({ crewId: null, status: 'INACTIVE' }) },
+    ]));
+  });
+
+  it('keeps coordinators on CREW-purpose channels so they cannot capture ALERTS or BOT routing', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    const [ownedCrew] = await ctx.db.insert(crews).values({ name: 'Crew A', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    const [crewChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-crew-a', name: 'Crew A', type: 'GROUP', purpose: 'CREW' }).returning();
+    const [alertsChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-alerts', name: 'Alerts', type: 'GROUP', purpose: 'ALERTS' }).returning();
+    const { communication } = services();
+    const coordActor = { sub: coordinator.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'BOT' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { name: 'Mine now' }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { isActive: false }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.updateChannel(alertsChannel.id, { crewId: ownedCrew.id }, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.createChannel({ crewId: ownedCrew.id, rcRoomId: 'grp-new-alerts', name: 'New alerts', type: 'GROUP', purpose: 'ALERTS' }, coordActor)).rejects.toThrow(ForbiddenException);
+    const stored = await ctx.db.select({ id: rocketchatChannels.id, name: rocketchatChannels.name, purpose: rocketchatChannels.purpose }).from(rocketchatChannels).orderBy(asc(rocketchatChannels.rcRoomId));
+    expect(stored).toEqual([
+      { id: alertsChannel.id, name: 'Alerts', purpose: 'ALERTS' },
+      { id: crewChannel.id, name: 'Crew A', purpose: 'CREW' },
+    ]);
+
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'CREW', name: 'Crew A Ops' }, coordActor)).resolves.toMatchObject({ purpose: 'CREW', name: 'Crew A Ops' });
+    await expect(communication.createChannel({ crewId: ownedCrew.id, rcRoomId: 'grp-crew-a2', name: 'Crew A 2', type: 'GROUP', purpose: 'CREW' }, coordActor)).resolves.toMatchObject({ purpose: 'CREW' });
+    await expect(communication.updateChannel(crewChannel.id, { purpose: 'ALERTS' }, adminActor)).resolves.toMatchObject({ purpose: 'ALERTS' });
+  });
+
+  it('detects membership drift read-only via groups.members without mutating Rocket.Chat', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const coordinator = await createUser(ctx, { role: 'COORDINADOR' });
+    await ctx.db.update(users).set({ fullName: 'Coord A', rocketchatUserId: 'rc-coord-a' }).where(eq(users.id, coordinator.id));
+
+    const synced = await createUser(ctx);
+    const missing = await createUser(ctx);
+    const unlinked = await createUser(ctx);
+    const departed = await createUser(ctx);
+    await ctx.db.update(users).set({ fullName: 'Ana Synced', rocketchatUserId: 'rc-synced' }).where(eq(users.id, synced.id));
+    await ctx.db.update(users).set({ fullName: 'Beto Missing', rocketchatUserId: 'rc-missing' }).where(eq(users.id, missing.id));
+    await ctx.db.update(users).set({ fullName: 'Camilo Unlinked' }).where(eq(users.id, unlinked.id));
+    await ctx.db.update(users).set({ fullName: 'Diana Departed', rocketchatUserId: 'rc-departed' }).where(eq(users.id, departed.id));
+
+    const [ownedCrew] = await ctx.db.insert(crews).values({ name: 'Crew Drift', coordinatorId: coordinator.id }).returning({ id: crews.id });
+    const [foreignCrew] = await ctx.db.insert(crews).values({ name: 'Foreign Drift' }).returning({ id: crews.id });
+    const now = Date.now();
+    const pastRange = `[${new Date(now - 172_800_000).toISOString()},${new Date(now - 86_400_000).toISOString()})`;
+    const activeRange = `[${new Date(now - 3_600_000).toISOString()},)`;
+    await ctx.db.insert(crewMembers).values([
+      { crewId: ownedCrew.id, userId: synced.id, validRange: activeRange },
+      { crewId: ownedCrew.id, userId: missing.id, validRange: activeRange },
+      { crewId: ownedCrew.id, userId: unlinked.id, validRange: activeRange },
+      { crewId: ownedCrew.id, userId: departed.id, validRange: pastRange },
+    ]);
+
+    const [groupChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'grp-drift-1', name: 'Crew Drift', type: 'GROUP', purpose: 'CREW' }).returning();
+    const [foreignChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: foreignCrew.id, rcRoomId: 'grp-foreign-1', name: 'Foreign', type: 'GROUP', purpose: 'CREW' }).returning();
+    const [unlinkedChannel] = await ctx.db.insert(rocketchatChannels).values({ rcRoomId: 'chan-general', name: 'General', type: 'CHANNEL', purpose: 'GENERAL' }).returning();
+    const [dmChannel] = await ctx.db.insert(rocketchatChannels).values({ crewId: ownedCrew.id, rcRoomId: 'dm-1', name: 'DM', type: 'DM', purpose: 'CREW' }).returning();
+
+    roomMembersByRoom['grp-drift-1'] = [
+      { _id: 'bot-user', username: 'agency.bot', name: 'Agency Bot' },
+      { _id: 'rc-coord-a', username: 'coord.a', name: 'Coord A' },
+      { _id: 'rc-synced', username: 'ana', name: 'Ana Synced' },
+      { _id: 'rc-departed', username: 'diana', name: 'Diana Departed' },
+    ];
+
+    const { communication } = services();
+    const coordActor = { sub: coordinator.id, role: 'COORDINADOR' as const };
+    const adminActor = { sub: admin.id, role: 'ADMIN' as const };
+
+    await expect(communication.channelDrift(foreignChannel.id, coordActor)).rejects.toThrow(ForbiddenException);
+    await expect(communication.channelDrift(unlinkedChannel.id, adminActor)).rejects.toThrow(BadRequestException);
+    await expect(communication.channelDrift(dmChannel.id, adminActor)).rejects.toThrow(BadRequestException);
+
+    const report = await communication.channelDrift(groupChannel.id, coordActor);
+    expect(report).toMatchObject({
+      channelId: groupChannel.id,
+      crewId: ownedCrew.id,
+      rcRoomId: 'grp-drift-1',
+      roomType: 'GROUP',
+      inSyncCount: 1,
+      driftCount: 3,
+      missingInRocketChat: [{ userId: missing.id, fullName: 'Beto Missing', rocketchatUserId: 'rc-missing' }],
+      unlinkedCrewMembers: [{ userId: unlinked.id, fullName: 'Camilo Unlinked' }],
+      unexpectedInRocketChat: [{ rocketchatUserId: 'rc-departed', username: 'diana', name: 'Diana Departed' }],
+    });
+    expect(memberListRequests).toEqual([{ method: 'GET', url: '/api/v1/groups.members?roomId=grp-drift-1&count=100&offset=0' }]);
+    expect(requests).toEqual([]);
+
+    const driftAudits = await ctx.db
+      .select({ actorUserId: auditLog.actorUserId, metadata: auditLog.metadata })
+      .from(auditLog)
+      .where(eq(auditLog.action, 'rocketchat.channel.drift_scanned'));
+    expect(driftAudits).toEqual([
+      { actorUserId: coordinator.id, metadata: expect.objectContaining({ crewId: ownedCrew.id, count: 3 }) },
+    ]);
   });
 });

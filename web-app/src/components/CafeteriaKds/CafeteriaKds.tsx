@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
 import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
+import { applyOrderSnapshot, mergeOrders, statusUpdateFailure } from './cafeteria-orders-view';
 
 const columns: Array<{ status: CafeteriaOrderStatus; label: string }> = [
   { status: 'PLACED', label: 'Recibidos' },
@@ -18,15 +19,13 @@ const nextStatus: Partial<Record<CafeteriaOrderStatus, CafeteriaOrderStatus>> = 
   READY: 'DELIVERED',
 };
 
+// Only orders still in the kitchen flow: the history of delivered orders must not
+// push an active order past the server limit and off the display.
+const KDS_ORDERS_PATH = '/cafeteria/orders?active=true&limit=500';
+
 function socketOrigin(): string {
   const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:3000/api/v1';
   return new URL(baseUrl).origin;
-}
-
-function mergeOrders(current: CafeteriaOrder[], incoming: CafeteriaOrder[]): CafeteriaOrder[] {
-  const byId = new Map(current.map((order) => [order.id, order]));
-  for (const order of incoming) byId.set(order.id, order);
-  return [...byId.values()].sort((left, right) => right.placedAt.localeCompare(left.placedAt));
 }
 
 function formatCop(value: string): string {
@@ -43,8 +42,9 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
     setIsLoading(true);
     setError(null);
     try {
-      const raw = await apiClient.request<unknown>('/cafeteria/orders');
-      setOrders(cafeteriaOrderSchema.array().parse(raw));
+      const raw = await apiClient.request<unknown>(KDS_ORDERS_PATH);
+      const parsed = cafeteriaOrderSchema.array().parse(raw);
+      setOrders((current) => applyOrderSnapshot(current, parsed));
     } catch (nextError) {
       setError(nextError instanceof ApiError ? nextError.message : 'No pudimos cargar los pedidos de cafetería.');
     } finally {
@@ -124,7 +124,10 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
       });
       await loadOrders();
     } catch (nextError) {
-      setError(nextError instanceof ApiError ? nextError.message : 'No pudimos actualizar el pedido.');
+      const failure = statusUpdateFailure(nextError instanceof ApiError ? nextError : undefined);
+      // loadOrders clears the error, so the notice is shown after the reload.
+      if (failure.reload) await loadOrders();
+      setError(failure.message);
     } finally {
       setUpdatingId(null);
     }

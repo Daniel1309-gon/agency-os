@@ -44,11 +44,12 @@ describe('AiEngineClient', () => {
   });
 
   it('parses a well formed evaluation', async () => {
-    respondWith({ status: 'BLOCKED', score: 0.15, result: { reason: 'contacto externo' }, model: 'x-1', tokenCostUsd: 0.0002 });
+    respondWith({ status: 'BLOCKED', score: 0.15, violatedRules: ['NO_CONTACT'], result: { reason: 'contacto externo' }, model: 'x-1', tokenCostUsd: 0.0002 });
 
     await expect(client().evaluate('dame tu whatsapp', [])).resolves.toEqual({
       status: 'BLOCKED',
       score: 0.15,
+      violatedRules: ['NO_CONTACT'],
       result: { reason: 'contacto externo' },
       model: 'x-1',
       tokenCostUsd: 0.0002,
@@ -68,6 +69,9 @@ describe('AiEngineClient', () => {
       { status: 'APPROVED', score: -1 },
       { status: 'APPROVED' },
       { score: 0.5 },
+      // FR-22: a block that does not say which rule was broken cannot be traced.
+      { status: 'BLOCKED', score: 0.1 },
+      { status: 'BLOCKED', score: 0.1, violatedRules: [] },
       'not json at all',
     ];
     for (const body of invalid) {
