@@ -211,6 +211,13 @@
       "when": 1790900000000,
       "tag": "0029_rls_sweep_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0030_tableau_schedule_artifacts",
+      "breakpoints": true
     }
   ]
 }

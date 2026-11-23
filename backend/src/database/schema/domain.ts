@@ -391,6 +391,9 @@ export const tableauViews = pgTable('tableau_views', {
   sourceTimezone: text('source_timezone').notNull(),
   kind: varchar('kind', { length: 32 }).notNull(),
   isActive: boolean('is_active').notNull().default(true),
+  scheduleTime: varchar('schedule_time', { length: 5 }).notNull().default('09:15'),
+  scheduleTimezone: text('schedule_timezone').notNull().default('America/Bogota'),
+  freshnessSlaMinutes: integer('freshness_sla_minutes').notNull().default(120),
   columnMapping: jsonb('column_mapping').$type<Record<string, string>>().notNull().default({}),
   createdBy: uuid('created_by').references(() => users.id),
   createdAt: ts('created_at').notNull().defaultNow(),
@@ -418,6 +421,9 @@ export const etlRuns = pgTable('etl_runs', {
   rejectedCount: integer('rejected_count').notNull().default(0),
   error: text('error'),
   checksum: text('checksum'),
+  rawCsv: text('raw_csv'),
+  rawCsvBytes: integer('raw_csv_bytes'),
+  alertedAt: ts('alerted_at'),
 }, (t) => ({ runUnique: uniqueIndex('etl_runs_view_date_unique').on(t.viewId, t.businessDate) }));
 
 export const etlStagingRows = pgTable('etl_staging_rows', {
