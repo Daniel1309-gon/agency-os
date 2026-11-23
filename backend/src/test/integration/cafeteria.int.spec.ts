@@ -199,6 +199,14 @@ describe('the kitchen flow and the debit', () => {
     ].sort((a, b) => (a.id < b.id ? -1 : 1)));
   });
 
+  it('lets a wildcard role cancel an accepted order without a reason', async () => {
+    const { orderId, kitchenId } = await placedOrder();
+    await cafeteria.updateStatus(orderId, { status: 'ACCEPTED' }, kitchenId);
+
+    await expect(cafeteria.cancelOrder(orderId, undefined, { sub: kitchenId, permissions: ['*'] })).resolves.toMatchObject({ id: orderId, status: 'CANCELLED' });
+    expect(await ctx.db.query.cafeteriaOrders.findFirst({ where: eq(cafeteriaOrders.id, orderId) })).toMatchObject({ status: 'CANCELLED', cancelReason: 'Cancelled' });
+  });
+
   it('walks PLACED to DELIVERED and debits the operator once', async () => {
     const { operatorId, orderId, kitchenId } = await placedOrder();
 

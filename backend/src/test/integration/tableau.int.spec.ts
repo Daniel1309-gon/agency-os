@@ -295,6 +295,31 @@ describe('TableauService (FR-19, decision #9)', () => {
     expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, succeeded!.id) })).toMatchObject({ status: 'SUCCESS', rowCount: 1 });
   });
 
+  it('writes nothing for an execute call whose lease is not the current claim', async () => {
+    const view = await hourlyView();
+    await profileWithRef('TU-1');
+    const [run] = await ctx.db.insert(etlRuns).values({ viewId: view.id, businessDate: '2026-11-20', status: 'RUNNING', startedAt: new Date('2026-11-23T10:00:00.000Z') }).returning();
+    download = () => csv(['TU-1,2026-11-20 06:00,9']);
+
+    await expect(service.execute(run.id, new Date('2026-11-23T09:00:00.000Z'))).resolves.toEqual({ runId: run.id, status: 'SUPERSEDED' });
+    expect(await ctx.db.query.etlRuns.findFirst({ where: eq(etlRuns.id, run.id) })).toMatchObject({ status: 'RUNNING', rawCsv: null, finishedAt: null });
+    expect(await ctx.db.select().from(tableauHourlyPoints)).toEqual([]);
+  });
+
+  it('takes each view expected date from its own schedule timezone', async () => {
+    // 2026-11-23T02:00Z is 2026-11-22 21:00 in Bogota (expects 11-21) and 2026-11-23 in UTC (expects 11-22).
+    const bogota = await hourlyView({ name: 'Bogota', viewId: 'v-bog', scheduleTimezone: 'America/Bogota', scheduleTime: '00:30', freshnessSlaMinutes: 30 });
+    const utc = await hourlyView({ name: 'UTC', viewId: 'v-utc', scheduleTimezone: 'UTC', scheduleTime: '00:30', freshnessSlaMinutes: 30 });
+    await ctx.db.insert(etlRuns).values([
+      { viewId: bogota.id, businessDate: '2026-11-21', status: 'SUCCESS' },
+      { viewId: utc.id, businessDate: '2026-11-21', status: 'SUCCESS' },
+    ]);
+
+    const byId = new Map((await service.freshness(new Date('2026-11-23T02:00:00.000Z'))).map((item) => [item.viewId, item]));
+    expect(byId.get(bogota.id)).toMatchObject({ expectedBusinessDate: '2026-11-21', isStale: false });
+    expect(byId.get(utc.id)).toMatchObject({ expectedBusinessDate: '2026-11-22', isStale: true, staleReason: 'No run queued for expected date' });
+  });
+
   it('reports the expected-date run and the latest run per view among a long history', async () => {
     const view = await hourlyView({ scheduleTime: '09:15', freshnessSlaMinutes: 60 });
     const other = await hourlyView({ name: 'Other', viewId: 'other-luid', scheduleTime: '09:15', freshnessSlaMinutes: 60 });
