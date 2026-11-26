@@ -4721,23 +4721,21 @@
         "tags": [
           "Payroll"
         ],
-        "x-agency-permissions": [
-          "payroll.read"
-        ],
         "x-agency-policy": {
           "access": {
             "authenticated": true,
-            "permissions": [
-              "payroll.read"
-            ],
+            "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "ADMIN",
+              "DIRECTOR_OPERATIVO",
+              "COORDINADOR"
+            ]
           },
           "actors": [
             "ADMIN",
             "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR"
+            "COORDINADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -4746,7 +4744,12 @@
           "path": "/api/v1/payroll/periods",
           "scope": "GLOBAL",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "ADMIN",
+          "DIRECTOR_OPERATIVO",
+          "COORDINADOR"
+        ]
       },
       "post": {
         "operationId": "PayrollController.createPeriod",
@@ -4968,23 +4971,21 @@
         "tags": [
           "Payroll"
         ],
-        "x-agency-permissions": [
-          "payroll.read"
-        ],
         "x-agency-policy": {
           "access": {
             "authenticated": true,
-            "permissions": [
-              "payroll.read"
-            ],
+            "permissions": [],
             "public": false,
-            "roles": []
+            "roles": [
+              "ADMIN",
+              "DIRECTOR_OPERATIVO",
+              "COORDINADOR"
+            ]
           },
           "actors": [
             "ADMIN",
             "DIRECTOR_OPERATIVO",
-            "COORDINADOR",
-            "OPERADOR"
+            "COORDINADOR"
           ],
           "device": false,
           "idempotency": "NOT_APPLICABLE",
@@ -4993,7 +4994,12 @@
           "path": "/api/v1/payroll/periods/{id}/lines",
           "scope": "RESOURCE",
           "shift": false
-        }
+        },
+        "x-agency-roles": [
+          "ADMIN",
+          "DIRECTOR_OPERATIVO",
+          "COORDINADOR"
+        ]
       }
     },
     "/api/v1/payroll/periods/{id}/lock": {
