@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
 import { cafeteriaOrderSchema, type CafeteriaOrder, type CafeteriaOrderStatus } from '@agency-os/shared';
 import { ApiError, apiClient } from '../../services/api-client';
-import { scheduleServerCloseReconnect } from '../../realtime/server-close-reconnect';
+import { useCafeteriaOrderStream } from '../../realtime/use-cafeteria-order-stream';
 import { applyOrderSnapshot, mergeOrders, statusUpdateFailure } from './cafeteria-orders-view';
 
 const columns: Array<{ status: CafeteriaOrderStatus; label: string }> = [
@@ -22,11 +21,6 @@ const nextStatus: Partial<Record<CafeteriaOrderStatus, CafeteriaOrderStatus>> = 
 // Only orders still in the kitchen flow: the history of delivered orders must not
 // push an active order past the server limit and off the display.
 const KDS_ORDERS_PATH = '/cafeteria/orders?active=true&limit=500';
-
-function socketOrigin(): string {
-  const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:3000/api/v1';
-  return new URL(baseUrl).origin;
-}
 
 function formatCop(value: string): string {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value));
@@ -53,64 +47,15 @@ export function CafeteriaKds({ accessToken }: { accessToken: string | null }) {
   }, []);
 
   useEffect(() => {
-    if (!accessToken) return;
-    void loadOrders();
-    const socket: Socket = io(`${socketOrigin()}/operations`, {
-      // El token se resuelve en cada intento: el servidor cierra el socket cada
-      // 45-60 s para revalidar y la reconexion usa el JWT vigente.
-      auth: (done) => done({ token: apiClient.getAccessToken() ?? '' }),
-      transports: ['websocket'],
-      autoConnect: false,
-      reconnection: false,
-    });
-    let disposed = false;
-    let reconnectAttempt = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    // Renueva antes de reconectar: el servidor cierra tambien al vencer el JWT.
-    const renewSession = () => apiClient.request('/auth/me').then(() => undefined);
-    const onSnapshot = (payload: unknown) => {
-      const parsed = cafeteriaOrderSchema.array().safeParse(payload);
-      // A socket snapshot is as authoritative as the HTTP one: orders it no longer
-      // lists (delivered, expired, cancelled while reconnecting) leave the display.
-      if (parsed.success) setOrders((current) => applyOrderSnapshot(current, parsed.data));
-    };
-    const onChanged = (payload: unknown) => {
-      const parsed = cafeteriaOrderSchema.safeParse(payload);
-      if (parsed.success) setOrders((current) => mergeOrders(current, [parsed.data]));
-    };
-    const queueReconnect = (reason: string) => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectTimer = scheduleServerCloseReconnect({
-        socket, reason, isDisposed: () => disposed, renewSession,
-        onSessionExpired: () => apiClient.endSession(), attempt: reconnectAttempt++,
-      });
-    };
-    socket.on('connect', () => {
-      reconnectAttempt = 0;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    });
-    socket.on('disconnect', (reason) => {
-      queueReconnect(reason);
-    });
-    socket.on('connect_error', () => {
-      queueReconnect('connect_error');
-    });
-    socket.on('cafeteria.orders.snapshot', onSnapshot);
-    socket.on('cafeteria.order.created', onChanged);
-    socket.on('cafeteria.order.changed', onChanged);
-    queueMicrotask(() => {
-      if (!disposed) socket.connect();
-    });
-    return () => {
-      disposed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      socket.off('cafeteria.orders.snapshot', onSnapshot);
-      socket.off('cafeteria.order.created', onChanged);
-      socket.off('cafeteria.order.changed', onChanged);
-      socket.disconnect();
-    };
+    if (accessToken) void loadOrders();
   }, [accessToken, loadOrders]);
+
+  useCafeteriaOrderStream(accessToken, {
+    // A socket snapshot is as authoritative as the HTTP one: orders it no longer
+    // lists (delivered, expired, cancelled while reconnecting) leave the display.
+    onSnapshot: (snapshot) => setOrders((current) => applyOrderSnapshot(current, snapshot)),
+    onChanged: (order) => setOrders((current) => mergeOrders(current, [order])),
+  });
 
   const activeOrders = useMemo(() => orders.filter((order) => !['DELIVERED', 'CANCELLED', 'EXPIRED'].includes(order.status)), [orders]);
 

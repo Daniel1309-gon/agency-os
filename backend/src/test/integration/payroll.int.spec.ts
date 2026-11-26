@@ -332,6 +332,20 @@ describe('what the operator can see of their own payroll', () => {
     await expect(payroll.summary(operator.id, period.id)).resolves.toEqual({ periodId: period.id, points: '0.0000', netCop: '0.00', compensationConfigured: false });
   });
 
+  it('lists the periods the operator can consult, newest first, without the default rate', async () => {
+    const admin = await createUser(ctx, { role: 'ADMIN' });
+    const august = await payroll.createPeriod(PERIOD, admin.id);
+    const september = await payroll.createPeriod({ name: 'Septiembre 2026', startsOn: '2026-09-01', endsOn: '2026-09-30', defaultPointsToCopRate: 12.5 }, admin.id);
+
+    const periods = await payroll.myPeriods();
+
+    expect(periods).toEqual([
+      { id: september.id, name: 'Septiembre 2026', startsOn: '2026-09-01', endsOn: '2026-09-30', status: 'OPEN' },
+      { id: august.id, name: 'Agosto 2026', startsOn: '2026-08-01', endsOn: '2026-08-31', status: 'OPEN' },
+    ]);
+    expect(JSON.stringify(periods)).not.toContain('defaultPointsToCopRate');
+  });
+
   it('only counts the operator own points', async () => {
     const admin = await createUser(ctx, { role: 'ADMIN' });
     const operator = await createUser(ctx);

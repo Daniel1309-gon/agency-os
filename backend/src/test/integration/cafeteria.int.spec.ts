@@ -199,6 +199,21 @@ describe('the kitchen flow and the debit', () => {
     ].sort((a, b) => (a.id < b.id ? -1 : 1)));
   });
 
+  it('lists the operator own orders newest first, with their status and lines, and nobody else', async () => {
+    const { operatorId, orderId, kitchenId } = await placedOrder();
+    const other = await placedOrder();
+    const lunch = await cafeteria.createProduct({ ...LUNCH, sku: 'ALM-mine' });
+    const second = await cafeteria.createOrder({ items: [{ productId: lunch.id, quantity: 1 }] }, operatorId, 'key-mine-2');
+    await cafeteria.updateStatus(orderId, { status: 'ACCEPTED' }, kitchenId);
+
+    const mine = await cafeteria.myOrders(operatorId);
+
+    expect(mine.map((order) => order.id)).toEqual([second.id, orderId]);
+    expect(mine.map((order) => order.status)).toEqual(['PLACED', 'ACCEPTED']);
+    expect(mine[1]?.items).toEqual([expect.objectContaining({ productNameSnapshot: LUNCH.name, quantity: 2 })]);
+    expect(mine.map((order) => order.id)).not.toContain(other.orderId);
+  });
+
   it('lets a wildcard role cancel an accepted order without a reason', async () => {
     const { orderId, kitchenId } = await placedOrder();
     await cafeteria.updateStatus(orderId, { status: 'ACCEPTED' }, kitchenId);

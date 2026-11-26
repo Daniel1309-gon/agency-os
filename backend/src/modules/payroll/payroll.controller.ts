@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Res, StreamableFile, UsePipes } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { CurrentUser, RequirePermissions } from '../../common/auth/decorators.js';
+import { CurrentUser, RequirePermissions, RequireRoles } from '../../common/auth/decorators.js';
 import type { AccessTokenClaims } from '../../common/auth/crypto.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { PayrollService } from './payroll.service.js';
@@ -14,8 +14,15 @@ export class PayrollController {
   @RequirePermissions('payroll.read')
   summary(@CurrentUser() user: AccessTokenClaims, @Query('periodId') periodId?: string) { return this.payroll.summary(user.sub, periodId); }
 
-  @Get('periods')
+  @Get('me/periods')
   @RequirePermissions('payroll.read')
+  myPeriods() { return this.payroll.myPeriods(); }
+
+  // FR-28: period rows carry the default rate and lines carry gross COP and rate
+  // snapshots, which the operator must not see. Operators read their own figures
+  // through /payroll/me/summary and /payroll/me/periods instead.
+  @Get('periods')
+  @RequireRoles('ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR')
   periods() { return this.payroll.listPeriods(); }
 
   @Post('periods')
@@ -40,7 +47,7 @@ export class PayrollController {
   @UsePipes(new ZodValidationPipe(adjustmentSchema))
   adjustment(@Param('id') id: string, @Body() body: AdjustmentInput, @CurrentUser() user: AccessTokenClaims) { return this.payroll.adjustment(id, body, user.sub); }
 
-  @Get('periods/:id/lines') @RequirePermissions('payroll.read') lines(@Param('id') id: string) { return this.payroll.lines(id); }
+  @Get('periods/:id/lines') @RequireRoles('ADMIN', 'DIRECTOR_OPERATIVO', 'COORDINADOR') lines(@Param('id') id: string) { return this.payroll.lines(id); }
 
   @Get('periods/:id/export')
   @RequirePermissions('payroll.configure')

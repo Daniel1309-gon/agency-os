@@ -121,6 +121,7 @@ export const routeContracts = [
   route('GET', '/api/v1/reports/effective-time', 'CREW', 'NOT_APPLICABLE', 'OFFSET'),
 
   route('GET', '/api/v1/payroll/me/summary', 'SELF'),
+  route('GET', '/api/v1/payroll/me/periods', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('GET', '/api/v1/payroll/periods', 'GLOBAL', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/payroll/periods', 'GLOBAL'),
   route('POST', '/api/v1/payroll/periods/{id}/compute', 'RESOURCE'),
@@ -147,6 +148,7 @@ export const routeContracts = [
   route('POST', '/api/v1/cafeteria/orders/{id}/cancel', 'SELF'),
   route('GET', '/api/v1/cafeteria/sales/summary', 'GLOBAL', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
   route('GET', '/api/v1/cafeteria/accounts/me', 'SELF'),
+  route('GET', '/api/v1/cafeteria/orders/me', 'SELF', 'NOT_APPLICABLE', 'BOUNDED_FILTER'),
 
   route('GET', '/api/v1/icebreakers', 'SELF', 'NOT_APPLICABLE', 'UNBOUNDED'),
   route('POST', '/api/v1/icebreakers', 'SELF'),

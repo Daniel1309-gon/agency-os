@@ -35,6 +35,7 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/cafeteria/orders` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | REQUIRED | SELF | IDEMPOTENCY_KEY | NOT_APPLICABLE |
 | `POST /api/v1/cafeteria/orders/{id}/cancel` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/cafeteria/orders/{id}/status` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/cafeteria/orders/me` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR, CAFETERIA | authenticated | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | BOUNDED_FILTER |
 | `GET /api/v1/cafeteria/products` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/cafeteria/products` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `PATCH /api/v1/cafeteria/products/{id}` | ADMIN, DIRECTOR_OPERATIVO, CAFETERIA | authenticated; permissions: cafeteria.manage | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
@@ -84,13 +85,14 @@ Describe la implementación actual; los actores pendientes de OQ-01/OQ-02 no con
 | `POST /api/v1/payroll/goals` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/payroll/goals/me/progress` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/payroll/lines/{id}/adjustments` | ADMIN | authenticated; permissions: payroll.adjust | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
+| `GET /api/v1/payroll/me/periods` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `GET /api/v1/payroll/me/summary` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | SELF | NOT_APPLICABLE | NOT_APPLICABLE |
-| `GET /api/v1/payroll/periods` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/payroll/periods` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; roles: ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/payroll/periods` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/payroll/periods/{id}/close` | ADMIN | authenticated; permissions: payroll.close | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/payroll/periods/{id}/compute` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/payroll/periods/{id}/export` | ADMIN | authenticated; permissions: payroll.configure | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
-| `GET /api/v1/payroll/periods/{id}/lines` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR, OPERADOR | authenticated; permissions: payroll.read | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
+| `GET /api/v1/payroll/periods/{id}/lines` | ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | authenticated; roles: ADMIN, DIRECTOR_OPERATIVO, COORDINADOR | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | UNBOUNDED |
 | `POST /api/v1/payroll/periods/{id}/lock` | ADMIN | authenticated; permissions: payroll.close | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `POST /api/v1/payroll/points/adjustments` | ADMIN | authenticated; permissions: payroll.adjust | NOT_REQUIRED | NOT_REQUIRED | RESOURCE | NOT_APPLICABLE | NOT_APPLICABLE |
 | `GET /api/v1/permissions` | ADMIN | authenticated; permissions: rbac.read | NOT_REQUIRED | NOT_REQUIRED | GLOBAL | NOT_APPLICABLE | UNBOUNDED |

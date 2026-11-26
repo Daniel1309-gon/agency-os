@@ -24,6 +24,7 @@ function bogotaNextDayStartUtc(date: string): Date {
 }
 
 const DEFAULT_ORDERS_LIMIT = 200;
+const MY_ORDERS_LIMIT = 10;
 const ACTIVE_ORDER_STATUSES = ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'];
 const TOP_ITEMS_LIMIT = 5;
 
@@ -238,6 +239,15 @@ export class CafeteriaService {
       inProgressCount: totalOrders - deliveredCount - cancelledCount - expiredCount,
       topItems: topItems.map((item) => ({ name: item.name, quantity: Number(item.quantity), revenueCop: item.revenueCop })),
     };
+  }
+
+  /**
+   * The operator's own recent orders, whatever their status, so the ordering screen can
+   * follow each one until pickup. Not bounded by date: a night-shift order placed
+   * before midnight stays visible after it.
+   */
+  async myOrders(operatorId: string) {
+    return this.orders({ limit: MY_ORDERS_LIMIT }, operatorId);
   }
 
   async account(operatorId: string) {

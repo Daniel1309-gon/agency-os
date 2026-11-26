@@ -30,6 +30,7 @@ export class CafeteriaController {
   @UsePipes(new ZodValidationPipe(orderStatusSchema))
   status(@Param('id') id: string, @Body() body: OrderStatusInput, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.updateStatus(id, body, user.sub); }
 
+  @Get('orders/me') myOrders(@CurrentUser() user: AccessTokenClaims) { return this.cafeteria.myOrders(user.sub); }
   @Get('orders') @RequirePermissions('cafeteria.manage') orders(@Query(new ZodValidationPipe(orderListQuerySchema)) query: OrderListQueryInput) { return this.cafeteria.orders(query); }
   @Get('sales/summary') @RequirePermissions('cafeteria.manage') salesSummary(@Query(new ZodValidationPipe(salesSummaryQuerySchema)) query: SalesSummaryQueryInput) { return this.cafeteria.salesSummary(query); }
   @Post('orders/:id/cancel') cancel(@Param('id') id: string, @Body() body: { reason?: string }, @CurrentUser() user: AccessTokenClaims) { return this.cafeteria.cancelOrder(id, body?.reason, user); }
