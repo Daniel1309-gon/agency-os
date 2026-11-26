@@ -60,8 +60,10 @@ Para repartir los puntos entre los turnos de 06:05, 14:05 y 22:05 necesitamos lo
    comisión, el sistema le pagaba el 100%. Ahora el cálculo de nómina se detiene y muestra qué
    operadores falta configurar. **¿Está de acuerdo?** Recomendamos que sí: así se evita pagar de
    más sin que nadie lo note.
-4. **Cambio de comisión a mitad de mes.** Hoy se aplica a todo el periodo la comisión que estaba
-   vigente el último día del periodo. **¿Debe prorratearse por días cuando cambia a mitad de mes?**
+4. **Cambio de comisión a mitad de mes.** Si la comisión o la tasa de un operador cambia a mitad
+   de periodo, hoy el sistema liquida cada día con la comisión y la tasa vigentes ese día. Ejemplo:
+   35% del 1 al 15 y 40% del 16 al 30 se pagan así, día por día. **¿Es correcto, o debe aplicarse
+   una sola comisión a todo el periodo?** Recomendamos mantener el cálculo por día.
 5. **Tasa por defecto del periodo.** Cada operador tiene su propia tasa de conversión de puntos a
    COP. **¿Se necesita además una tasa general por periodo para quienes no tienen una individual?**
    Si no hace falta, la retiramos para simplificar.
