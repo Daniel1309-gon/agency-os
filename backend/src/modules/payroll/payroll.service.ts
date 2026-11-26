@@ -76,6 +76,14 @@ export class PayrollService {
 
   async listPeriods() { return this.db.db.select().from(payrollPeriods).orderBy(asc(payrollPeriods.startsOn)); }
 
+  /** Periods as the operator sees them (FR-28): name, range and status, never the default rate. */
+  async myPeriods() {
+    return this.db.db
+      .select({ id: payrollPeriods.id, name: payrollPeriods.name, startsOn: payrollPeriods.startsOn, endsOn: payrollPeriods.endsOn, status: payrollPeriods.status })
+      .from(payrollPeriods)
+      .orderBy(desc(payrollPeriods.startsOn));
+  }
+
   async compute(periodId: string, actorId: string) {
     const period = await this.db.db.query.payrollPeriods.findFirst({ where: eq(payrollPeriods.id, periodId) });
     if (!period) throw new NotFoundException('Payroll period not found');

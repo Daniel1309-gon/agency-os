@@ -59,6 +59,13 @@ describe('workspace navigation', () => {
     expect(getWorkspaceRoutes('DIRECTOR_OPERATIVO', ['metrics.audit']).map((route) => route.path)).not.toContain('/app/ventas');
   });
 
+  it('gives the operator their own payroll screen behind payroll.read, and keeps managers on the period list', () => {
+    expect(getWorkspaceRoutes('OPERADOR', ['profiles.read', 'shifts.read', 'payroll.read']).map((route) => route.path)).toEqual(['/app/perfiles', '/app/turno', '/app/icebreakers', '/app/mi-nomina', '/app/cafeteria']);
+    expect(resolveWorkspaceRoute('OPERADOR', ['payroll.read'], '/app/mi-nomina').id).toBe('operatorPayroll');
+    expect(resolveWorkspaceRoute('OPERADOR', ['payroll.read'], '/app/nomina').id).not.toBe('payroll');
+    expect(getWorkspaceRoutes('DIRECTOR_OPERATIVO', ['payroll.read']).map((route) => route.path)).not.toContain('/app/mi-nomina');
+  });
+
   it('gives the operator an icebreaker workspace right after the shift', () => {
     expect(getWorkspaceRoutes('OPERADOR', ['profiles.read', 'shifts.read']).map((route) => route.path)).toEqual(['/app/perfiles', '/app/turno', '/app/icebreakers', '/app/cafeteria']);
     expect(resolveWorkspaceRoute('OPERADOR', ['profiles.read'], '/app/icebreakers').path).toBe('/app/icebreakers');

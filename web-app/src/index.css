@@ -338,6 +338,79 @@
   font-size: 0.75rem;
 }
 
+.operator-orders {
+  margin-top: 28px;
+}
+
+.operator-orders h3 {
+  margin: 0 0 10px;
+  color: var(--secondary);
+  font-size: 0.9375rem;
+}
+
+.operator-orders__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operator-order {
+  display: grid;
+  gap: 4px;
+  padding: 12px 5px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted-soft);
+  font-size: 0.75rem;
+}
+
+.operator-order__topline,
+.operator-order__footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.operator-order__footer {
+  justify-content: space-between;
+}
+
+.operator-order strong {
+  color: var(--secondary);
+  font-size: 0.875rem;
+}
+
+.operator-order__status {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.operator-order--active .operator-order__status,
+.operator-order__pickup {
+  color: var(--secondary);
+}
+
+.operator-order__pickup {
+  font-weight: 600;
+}
+
+.operator-payroll__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin: 8px 0 20px;
+}
+
+.operator-payroll__period {
+  display: grid;
+  gap: 4px;
+  max-width: 320px;
+  margin-bottom: 16px;
+  color: var(--muted-soft);
+  font-size: 0.75rem;
+}
+
 .quantity-control {
   display: flex;
   align-items: center;

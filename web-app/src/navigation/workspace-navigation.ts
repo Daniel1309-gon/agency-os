@@ -5,6 +5,7 @@ export type WorkspacePageId =
   | 'operatorShift'
   | 'operatorIcebreakers'
   | 'operatorCafeteria'
+  | 'operatorPayroll'
   | 'team'
   | 'users'
   | 'profiles'
@@ -42,7 +43,8 @@ const operatorRoutes: readonly WorkspaceRoute[] = [
   { id: 'operatorProfiles', path: '/app/perfiles', label: 'Mis perfiles', group: 'Operación', kicker: 'Operación personal', title: 'Mis perfiles asociados', description: 'Abre la cuenta asignada sin ver su contraseña.', permission: 'profiles.read' },
   { id: 'operatorShift', path: '/app/turno', label: 'Mi turno', group: 'Operación', kicker: 'Control de jornada', title: 'Mi turno', description: 'Consulta tu ventana activa y registra tus descansos.', permission: 'shifts.read', showDate: true },
   { id: 'operatorIcebreakers', path: '/app/icebreakers', label: 'Icebreakers', group: 'Operación', kicker: 'Validación de normas', title: 'Mis icebreakers', description: 'Redacta, evalúa y publica tus icebreakers según las normas de TalkyTimes.', longPage: true },
-  { id: 'operatorCafeteria', path: '/app/cafeteria', label: 'Cafetería', group: 'Punto', kicker: 'Pausa y consumo', title: 'Pide a cafetería', description: 'Elige tus productos y envía el pedido durante tu jornada.', showDate: true },
+  { id: 'operatorPayroll', path: '/app/mi-nomina', label: 'Mi nómina', group: 'Operación', kicker: 'Puntos y pago', title: 'Mi nómina', description: 'Consulta tus puntos y tu pago estimado del periodo.', permission: 'payroll.read' },
+  { id: 'operatorCafeteria', path: '/app/cafeteria', label: 'Cafetería', group: 'Punto', kicker: 'Pausa y consumo', title: 'Pide a cafetería', description: 'Elige tus productos, envía el pedido y sigue su estado.', showDate: true },
 ];
 
 const icebreakerReviewRoute: WorkspaceRoute = {

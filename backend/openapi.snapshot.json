@@ -2209,6 +2209,48 @@
         }
       }
     },
+    "/api/v1/cafeteria/orders/me": {
+      "get": {
+        "operationId": "CafeteriaController.myOrders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Cafeteria"
+        ],
+        "x-agency-authenticated": true,
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR",
+            "CAFETERIA"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "BOUNDED_FILTER",
+          "path": "/api/v1/cafeteria/orders/me",
+          "scope": "SELF",
+          "shift": false
+        }
+      }
+    },
     "/api/v1/cafeteria/products": {
       "get": {
         "operationId": "CafeteriaController.products",
@@ -4559,6 +4601,51 @@
           "pagination": "NOT_APPLICABLE",
           "path": "/api/v1/payroll/lines/{id}/adjustments",
           "scope": "RESOURCE",
+          "shift": false
+        }
+      }
+    },
+    "/api/v1/payroll/me/periods": {
+      "get": {
+        "operationId": "PayrollController.myPeriods",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "accessToken": []
+          }
+        ],
+        "tags": [
+          "Payroll"
+        ],
+        "x-agency-permissions": [
+          "payroll.read"
+        ],
+        "x-agency-policy": {
+          "access": {
+            "authenticated": true,
+            "permissions": [
+              "payroll.read"
+            ],
+            "public": false,
+            "roles": []
+          },
+          "actors": [
+            "ADMIN",
+            "DIRECTOR_OPERATIVO",
+            "COORDINADOR",
+            "OPERADOR"
+          ],
+          "device": false,
+          "idempotency": "NOT_APPLICABLE",
+          "method": "GET",
+          "pagination": "UNBOUNDED",
+          "path": "/api/v1/payroll/me/periods",
+          "scope": "GLOBAL",
           "shift": false
         }
       }

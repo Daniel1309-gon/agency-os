@@ -14,6 +14,10 @@ export class PayrollController {
   @RequirePermissions('payroll.read')
   summary(@CurrentUser() user: AccessTokenClaims, @Query('periodId') periodId?: string) { return this.payroll.summary(user.sub, periodId); }
 
+  @Get('me/periods')
+  @RequirePermissions('payroll.read')
+  myPeriods() { return this.payroll.myPeriods(); }
+
   @Get('periods')
   @RequirePermissions('payroll.read')
   periods() { return this.payroll.listPeriods(); }
